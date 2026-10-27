@@ -1,0 +1,22 @@
+{
+  "state": "fixed_offer",
+  "headline": "Fixed quote",
+  "business_name": "AquaSure Gauteng",
+  "quote_id": "QD-1042",
+  "rule_id": "WATER-F01",
+  "body": "Here is your quote.",
+  "amount_display": "R 4 250.00",
+  "range_min_display": null,
+  "range_max_display": null,
+  "fee_display": null,
+  "expiry_display": "7 November 2026",
+  "window_display": null,
+  "hold_until_display": null,
+  "clauses": [
+    {
+      "text": "Size is 5 000 litres, as stated.",
+      "if_not_true": "We quote again for the actual size."
+    }
+  ],
+  "next_step": null
+}

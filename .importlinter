@@ -1,0 +1,42 @@
+[importlinter]
+root_packages =
+    quotedesk
+
+[importlinter:contract:domain]
+name = Domain imports only the standard library and Pydantic
+type = forbidden
+source_modules =
+    quotedesk.domain
+forbidden_modules =
+    quotedesk.application
+    quotedesk.adapters
+    quotedesk.infrastructure
+
+[importlinter:contract:application]
+name = Application imports domain only
+type = forbidden
+source_modules =
+    quotedesk.application
+forbidden_modules =
+    quotedesk.adapters
+    quotedesk.infrastructure
+
+[importlinter:contract:adapters]
+name = Adapters do not import infrastructure
+type = forbidden
+source_modules =
+    quotedesk.adapters
+forbidden_modules =
+    quotedesk.infrastructure
+
+[importlinter:contract:composition-root]
+name = Only the composition root imports concrete adapters
+type = forbidden
+allow_indirect_imports = True
+source_modules =
+    quotedesk.infrastructure.main
+    quotedesk.infrastructure.config
+    quotedesk.infrastructure.db
+    quotedesk.infrastructure.workers
+forbidden_modules =
+    quotedesk.adapters

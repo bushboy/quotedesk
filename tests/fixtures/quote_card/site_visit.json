@@ -1,0 +1,17 @@
+{
+  "state": "site_visit",
+  "headline": "Site visit needed",
+  "business_name": "AquaSure Gauteng",
+  "quote_id": "QD-1042",
+  "rule_id": "WATER-S02",
+  "body": "This one needs a visit before we can give a fixed price. The visit fee is R 750.00, and it comes off the job if you go ahead.",
+  "amount_display": null,
+  "range_min_display": null,
+  "range_max_display": null,
+  "fee_display": "R 750.00",
+  "expiry_display": null,
+  "window_display": null,
+  "hold_until_display": null,
+  "clauses": [],
+  "next_step": null
+}

@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ card.headline }}</title>
+    <style>
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        padding: 16px;
+        background: #f4f1ea;
+        color: #1c1915;
+        font-family: ui-sans-serif, system-ui, sans-serif;
+        line-height: 1.45;
+      }
+      .preview-chrome,
+      .card {
+        width: 100%;
+        max-width: 40rem;
+        margin-right: auto;
+        margin-left: auto;
+      }
+      .preview-chrome {
+        margin-bottom: 12px;
+        color: #5e584e;
+        font-size: 0.875rem;
+      }
+      .card {
+        background: #fff;
+        border: 1px solid #e4ddd0;
+        padding: 24px;
+      }
+      h1 {
+        margin: 0;
+        font-size: 2rem;
+        line-height: 1.2;
+        font-weight: 650;
+      }
+      .rule,
+      .meta,
+      .clause-note {
+        margin: 0.35rem 0 0;
+        color: #5e584e;
+        font-size: 0.875rem;
+      }
+      .body,
+      .next-step,
+      .clause {
+        margin: 1rem 0 0;
+      }
+      .figure {
+        margin: 1rem 0 0;
+        font-size: 1.75rem;
+        line-height: 1.2;
+      }
+      .amount {
+        white-space: nowrap;
+      }
+      @media print {
+        .preview-chrome { display: none; }
+        body { background: #fff; padding: 0; }
+        .card { border: 0; padding: 0; }
+      }
+    </style>
+  </head>
+  <body>
+    <p class="preview-chrome">Preview</p>
+    {% block card %}{% endblock %}
+  </body>
+</html>

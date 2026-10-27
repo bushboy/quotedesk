@@ -1,0 +1,17 @@
+{
+  "state": "pending_approval",
+  "headline": "Waiting for the owner",
+  "business_name": "AquaSure Gauteng",
+  "quote_id": "QD-1042",
+  "rule_id": null,
+  "body": "This change needs the owner to confirm it. The price you already have stays as it is until then.",
+  "amount_display": "R 4 250.00",
+  "range_min_display": null,
+  "range_max_display": null,
+  "fee_display": null,
+  "expiry_display": null,
+  "window_display": null,
+  "hold_until_display": null,
+  "clauses": [],
+  "next_step": null
+}

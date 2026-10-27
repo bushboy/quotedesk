@@ -1,0 +1,17 @@
+{
+  "state": "expired",
+  "headline": "This quote has expired",
+  "business_name": "AquaSure Gauteng",
+  "quote_id": "QD-1042",
+  "rule_id": "WATER-F01",
+  "body": "This price has lapsed. Ask in the chat for a new quote.",
+  "amount_display": null,
+  "range_min_display": null,
+  "range_max_display": null,
+  "fee_display": null,
+  "expiry_display": "7 November 2026",
+  "window_display": null,
+  "hold_until_display": null,
+  "clauses": [],
+  "next_step": null
+}

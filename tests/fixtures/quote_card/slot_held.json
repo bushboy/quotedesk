@@ -1,0 +1,17 @@
+{
+  "state": "slot_held",
+  "headline": "Date held",
+  "business_name": "AquaSure Gauteng",
+  "quote_id": "QD-1042",
+  "rule_id": null,
+  "body": "This date is held until 9 November 2026.",
+  "amount_display": null,
+  "range_min_display": null,
+  "range_max_display": null,
+  "fee_display": null,
+  "expiry_display": null,
+  "window_display": "Saturday 7 November 2026",
+  "hold_until_display": "9 November 2026",
+  "clauses": [],
+  "next_step": null
+}

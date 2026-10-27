@@ -1,0 +1,17 @@
+{
+  "state": "deposit_waiting",
+  "headline": "Deposit needed to hold the date",
+  "business_name": "AquaSure Gauteng",
+  "quote_id": "QD-1042",
+  "rule_id": null,
+  "body": "The date is not held yet. It is held once the deposit is paid.",
+  "amount_display": "R 1 275.00",
+  "range_min_display": null,
+  "range_max_display": null,
+  "fee_display": null,
+  "expiry_display": null,
+  "window_display": "Saturday 7 November 2026",
+  "hold_until_display": null,
+  "clauses": [],
+  "next_step": null
+}

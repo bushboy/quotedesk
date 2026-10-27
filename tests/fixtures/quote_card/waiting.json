@@ -1,0 +1,17 @@
+{
+  "state": "waiting",
+  "headline": "Preparing your quote",
+  "business_name": "AquaSure Gauteng",
+  "quote_id": null,
+  "rule_id": null,
+  "body": "We're putting this together. You can keep sending details in the chat.",
+  "amount_display": null,
+  "range_min_display": null,
+  "range_max_display": null,
+  "fee_display": null,
+  "expiry_display": null,
+  "window_display": null,
+  "hold_until_display": null,
+  "clauses": [],
+  "next_step": null
+}

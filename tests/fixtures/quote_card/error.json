@@ -1,0 +1,17 @@
+{
+  "state": "error",
+  "headline": "Something went wrong",
+  "business_name": "AquaSure Gauteng",
+  "quote_id": "QD-1042",
+  "rule_id": null,
+  "body": "We couldn't finish loading this quote.",
+  "amount_display": null,
+  "range_min_display": null,
+  "range_max_display": null,
+  "fee_display": null,
+  "expiry_display": null,
+  "window_display": null,
+  "hold_until_display": null,
+  "clauses": [],
+  "next_step": "Refresh the page, or send us another message in the chat."
+}

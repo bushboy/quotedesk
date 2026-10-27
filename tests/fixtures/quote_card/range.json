@@ -1,0 +1,22 @@
+{
+  "state": "range",
+  "headline": "Price range",
+  "business_name": "AquaSure Gauteng",
+  "quote_id": "QD-1042",
+  "rule_id": "FAB-R01",
+  "body": "Here is a price range. It depends on the assumptions below.",
+  "amount_display": null,
+  "range_min_display": "R 8 500.00",
+  "range_max_display": "R 12 400.00",
+  "fee_display": null,
+  "expiry_display": "7 November 2026",
+  "window_display": null,
+  "hold_until_display": null,
+  "clauses": [
+    {
+      "text": "Roof covering is one of the options in the range.",
+      "if_not_true": "The range narrows to the chosen covering."
+    }
+  ],
+  "next_step": null
+}

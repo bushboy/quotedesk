@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block card %}
+<article class="card">
+  <h1>{{ card.headline }}</h1>
+  {% if card.rule_id %}<p class="rule">Rule {{ card.rule_id }}</p>{% endif %}
+  {% if card.business_name %}<p class="meta">{{ card.business_name }}</p>{% endif %}
+  {% if card.quote_id %}<p class="meta">{{ card.quote_id }}</p>{% endif %}
+  {% if card.body %}<p class="body">{{ card.body }}</p>{% endif %}
+  {% if card.amount_display %}<p class="figure"><span class="amount">{{ card.amount_display }}</span></p>{% endif %}
+  {% if card.range_min_display or card.range_max_display %}
+  <p class="figure">
+    {%- if card.range_min_display -%}<span class="amount">{{ card.range_min_display }}</span>{%- endif -%}
+    {%- if card.range_min_display and card.range_max_display %} to {% endif -%}
+    {%- if card.range_max_display -%}<span class="amount">{{ card.range_max_display }}</span>{%- endif -%}
+  </p>
+  {% endif %}
+  {% if card.fee_display %}<p class="figure"><span class="amount">{{ card.fee_display }}</span></p>{% endif %}
+  {% if card.expiry_display %}<p class="meta">{{ card.expiry_display }}</p>{% endif %}
+  {% if card.window_display %}<p class="meta">{{ card.window_display }}</p>{% endif %}
+  {% if card.hold_until_display %}<p class="meta">{{ card.hold_until_display }}</p>{% endif %}
+  {% for clause in card.clauses %}
+  <p class="clause">{{ clause.text }}</p>
+  {% if clause.if_not_true %}<p class="clause-note">{{ clause.if_not_true }}</p>{% endif %}
+  {% endfor %}
+  {% if card.next_step %}<p class="next-step">{{ card.next_step }}</p>{% endif %}
+</article>
+{% endblock %}
