@@ -1,0 +1,9 @@
+{
+  "masks": [
+    {
+      "label": "tank",
+      "score": "0.91",
+      "caption": "A tank on a level base."
+    }
+  ]
+}

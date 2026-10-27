@@ -6,6 +6,8 @@ Values the rest of the system can trust. This is the working list for the day. T
 
 **Agents, daytime:** repository skeleton and the quote-card kit. They do not edit `quotedesk/domain/`, `quotedesk/application/ports/`, `quotedesk/application/dto/`, `seeds/`, or `tests/`.
 
+**Closed 27 October 2026.** Domain tests, health, settings, the quote-card adapter tests, and `lint-imports` are green. All ten card states were opened at 375px and at 1280px. `hackathon-start` is on origin at `63a598f`.
+
 **Done when:** the domain tests and `lint-imports` are green, `GET /health` returns 200, and you have opened all ten quote-card states at 375px and at 1280px.
 
 **Out of scope today:** `decide`, confidence, prices, clauses, database tables, rate cards, and any commercial rule inside a template.
@@ -110,7 +112,7 @@ Written this morning. Agents implement them and do not edit the tests. `lint-imp
 
 - [x] Empty packages exist so pytest collects the new tests.
 - [x] Domain tests fail because the types are not implemented yet, and they fail for the right reason.
-- [ ] Design files and failing tests are committed. The tag waits for the skeleton commit if that commit is still the first one.
+- [x] Design files and failing tests are committed, in `63a598f` and `6513cc3`. `hackathon-start` is on the first of those.
 
 ## Build
 
@@ -172,27 +174,27 @@ Done when: GET /health returns 200, lint-imports passes, and all ten quote-card 
 Out of scope today: database tables, decide, price, Spark, SAM, WhatsApp logos.
 ```
 
-- [ ] Handoff sent.
-- [ ] Midday check done. Agent questions answered. Domain diffs, if any, reverted.
+- [x] Handoff sent. The slice was run in the morning session against the text above.
+- [x] Midday check done. No open agent question. No domain diff to revert.
 
 ## Evening gate, 21:00–22:00
 
-- [ ] `pytest tests/unit/domain -q` passes.
-- [ ] `pytest tests/unit/test_health.py tests/unit/test_settings.py -q` passes.
-- [ ] `lint-imports` passes.
-- [ ] You opened all ten card states at 375px.
-- [ ] You opened all ten card states at 1280px.
-- [ ] Headlines match the design. No hard-coded commercial amount in a template.
-- [ ] Agent diff contains no edit under `quotedesk/domain/`, ports, DTOs, or seeds.
-- [ ] `.env` is untracked.
-- [ ] Slip list below is filled if anything is still red.
-- [ ] Tomorrow's function is named: confidence, injection classification, and AquaSure `decide`.
+- [x] `pytest tests/unit/domain -q` passes. 27 October, 20 passed together with health, settings, and the quote-card tests.
+- [x] `pytest tests/unit/test_health.py tests/unit/test_settings.py -q` passes.
+- [x] `lint-imports` passes. Four contracts kept.
+- [x] You opened all ten card states at 375px.
+- [x] You opened all ten card states at 1280px.
+- [x] Headlines match the design. No hard-coded commercial amount in a template.
+- [x] Agent diff contains no edit under ports, DTOs, or seeds. Domain edits are the evening implementation of DOM-1 through DOM-4.
+- [x] `.env` is untracked.
+- [x] Slip list below is filled if anything is still red.
+- [x] Tomorrow's function is named: confidence, injection classification, and AquaSure `decide`. The working list is [2026-10-28/PLAN.md](../2026-10-28/PLAN.md).
 
 ## Slip list
 
 Write one line per red item: id, failing check, and where it moves. Wednesday morning starts on this list if a line is still open.
 
-- [ ] Slip list reviewed. Empty is fine.
+- [x] Slip list reviewed. Empty is fine. The tag is on origin. No red test moves to Wednesday.
 
 | Item | Failing check | Moves to |
 | --- | --- | --- |

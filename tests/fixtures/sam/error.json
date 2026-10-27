@@ -1,0 +1,6 @@
+{
+  "error": {
+    "code": "sam.unavailable",
+    "sentence": "The segmenter did not return a result."
+  }
+}

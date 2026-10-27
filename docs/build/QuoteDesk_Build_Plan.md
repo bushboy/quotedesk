@@ -261,6 +261,8 @@ The domain compares civil dates. It does not convert time zones itself. The call
 
 ## Wednesday 28 October — what the business may promise
 
+**Working list:** [2026-10-28/PLAN.md](2026-10-28/PLAN.md). Tick that file as the day proceeds. Designs written in the morning go in [2026-10-28/design/](2026-10-28/design/) before the tests for that artifact.
+
 **Function:** `derive_confidence`, injection classification, and `decide` for AquaSure.
 
 **05:30–06:00.** Re-read decisions D1–D4. Overturn any you do not want, in this file, before writing tests.
@@ -339,6 +341,8 @@ Escalation rules run first. First match wins. Low confidence never matches WATER
 ---
 
 ## Thursday 29 October — a quote that can be issued
+
+**Working list:** [2026-10-29/PLAN.md](2026-10-29/PLAN.md). Tick that file as the day proceeds. Designs written in the morning go in [2026-10-29/design/](2026-10-29/design/) before the tests for that artifact.
 
 **Function:** the `Quote` aggregate, `price`, and `select_clauses`.
 
