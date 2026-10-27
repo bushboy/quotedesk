@@ -1,0 +1,51 @@
+{
+  "quote_id": "QD-1042",
+  "version": 1,
+  "state": "ISSUED",
+  "expiry": "2026-11-07",
+  "decision": {
+    "outcome": "fixed_offer",
+    "rule_id": "WATER-F01",
+    "policy_version": "water-policy-v1.0",
+    "reasons": [
+      "Like-for-like replacement on a level base with a stated size."
+    ],
+    "confidence_band": "high",
+    "customer_template": "We can send a fixed quote for this replacement."
+  },
+  "line_items": [
+    {
+      "item_code": "TANK-5000",
+      "description": "5000 L tank",
+      "quantity": "1",
+      "unit_price": "4250.00",
+      "total": "4250.00"
+    }
+  ],
+  "clauses": [
+    {
+      "clause_id": "WATER-A1",
+      "clause_version": "1",
+      "kind": "assumption",
+      "text": "Size is 5 000 L, as stated.",
+      "if_not_true": "We quote again for the actual size.",
+      "variation_item_code": null
+    },
+    {
+      "clause_id": "GEN-V1",
+      "clause_version": "1",
+      "kind": "validity",
+      "text": "This price is valid for 14 days.",
+      "if_not_true": "After expiry, re-quote at the current rate card",
+      "variation_item_code": null
+    },
+    {
+      "clause_id": "GEN-S1",
+      "clause_version": "1",
+      "kind": "schedule",
+      "text": "No installation date is reserved until the 30% deposit is paid.",
+      "if_not_true": "See scheduling rules",
+      "variation_item_code": null
+    }
+  ]
+}
