@@ -16,6 +16,7 @@
   {% endif %}
   {% if card.fee_display %}<p class="figure"><span class="amount">{{ card.fee_display }}</span></p>{% endif %}
   {% if card.expiry_display %}<p class="meta">{{ card.expiry_display }}</p>{% endif %}
+  {% if card.status_line %}<p class="meta">{{ card.status_line }}</p>{% endif %}
   {% if card.window_display %}<p class="meta">{{ card.window_display }}</p>{% endif %}
   {% if card.hold_until_display %}<p class="meta">{{ card.hold_until_display }}</p>{% endif %}
   {% for clause in card.clauses %}

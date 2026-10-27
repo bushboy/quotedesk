@@ -14,8 +14,48 @@
   "hold_until_display": null,
   "clauses": [
     {
-      "text": "Roof covering is one of the options in the range.",
-      "if_not_true": "The range narrows to the chosen covering."
+      "text": "Size 6.0 m x 7.0 m (42 m²) as stated",
+      "if_not_true": "Re-quote at the rate-card price for the actual size"
+    },
+    {
+      "text": "Clearance height up to the rate card's standard height",
+      "if_not_true": "Height surcharge from the rate card; above its maximum, site measure"
+    },
+    {
+      "text": "Freestanding posts fixed to existing paving or concrete",
+      "if_not_true": "Footing variation from the rate card; soil or slope, site measure"
+    },
+    {
+      "text": "Level site with vehicle access for installation",
+      "if_not_true": "Site measure"
+    },
+    {
+      "text": "Roof covering is one of the options in the range",
+      "if_not_true": "Range narrows to the chosen covering"
+    },
+    {
+      "text": "No existing structure to remove",
+      "if_not_true": "Removal priced separately"
+    },
+    {
+      "text": "Excludes municipal building plan approval, where required",
+      "if_not_true": "Customer's responsibility; stated, not handled"
+    },
+    {
+      "text": "Excludes electrical work and gate automation",
+      "if_not_true": "Separate quote"
+    },
+    {
+      "text": "This price is valid for 14 days.",
+      "if_not_true": "After expiry, re-quote at the current rate card"
+    },
+    {
+      "text": "A range or default-based price becomes fixed only after site measure confirms the assumptions",
+      "if_not_true": "Final price follows the measured assumptions"
+    },
+    {
+      "text": "No installation date is reserved until the 30% deposit is paid.",
+      "if_not_true": "See scheduling rules"
     }
   ],
   "next_step": null

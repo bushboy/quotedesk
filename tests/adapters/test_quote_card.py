@@ -43,7 +43,8 @@ def test_quote_card_states_render_fixture_copy(monkeypatch):
     assert "R 4 250.00" in fixed
     assert "Rule WATER-F01" in fixed
     assert "7 November 2026" in fixed
-    assert "Size is 5 000 litres, as stated." in fixed
+    assert "Size is 5 000 L, as stated." in fixed
+    assert "ISSUED · version 1 · 7 November 2026 · none" in fixed
 
     hazard = client.get("/dev/quote-card/hazard").text
     assert "R " not in hazard

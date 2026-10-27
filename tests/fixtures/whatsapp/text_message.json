@@ -1,0 +1,35 @@
+{
+  "object": "whatsapp_business_account",
+  "entry": [
+    {
+      "id": "WABA-1",
+      "changes": [
+        {
+          "field": "messages",
+          "value": {
+            "messaging_product": "whatsapp",
+            "metadata": {
+              "display_phone_number": "15550001111",
+              "phone_number_id": "PHONE-1"
+            },
+            "contacts": [
+              {
+                "profile": { "name": "Thabo" },
+                "wa_id": "15550002222"
+              }
+            ],
+            "messages": [
+              {
+                "from": "15550002222",
+                "id": "wamid.TEXT1",
+                "timestamp": "1761710000",
+                "type": "text",
+                "text": { "body": "The tank in the yard is leaking." }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}
