@@ -732,7 +732,11 @@ Media still required for a honest demo, all original: tank photo, elevated-stand
 
 ## Next slice — typed turn
 
-The chat still answers with `QuoteScript`. The working list is [2026-11-02/PLAN.md](2026-11-02/PLAN.md). Spark sees the typed conversation and calls tools. `get_quote` still sets the price. Voice, photos, SAM, the console, and the editor are later slices.
+The code gate is green. `MODEL=script` still installs `QuoteScript`. `MODEL=spark` installs the adapter. The evening browser checks in [2026-11-02/PLAN.md](2026-11-02/PLAN.md) are still open. A red typed quote stays on that list.
+
+## Next slice — a photo on the typed quote
+
+The working list is [2026-11-03/PLAN.md](2026-11-03/PLAN.md). It does not start while the typed-turn evening gate is red. A photo is enriched from a recorded extraction and the recorded SAM fixture. `get_quote` still sets the price. Voice and video enrichment wait. The console and the editor are handed off in [2026-11-01/design/console-editor-handoff.md](2026-11-01/design/console-editor-handoff.md).
 
 ## Monday 2 November — test
 

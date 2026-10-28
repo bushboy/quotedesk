@@ -4,7 +4,7 @@ Nothing here opens a database connection or a network socket.
 """
 
 import threading
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from uuid import UUID, uuid4
 
@@ -15,14 +15,17 @@ from quotedesk.application.dto.agent import ModelReply, ToolCall
 from quotedesk.application.use_cases.tools.get_quote_status import GetQuoteStatus
 from quotedesk.application.dto.inbound import GateFlags, GateLimits, InboundMessage
 from quotedesk.application.dto.published import PublishedPolicy
-from quotedesk.application.dto.tenant import TenantContext
+from quotedesk.application.dto.tenant import CommercialSettings, TenantContext
 from quotedesk.application.use_cases.conversation.receive_inbound import ReceiveInboundEvent
 from quotedesk.application.use_cases.conversation.run_agent_turn import HandoverToHuman, RunAgentTurn
+from quotedesk.application.use_cases.tools.check_availability import CheckAvailability
 from quotedesk.application.use_cases.tools.get_quote import GetQuote
+from quotedesk.application.use_cases.tools.request_change import RequestChange
 from quotedesk.application.use_cases.tools.update_case import UpdateCase
 from quotedesk.domain.case.case_file import CaseFile
 from quotedesk.domain.conversation.events import Conversation
 from quotedesk.domain.quotes.quote import Quote
+from quotedesk.domain.quotes.schedule import Capacity, ScheduleSettings
 from quotedesk.domain.shared.ids import QuoteId
 
 TENANT_A = UUID("11111111-1111-4111-8111-111111111111")
@@ -85,9 +88,12 @@ class Unit:
     def __init__(self) -> None:
         self.committed: dict[tuple[UUID, UUID], Quote] = {}
         self.audits: list = []
+        self.changes: dict[tuple[UUID, str], object] = {}
         self._pending_key = None
         self._pending_quote = None
         self._pending_audit = None
+        self._pending_replace = None
+        self._pending_change = None
 
     def get_quote(self, tenant_id: UUID, conversation_id: UUID) -> Quote | None:
         return self.committed.get((tenant_id, conversation_id))
@@ -99,9 +105,28 @@ class Unit:
     def record_audit(self, event) -> None:
         self._pending_audit = event
 
+    def save_quote_by_id(self, tenant_id: UUID, quote: Quote) -> None:
+        self._pending_replace = (tenant_id, quote)
+
+    def find_change(self, tenant_id: UUID, idempotency_key: str):
+        return self.changes.get((tenant_id, idempotency_key))
+
+    def save_change(self, record) -> None:
+        self._pending_change = record
+
     def commit(self) -> None:
         if self._pending_key is not None and self._pending_quote is not None:
             self.committed[self._pending_key] = self._pending_quote
+        if self._pending_replace is not None:
+            tenant_id, quote = self._pending_replace
+            for key, stored in list(self.committed.items()):
+                if key[0] == tenant_id and stored.quote_id == quote.quote_id:
+                    self.committed[key] = quote
+                    break
+        if self._pending_change is not None:
+            self.changes[(self._pending_change.tenant_id, self._pending_change.idempotency_key)] = (
+                self._pending_change
+            )
         if self._pending_audit is not None:
             self.audits.append(self._pending_audit)
         self.rollback()
@@ -110,6 +135,8 @@ class Unit:
         self._pending_key = None
         self._pending_quote = None
         self._pending_audit = None
+        self._pending_replace = None
+        self._pending_change = None
 
 
 class QuoteClock:
@@ -136,6 +163,9 @@ class Ids:
 
     def next_fact_id(self) -> UUID:
         return uuid4()
+
+    def next_idempotency_key(self) -> str:
+        return str(uuid4())
 
 
 class Catalog:
@@ -286,6 +316,48 @@ def published_bundle() -> PublishedPolicy:
     )
 
 
+class _Caps:
+    def for_tenant(self, tenant_id: UUID) -> CommercialSettings:
+        return CommercialSettings(discount_cap_percent=Decimal("5"))
+
+
+class _Capacity:
+    def get(self, tenant_id: UUID) -> Capacity:
+        return Capacity()
+
+    def save(self, tenant_id: UUID, capacity: Capacity) -> None:
+        return None
+
+
+def _caps() -> _Caps:
+    return _Caps()
+
+
+def _capacity() -> _Capacity:
+    return _Capacity()
+
+
+def _schedule_settings() -> ScheduleSettings:
+    return ScheduleSettings(
+        lead_time_working_days={"replacement": 5},
+        minimum_notice_working_days=2,
+        hold_period_hours=48,
+        working_days=(0, 1, 2, 3, 4),
+        blocked_dates=(date(2026, 11, 2),),
+        sentences={
+            "lead_time": "A {job_type} is usually about {lead_time_working_days} working days after the deposit.",
+            "earliest": "The earliest window is {window}, and it is not reserved.",
+            "requested_open": "That date is open. We can hold it when the deposit is paid.",
+            "requested_closed": "That date is full. The next open days are {first} and {second}.",
+            "too_soon": "That date is too soon. The earliest window is {window}.",
+            "next_working_day": "The next working day is {window}.",
+            "held": "That window is held until the deposit hold expires.",
+            "confirmed": "That date is confirmed.",
+            "escalated": "We can't guarantee a date here.",
+        },
+    )
+
+
 def install(
     app: FastAPI,
     bundle: PublishedPolicy,
@@ -312,8 +384,11 @@ def install(
         slot.model = model
     clock = SystemClock() if live else TurnClock()
     receive = ReceiveInboundEvent(conversations, sender, Media(), Ordinary(), clock)
-    update = UpdateCase(cases, Catalog(), Ids())
-    quoted = Remembering(GetQuote(cases, Policies(published), unit, QuoteClock(), Ids()))
+    ids = Ids()
+    catalog = Catalog()
+    policies = Policies(published)
+    update = UpdateCase(cases, catalog, ids)
+    quoted = Remembering(GetQuote(cases, policies, unit, QuoteClock(), ids))
     handover = HandoverToHuman(cases)
     turn = RunAgentTurn(
         conversations,
@@ -324,6 +399,11 @@ def install(
         quoted,
         handover,
         clock,
+        request_change=RequestChange(QuoteLookup(unit), _caps(), unit, clock),
+        check_availability=CheckAvailability(_capacity(), _schedule_settings(), clock),
+        catalog=catalog,
+        policies=policies,
+        ids=ids,
         window=LIVE_WINDOW if live else timedelta(seconds=5),
         card_base=card_base,
         card_code=card_code,

@@ -1,9 +1,11 @@
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from quotedesk.domain.case.case_file import CaseFile
+
+PromptKind = Literal["text", "image", "audio", "video"]
 
 
 class ToolCall(BaseModel):
@@ -28,8 +30,52 @@ class Handover(BaseModel):
     reason: str
 
 
+class PromptMessage(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    provider_message_id: str
+    kind: PromptKind
+    body: str
+
+
+class PromptFact(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    job_id: str
+    key: str
+    value: str
+    source: str
+    event_id: UUID
+
+
+class CaseView(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    facts: tuple[PromptFact, ...] = ()
+    missing_required: tuple[str, ...] = ()
+    contradiction_count: int = 0
+
+
+class PromptRateItem(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    item_code: str
+    description: str
+
+
+class ToolPayload(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    name: str
+    body: dict[str, Any]
+
+
 class TurnPrompt(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     event_ids: tuple[str, ...]
     tool_results: tuple[str, ...] = ()
+    messages: tuple[PromptMessage, ...] = ()
+    case: CaseView = Field(default_factory=CaseView)
+    rate_card: tuple[PromptRateItem, ...] = ()
+    tool_payloads: tuple[ToolPayload, ...] = ()

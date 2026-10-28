@@ -1,6 +1,6 @@
 # Typed-turn design
 
-The working list is [the slice plan](../PLAN.md). One design file is written when its boxes there are being ticked. A test starts only after that file's boxes are ticked.
+The working list is [the slice plan](../PLAN.md). [typed-turn.md](typed-turn.md) is written. A test starts only after that file's boxes in the plan are ticked.
 
 | File | Artifact | Block |
 | --- | --- | --- |

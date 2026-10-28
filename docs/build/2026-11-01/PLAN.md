@@ -234,6 +234,8 @@ Editor, at `GET /editor`:
 - [ ] Publish stays disabled while an error is listed.
 - [ ] A typed percent and a reason are enough. There is no clause editor.
 
+The handoff for both pages is [design/console-editor-handoff.md](design/console-editor-handoff.md).
+
 ## Handoff, after the block A gate
 
 ```text
@@ -246,7 +248,7 @@ Done when: GET /console lists the pending ask and an approval issues the next ve
 Out of scope today: the WhatsApp page, FrameWorks, publish, rate-card import, live WhatsApp, live PayFast.
 ```
 
-- [ ] Handoff sent.
+- [x] Handoff sent. [design/console-editor-handoff.md](design/console-editor-handoff.md)
 
 ## Handoff, after the block B gate
 
@@ -260,7 +262,7 @@ Done when: a draft deposit change publishes through PublishPolicy, and an alread
 Out of scope today: a clause word processor, the impact preview, Wonder, the WhatsApp page, Excel import.
 ```
 
-- [ ] Handoff sent.
+- [x] Handoff sent. [design/console-editor-handoff.md](design/console-editor-handoff.md)
 
 ## Evening gate
 

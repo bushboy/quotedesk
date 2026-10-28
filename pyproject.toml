@@ -11,6 +11,7 @@ dependencies = [
     "jinja2",
     "openpyxl",
     "pyyaml",
+    "openai",
 ]
 
 [project.optional-dependencies]

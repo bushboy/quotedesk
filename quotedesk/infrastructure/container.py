@@ -9,11 +9,22 @@ from quotedesk.adapters.inbound.http.chat import SimulatedMedia
 from quotedesk.adapters.inbound.http.chat import router as chat_router
 from quotedesk.adapters.inbound.http.quote_card import router as quote_card_router
 from quotedesk.adapters.inbound.http.whatsapp import router as whatsapp_router
+from quotedesk.adapters.outbound.models.spark import SdkTransport, SparkTurn
 from quotedesk.infrastructure.config import Settings, get_settings
 from quotedesk.infrastructure.demo import QuoteScript, install, published_bundle
 
 _TICK_SECONDS = 0.25
 _log = logging.getLogger(__name__)
+
+
+def _model(settings: Settings):
+    if settings.model == "script":
+        return QuoteScript()
+    return SparkTurn(
+        model_id=settings.spark_model_id,
+        base_url=settings.meta_base_url,
+        transport=SdkTransport(settings.meta_api_key),
+    )
 
 
 def _sender(settings: Settings):
@@ -58,7 +69,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         install(
             app,
             published_bundle(),
-            model=QuoteScript(),
+            model=_model(settings),
             card_base="/card",
             card_code="1042",
             sender=_sender(settings),

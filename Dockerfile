@@ -5,6 +5,7 @@ WORKDIR /app
 COPY pyproject.toml LICENSE README.md ./
 COPY quotedesk ./quotedesk
 COPY seeds ./seeds
+COPY tests/fixtures/quote_card ./tests/fixtures/quote_card
 COPY alembic.ini ./
 COPY alembic ./alembic
 
