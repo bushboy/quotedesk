@@ -1,3 +1,4 @@
+from datetime import datetime
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
@@ -12,3 +13,6 @@ class AuditEvent(BaseModel):
     action: str
     quote_id: QuoteId
     version: int
+    actor: str = "system"
+    at: datetime | None = None
+    conversation_id: UUID | None = None

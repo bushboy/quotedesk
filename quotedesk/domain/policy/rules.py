@@ -31,6 +31,7 @@ class Policy(BaseModel):
     rules: tuple[PolicyRule, ...]
     rate_card_codes: tuple[str, ...]
     sam_score_threshold: Decimal
+    range_minimum: Decimal | None = None
 
 
 class Decision(BaseModel):

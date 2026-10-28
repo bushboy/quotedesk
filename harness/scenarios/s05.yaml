@@ -1,0 +1,8 @@
+- id: wamid.S05A
+  at: 0
+  from: "15550002222"
+  text: Here is the photo.
+- id: wamid.S05B
+  at: 6
+  from: "15550002222"
+  text: The base is level.

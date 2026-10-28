@@ -1,4 +1,5 @@
 import os
+from typing import Literal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -14,6 +15,9 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(extra="ignore")
 
     database_url: str
+    channel: Literal["outbox"] = "outbox"
+    whatsapp_verify_token: str | None = None
+    whatsapp_app_secret: str | None = None
 
 
 def get_settings() -> Settings:

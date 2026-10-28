@@ -19,6 +19,7 @@
   {% if card.status_line %}<p class="meta">{{ card.status_line }}</p>{% endif %}
   {% if card.window_display %}<p class="meta">{{ card.window_display }}</p>{% endif %}
   {% if card.hold_until_display %}<p class="meta">{{ card.hold_until_display }}</p>{% endif %}
+  {% if card.evidence %}<img class="mask" alt="Recorded tank mask" src="{{ card.evidence }}">{% endif %}
   {% for clause in card.clauses %}
   <p class="clause">{{ clause.text }}</p>
   {% if clause.if_not_true %}<p class="clause-note">{{ clause.if_not_true }}</p>{% endif %}

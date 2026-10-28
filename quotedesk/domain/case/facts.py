@@ -1,3 +1,4 @@
+from decimal import Decimal
 from enum import Enum
 from typing import Literal
 
@@ -32,6 +33,15 @@ class CaseFacts(BaseModel):
     sloped_ground: bool = False
     pipe_run_unknown: bool = False
     item_codes: tuple[str, ...] = ()
+    width_m: Decimal | None = None
+    length_m: Decimal | None = None
+    finish: str | None = None
+    opening: Literal["existing", "new", "widened"] | None = None
+    above_ground_floor: bool = False
+    multi_unit: bool = False
+    standard_band: bool = False
+    budget: Decimal | None = None
+    job_type: Literal["carport", "window", "door", "shutter"] | None = None
 
 
 class ExtractionFacts(BaseModel):
@@ -43,6 +53,10 @@ class ExtractionFacts(BaseModel):
     exposed_wiring: bool = False
     active_flooding: bool = False
     image_text: str | None = None
+    lintel_cracked: bool = False
+    glass_broken: bool = False
+    hairline_mark: bool = False
+    possible_asbestos: bool = False
 
 
 class SegmentationFacts(BaseModel):

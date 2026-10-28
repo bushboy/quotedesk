@@ -16,3 +16,13 @@ class TenantRequired(ApplicationError):
 class CaseNotFound(ApplicationError):
     def __init__(self) -> None:
         super().__init__(code="case.not_found", sentence="That case is not on this tenant.")
+
+
+class QuoteNotFound(ApplicationError):
+    def __init__(self) -> None:
+        super().__init__(code="quote.not_found", sentence="That quote is not on this tenant.")
+
+
+class ModelTimeout(ApplicationError):
+    def __init__(self) -> None:
+        super().__init__(code="model.timeout", sentence="The model did not answer in time.")

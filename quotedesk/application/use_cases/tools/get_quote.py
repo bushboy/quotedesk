@@ -54,7 +54,12 @@ class GetQuote:
         case_facts, extraction = _facts(case)
         decision = decide(case_facts, extraction, SegmentationFacts(), bundle.policy)
         priced = price(decision, _price_facts(case_facts), bundle.rate_card)
-        selection = select_clauses(decision, ClauseFacts(), case_facts.job.value, bundle.clause_policy)
+        selection = select_clauses(
+            decision,
+            ClauseFacts(width_m=case_facts.width_m, length_m=case_facts.length_m),
+            case_facts.job_type if case_facts.job_type is not None else case_facts.job.value,
+            bundle.clause_policy,
+        )
         lines = tuple(
             QuoteLine(
                 item_code=line.item_code,
@@ -151,9 +156,24 @@ def _facts(case: CaseFile) -> tuple[CaseFacts, ExtractionFacts]:
         size_source=SizeSource(values["size_source"]) if "size_source" in values else None,
         existing_level_base=flag("existing_level_base", False),
         item_codes=_codes(values.get("item_codes")),
+        width_m=_decimal(values.get("width_m")),
+        length_m=_decimal(values.get("length_m")),
+        job_type=_job_type(values.get("job_type")),
     )
     extraction = ExtractionFacts(stand_condition=stand) if stand is not None else ExtractionFacts()
     return case_facts, extraction
+
+
+def _decimal(raw: str | None) -> Decimal | None:
+    if raw is None or raw.strip() == "":
+        return None
+    return Decimal(raw)
+
+
+def _job_type(raw: str | None) -> str | None:
+    if raw in ("carport", "window", "door", "shutter"):
+        return raw
+    return None
 
 
 def _codes(raw: str | None) -> tuple[str, ...]:

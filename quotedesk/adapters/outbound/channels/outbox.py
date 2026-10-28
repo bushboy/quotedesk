@@ -8,16 +8,28 @@ class OutboxMessage(BaseModel):
 
     body: str
     status: Literal["pending"]
+    id: int = 0
+    wa_id: str = ""
 
 
 class Outbox:
     def __init__(self) -> None:
         self._rows: list[OutboxMessage] = []
+        self._next = 0
 
-    def append(self, body: str) -> OutboxMessage:
-        message = OutboxMessage(body=body, status="pending")
+    def append(self, body: str, wa_id: str = "") -> OutboxMessage:
+        self._next += 1
+        message = OutboxMessage(id=self._next, wa_id=wa_id, body=body, status="pending")
         self._rows.append(message)
         return message
 
     def pending(self) -> tuple[OutboxMessage, ...]:
         return tuple(self._rows)
+
+
+class OutboxSender:
+    def __init__(self, outbox: Outbox) -> None:
+        self._outbox = outbox
+
+    def send(self, wa_id: str, body: str) -> None:
+        self._outbox.append(body, wa_id)

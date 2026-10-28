@@ -48,6 +48,7 @@ _LEGAL: dict[QuoteState, frozenset[QuoteState]] = {
             QuoteState.SITE_ASSESSMENT_OFFERED,
             QuoteState.ESCALATED,
             QuoteState.REJECTED,
+            QuoteState.REVISED,
         }
     ),
     QuoteState.ISSUED: frozenset(

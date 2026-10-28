@@ -1,0 +1,25 @@
+# The app and a PostgreSQL 16 container. Use this when nothing is listening on port 5432.
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: quotedesk
+      POSTGRES_PASSWORD: quotedesk
+      POSTGRES_DB: quotedesk
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U quotedesk -d quotedesk"]
+      interval: 2s
+      timeout: 5s
+      retries: 20
+
+  app:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql+psycopg://quotedesk:quotedesk@postgres:5432/quotedesk
+    depends_on:
+      postgres:
+        condition: service_healthy

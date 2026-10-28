@@ -1,0 +1,8 @@
+- id: wamid.S06A
+  at: 0
+  from: "15550002222"
+  text: The tank is on the roof.
+- id: wamid.S06B
+  at: 6
+  from: "15550002222"
+  text: The photo shows ground level.

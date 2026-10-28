@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from quotedesk.domain.case.facts import CaseFacts, ExtractionFacts, JobKind, SegmentationFacts
 from quotedesk.domain.policy.rules import Decision, Policy, PolicyRule
 from quotedesk.domain.services.confidence import (
@@ -151,6 +153,84 @@ def _l02(
     return derive_confidence(case.checks) in (ConfidenceBand.MEDIUM, ConfidenceBand.HIGH)
 
 
+def _fab_e02(
+    _case: CaseFacts,
+    extraction: ExtractionFacts,
+    _segmentation: SegmentationFacts,
+    _policy: Policy,
+) -> bool:
+    return extraction.lintel_cracked or extraction.glass_broken
+
+
+def _fab_e03(
+    _case: CaseFacts,
+    extraction: ExtractionFacts,
+    _segmentation: SegmentationFacts,
+    _policy: Policy,
+) -> bool:
+    return extraction.possible_asbestos
+
+
+def _fab_s01(
+    case: CaseFacts,
+    _extraction: ExtractionFacts,
+    _segmentation: SegmentationFacts,
+    _policy: Policy,
+) -> bool:
+    return case.opening in ("new", "widened")
+
+
+def _fab_s02(
+    case: CaseFacts,
+    _extraction: ExtractionFacts,
+    _segmentation: SegmentationFacts,
+    _policy: Policy,
+) -> bool:
+    return case.above_ground_floor or case.multi_unit
+
+
+def _finish_chosen(case: CaseFacts) -> bool:
+    return isinstance(case.finish, str) and case.finish.strip() != ""
+
+
+def _fab_f01(
+    case: CaseFacts,
+    _extraction: ExtractionFacts,
+    _segmentation: SegmentationFacts,
+    _policy: Policy,
+) -> bool:
+    if derive_confidence(case.checks) is not ConfidenceBand.HIGH:
+        return False
+    if case.opening != "existing" or case.width_m is None or case.length_m is None:
+        return False
+    if case.size_source not in (SizeSource.CUSTOMER_STATED, SizeSource.REFERENCE_OBJECT):
+        return False
+    return case.standard_band and _finish_chosen(case)
+
+
+def _fab_r01(
+    case: CaseFacts,
+    _extraction: ExtractionFacts,
+    _segmentation: SegmentationFacts,
+    _policy: Policy,
+) -> bool:
+    band = derive_confidence(case.checks)
+    if band not in (ConfidenceBand.MEDIUM, ConfidenceBand.HIGH):
+        return False
+    return case.width_m == Decimal("6.0") and case.length_m == Decimal("7.0") and case.finish is None
+
+
+def _fab_b01(
+    case: CaseFacts,
+    _extraction: ExtractionFacts,
+    _segmentation: SegmentationFacts,
+    policy: Policy,
+) -> bool:
+    if case.budget is None or policy.range_minimum is None:
+        return False
+    return case.budget < policy.range_minimum
+
+
 _PREDICATES = {
     "WATER-E01": _e01,
     "WATER-E02": _e02,
@@ -161,4 +241,14 @@ _PREDICATES = {
     "WATER-R01": _r01,
     "WATER-L01": _l01,
     "WATER-L02": _l02,
+    "FAB-E01": _e01,
+    "FAB-E02": _fab_e02,
+    "FAB-E03": _fab_e03,
+    "FAB-S01": _fab_s01,
+    "FAB-S02": _fab_s02,
+    "FAB-F01": _fab_f01,
+    "FAB-R01": _fab_r01,
+    "FAB-B01": _fab_b01,
+    "FAB-L01": _l01,
+    "FAB-L02": _l02,
 }

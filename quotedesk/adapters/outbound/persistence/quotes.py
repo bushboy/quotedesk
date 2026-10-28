@@ -5,13 +5,14 @@ from sqlalchemy import text
 from sqlalchemy.engine import Connection
 
 from quotedesk.domain.policy.clauses import Condition
-from quotedesk.domain.quotes.quote import Quote, QuoteLine, QuoteState, QuoteVersion
+from quotedesk.domain.quotes.quote import Approval, Quote, QuoteLine, QuoteState, QuoteVersion
 from quotedesk.domain.shared.ids import QuoteId
 from quotedesk.domain.shared.money import Money
 
 
 class QuoteTables:
     def save(self, connection: Connection, tenant_id: UUID, conversation_id: UUID, quote: Quote) -> None:
+        _tenant(connection, tenant_id)
         quote_id = quote.quote_id.value
         connection.execute(text("DELETE FROM quote WHERE quote_id = :quote_id"), {"quote_id": quote_id})
         connection.execute(
@@ -88,8 +89,72 @@ class QuoteTables:
                         "variation_item_code": clause.variation_item_code,
                     },
                 )
+            for approval in version.approvals:
+                connection.execute(
+                    text(
+                        """
+                        INSERT INTO quote_approval (
+                            quote_id, number, applies_to_version, expires_at
+                        )
+                        VALUES (:quote_id, :number, :applies_to_version, :expires_at)
+                        """
+                    ),
+                    {
+                        "quote_id": quote_id,
+                        "number": version.number,
+                        "applies_to_version": approval.applies_to_version,
+                        "expires_at": approval.expires_at,
+                    },
+                )
+
+    def save_evidence(self, connection: Connection, tenant_id: UUID, quote: Quote, evidence_ids: tuple[str, ...]) -> None:
+        _tenant(connection, tenant_id)
+        for evidence_id in evidence_ids:
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO quote_evidence (quote_id, number, evidence_id)
+                    VALUES (:quote_id, :number, :evidence_id)
+                    """
+                ),
+                {"quote_id": quote.quote_id.value, "number": quote.current.number, "evidence_id": evidence_id},
+            )
+
+    def evidence(self, connection: Connection, tenant_id: UUID, quote_id: str, number: int) -> tuple[str, ...]:
+        _tenant(connection, tenant_id)
+        rows = connection.execute(
+            text(
+                """
+                SELECT evidence_id FROM quote_evidence
+                WHERE quote_id = :quote_id AND number = :number
+                ORDER BY evidence_id
+                """
+            ),
+            {"quote_id": quote_id, "number": number},
+        )
+        return tuple(row.evidence_id for row in rows)
+
+    def save_with_audit(self, connection: Connection, tenant_id: UUID, conversation_id: UUID, quote: Quote, action: str) -> None:
+        with connection.begin_nested():
+            self.save(connection, tenant_id, conversation_id, quote)
+            _tenant(connection, tenant_id)
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO audit_event (tenant_id, action, quote_id, version)
+                    VALUES (:tenant_id, :action, :quote_id, :version)
+                    """
+                ),
+                {
+                    "tenant_id": tenant_id,
+                    "action": action,
+                    "quote_id": quote.quote_id.value,
+                    "version": quote.current.number,
+                },
+            )
 
     def get(self, connection: Connection, tenant_id: UUID, conversation_id: UUID) -> Quote | None:
+        _tenant(connection, tenant_id)
         row = connection.execute(
             text(
                 """
@@ -156,6 +221,20 @@ class QuoteTables:
                     {"quote_id": quote_id, "number": version.number},
                 )
             )
+            approvals = tuple(
+                Approval(applies_to_version=row.applies_to_version, expires_at=row.expires_at)
+                for row in connection.execute(
+                    text(
+                        """
+                        SELECT applies_to_version, expires_at
+                        FROM quote_approval
+                        WHERE quote_id = :quote_id AND number = :number
+                        ORDER BY applies_to_version
+                        """
+                    ),
+                    {"quote_id": quote_id, "number": version.number},
+                )
+            )
             versions.append(
                 QuoteVersion(
                     number=version.number,
@@ -163,8 +242,15 @@ class QuoteTables:
                     expiry=version.expiry,
                     lines=lines,
                     clauses=clauses,
-                    approvals=(),
+                    approvals=approvals,
                     at=version.at,
                 )
             )
         return Quote(quote_id=QuoteId(quote_id), versions=tuple(versions))
+
+
+def _tenant(connection: Connection, tenant_id: UUID) -> None:
+    connection.execute(
+        text("SELECT set_config('app.current_tenant_id', :tenant_id, true)"),
+        {"tenant_id": str(tenant_id)},
+    )

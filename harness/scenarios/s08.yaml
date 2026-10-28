@@ -1,0 +1,16 @@
+- id: wamid.S08A
+  at: 0
+  from: "15550002222"
+  text: The first note.
+- id: wamid.S08A
+  at: 0
+  from: "15550002222"
+  text: The first note.
+- id: wamid.S08C
+  at: 20
+  from: "15550002222"
+  text: The later note.
+- id: wamid.S08B
+  at: 10
+  from: "15550002222"
+  text: The earlier note.

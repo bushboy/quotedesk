@@ -501,6 +501,8 @@ Twelve to sixteen hours, three blocks. Each block starts by writing any test fro
 
 If Friday's `GetQuote` is red, block A is "finish `GetQuote`" and blocks B and C shrink. Wonder, preview, and PowerPoint are already on the cut line. Do not open them.
 
+The WhatsApp harness moves here from Monday. `harness/runner.py` posts scenario files as Cloud API payloads to `POST /whatsapp/webhook` and reads `GET /whatsapp/outbox`. S08 and the 5000 L text scenario are part of the block B gate. Monday re-runs whatever this day leaves green. Live WhatsApp delivery stays out. How the judge chat and that harness share one pipe is in [the simulator note](2026-10-31/design/whatsapp-simulator-learnings.md). Read it before writing the harness, the turn loop, the inbound gate, and the click-path. It adds no test.
+
 ### Block A — changes, approvals in the domain, and the commitment checker
 
 About four hours.
@@ -595,7 +597,7 @@ About four hours. You review every row-level security policy yourself. Agents ma
 
 Seed `seeds/aquasure.yaml` so that loading it and running the Wednesday fixture cases returns the same rule ids. That comparison is a test: `test_aquasure_seed_matches_fixtures`.
 
-Then, in the browser:
+Then, in the browser. The chat shell follows the simulator note: the page paints the customer bubble itself, and every business sentence arrives as an outbox row.
 
 1. Open the web chat for AquaSure.
 2. Send a transcript of the 5000 L voice note and upload the tank-on-a-base photo, or the typed equivalent if live transcription is not wired yet.
@@ -611,7 +613,9 @@ Minimum media for this path, recorded before block C if it is not already on dis
 
 ## Sunday 1 November — the owner, the second business, and the freeze
 
-Feature freeze at the end of the day. A block that overruns takes from the cut line. It does not take from Monday's testing time.
+**Working list:** [2026-11-01/PLAN.md](2026-11-01/PLAN.md). Tick that file as the day proceeds. Designs written in the morning go in [2026-11-01/design/](2026-11-01/design/) before the tests for that artifact.
+
+Feature freeze at the end of the day. A block that overruns takes from the cut line. It does not take from Monday's testing time. The WhatsApp page stays with the builder named in [the simulator handoff](2026-10-31/design/whatsapp-simulator-handoff.md). Sunday does not edit that page.
 
 ### Block A — the owner handles the 10 percent
 
@@ -726,11 +730,15 @@ Media still required for a honest demo, all original: tank photo, elevated-stand
 
 ---
 
+## Next slice — typed turn
+
+The chat still answers with `QuoteScript`. The working list is [2026-11-02/PLAN.md](2026-11-02/PLAN.md). Spark sees the typed conversation and calls tools. `get_quote` still sets the price. Voice, photos, SAM, the console, and the editor are later slices.
+
 ## Monday 2 November — test
 
-No new features. A failing demo step is a repair of an existing slice. A missing nice-to-have stays cut.
+The evaluation below starts after the typed-turn gate is green. This section still adds no screen. A failing demo step is a repair of an existing slice. A missing nice-to-have stays cut.
 
-**05:30–08:00.** Turn Sunday's slip list into failing regression tests where a bug has no test yet. Add harness scenarios S01–S12 as executable YAML. Do not start S07 if S01 is red.
+**05:30–08:00.** Turn Sunday's slip list into failing regression tests where a bug has no test yet. Re-run the harness scenarios Saturday left green. Do not start S07 if S01 is red. The scenario files and the runner are Saturday's, not this morning's.
 
 **Agents, daytime.** They may fix a named failing test. They may not add a screen.
 

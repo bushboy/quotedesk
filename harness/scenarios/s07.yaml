@@ -1,0 +1,8 @@
+- id: wamid.S07A
+  at: 0
+  from: "15550002222"
+  text: Start the quote.
+- id: wamid.S07B
+  at: 1
+  from: "15550002222"
+  text: This arrives during the turn.

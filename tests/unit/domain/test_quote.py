@@ -42,6 +42,7 @@ def legal_pairs():
         (QuoteState.PENDING_APPROVAL, QuoteState.SITE_ASSESSMENT_OFFERED),
         (QuoteState.PENDING_APPROVAL, QuoteState.ESCALATED),
         (QuoteState.PENDING_APPROVAL, QuoteState.REJECTED),
+        (QuoteState.PENDING_APPROVAL, QuoteState.REVISED),
         (QuoteState.ISSUED, QuoteState.WAITING_FOR_DEPOSIT),
         (QuoteState.ISSUED, QuoteState.EXPIRED),
         (QuoteState.ISSUED, QuoteState.REVISED),
@@ -192,7 +193,7 @@ def test_illegal_transitions():
 def test_every_legal_transition():
     _bind()
     pairs = legal_pairs()
-    assert len(pairs) == 22
+    assert len(pairs) == 23
     for source, target in pairs:
         quote = arrive(source)
         moved = quote.transition(quote.current.number, target, at=AT)

@@ -1,0 +1,12 @@
+- id: wamid.S04A
+  at: 0
+  from: "15550002222"
+  text: The tank is leaking.
+- id: wamid.S04B
+  at: 1
+  from: "15550002222"
+  text: It is 5000 L.
+- id: wamid.S04C
+  at: 4
+  from: "15550002222"
+  text: The base is level.

@@ -20,7 +20,7 @@ TENANT = UUID("11111111-1111-4111-8111-111111111111")
 CONVERSATION = UUID("33333333-3333-4333-8333-333333333333")
 URL = "postgresql+psycopg://quotedesk:quotedesk@127.0.0.1:5432/quotedesk"
 FIXTURE = Path("tests/fixtures/quotes/aquasure_5000l.json")
-FORBIDDEN = ("case_file", "case_fact", "conversation", "conversation_event", "schedule")
+FORBIDDEN = ("case_file", "case_fact", "conversation", "conversation_event", "schedule_commitment")
 
 
 def _quote() -> Quote:
@@ -48,9 +48,9 @@ def _quote() -> Quote:
 
 
 def test_quote_tables_round_trip_the_5000l_quote():
-    command.upgrade(Config("alembic.ini"), "head")
-    store = QuoteTables()
-    saved = _quote()
+    config = Config("alembic.ini")
+    command.downgrade(config, "20261030_quote")
+    command.upgrade(config, "20261030_quote")
     database = engine(URL)
     with database.begin() as connection:
         names = {
@@ -59,6 +59,10 @@ def test_quote_tables_round_trip_the_5000l_quote():
         }
         for forbidden in FORBIDDEN:
             assert forbidden not in names
+    command.upgrade(config, "head")
+    store = QuoteTables()
+    saved = _quote()
+    with database.begin() as connection:
         store.save(connection, TENANT, CONVERSATION, saved)
         loaded = store.get(connection, TENANT, CONVERSATION)
     assert loaded is not None

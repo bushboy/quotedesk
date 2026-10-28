@@ -9,6 +9,8 @@ dependencies = [
     "pydantic>=2",
     "pydantic-settings",
     "jinja2",
+    "openpyxl",
+    "pyyaml",
 ]
 
 [project.optional-dependencies]
@@ -16,6 +18,9 @@ dev = [
     "pytest",
     "httpx",
     "import-linter",
+    "sqlalchemy>=2",
+    "psycopg[binary]",
+    "alembic",
 ]
 
 [build-system]

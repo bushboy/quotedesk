@@ -1,0 +1,59 @@
+version: water-policy-v1.0
+sam_score_threshold: '0.80'
+rate_card_codes:
+- TANK-5000
+- PUMP-STD
+rules:
+- rule_id: WATER-E01
+  priority: 0
+  outcome: escalation
+  customer_template: I can't use that message to change the quote. Please phone the
+    business and we'll take it from there.
+  reason: 'Flagged as an injection for the owner: the message instructs the assistant
+    or claims an approval.'
+- rule_id: WATER-E02
+  priority: 0
+  outcome: escalation
+  customer_template: We can't price this while the stand looks unsafe. Please leave
+    the tank unused until we've checked it.
+  reason: The stand is unsafe, or an elevated structure is damaged.
+- rule_id: WATER-E03
+  priority: 0
+  outcome: escalation
+  customer_template: Please isolate the power near the water, and stay clear of it
+    until we've checked the site.
+  reason: Exposed wiring or active flooding was recorded.
+- rule_id: WATER-S01
+  priority: 1
+  outcome: site_assessment
+  customer_template: A borehole needs a site visit. If you go ahead, the visit fee
+    is credited against the work.
+  reason: The job is a borehole.
+- rule_id: WATER-S02
+  priority: 1
+  outcome: site_assessment
+  customer_template: This install needs a site visit before we can give you a price.
+  reason: The ground, the stand, or the pipe run needs a visit.
+- rule_id: WATER-F01
+  priority: 1
+  outcome: fixed_offer
+  customer_template: We can send a fixed quote for this replacement.
+  reason: Like-for-like replacement on a level base with a stated size.
+- rule_id: WATER-R01
+  priority: 1
+  outcome: indicative_range
+  customer_template: We can send a price range for a new tank and pump. It assumes
+    the base still has to be confirmed.
+  reason: New tank and pump with the base unconfirmed.
+- rule_id: WATER-L01
+  priority: 1
+  outcome: site_assessment
+  customer_template: We need a clearer picture before we can price this. A site visit
+    is the sure way to do that.
+  reason: Confidence is low and no earlier rule matched.
+- rule_id: WATER-L02
+  priority: 1
+  outcome: site_assessment
+  customer_template: We don't have a standard price for this job. A site visit is
+    the next step.
+  reason: No priced rule matches at this confidence.
