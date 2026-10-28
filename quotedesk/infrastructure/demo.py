@@ -11,6 +11,7 @@ from uuid import UUID, uuid4
 from fastapi import FastAPI
 
 from quotedesk.adapters.outbound.channels.outbox import Outbox, OutboxSender
+from quotedesk.adapters.outbound.models.recorded_extraction import RecordedEnricher
 from quotedesk.application.dto.agent import ModelReply, ToolCall
 from quotedesk.application.use_cases.tools.get_quote_status import GetQuoteStatus
 from quotedesk.application.dto.inbound import GateFlags, GateLimits, InboundMessage
@@ -18,15 +19,20 @@ from quotedesk.application.dto.published import PublishedPolicy
 from quotedesk.application.dto.tenant import CommercialSettings, TenantContext
 from quotedesk.application.use_cases.conversation.receive_inbound import ReceiveInboundEvent
 from quotedesk.application.use_cases.conversation.run_agent_turn import HandoverToHuman, RunAgentTurn
+from quotedesk.application.use_cases.editor.publish_policy import PublishPolicy
+from quotedesk.application.use_cases.operator.approve_exception import ApproveException
+from quotedesk.application.use_cases.operator.list_pending import ListPending
+from quotedesk.application.use_cases.operator.reject_exception import RejectException
 from quotedesk.application.use_cases.tools.check_availability import CheckAvailability
 from quotedesk.application.use_cases.tools.get_quote import GetQuote
 from quotedesk.application.use_cases.tools.request_change import RequestChange
 from quotedesk.application.use_cases.tools.update_case import UpdateCase
 from quotedesk.domain.case.case_file import CaseFile
 from quotedesk.domain.conversation.events import Conversation
+from quotedesk.domain.policy.draft import DraftClause, DraftRateRow, DraftRule, PolicyDraft
 from quotedesk.domain.quotes.quote import Quote
 from quotedesk.domain.quotes.schedule import Capacity, ScheduleSettings
-from quotedesk.domain.shared.ids import QuoteId
+from quotedesk.domain.shared.ids import PolicyVersionId, QuoteId
 
 TENANT_A = UUID("11111111-1111-4111-8111-111111111111")
 CONVERSATION = UUID("33333333-3333-4333-8333-333333333333")
@@ -79,21 +85,69 @@ class Cases:
 class Policies:
     def __init__(self, bundle: PublishedPolicy) -> None:
         self.bundle = bundle
+        self.versions: dict[str, PublishedPolicy] = {bundle.policy.version.value: bundle}
+        self.drafts: dict[UUID, PolicyDraft] = {}
+        self.publishes: dict[tuple[UUID, str], PolicyVersionId] = {}
 
     def published(self, tenant_id: UUID) -> PublishedPolicy:
         return self.bundle
 
+    def draft(self, tenant_id: UUID) -> PolicyDraft | None:
+        return self.drafts.get(tenant_id)
+
+    def save_draft(self, tenant_id: UUID, draft: PolicyDraft) -> None:
+        self.drafts[tenant_id] = draft
+
+    def get(self, tenant_id: UUID, version_id: PolicyVersionId) -> PublishedPolicy | None:
+        return self.versions.get(version_id.value)
+
+    def save_published(self, tenant_id: UUID, bundle: PublishedPolicy) -> None:
+        self.bundle = bundle
+        self.versions[bundle.policy.version.value] = bundle
+
+    def find_publish(self, tenant_id: UUID, idempotency_key: str) -> PolicyVersionId | None:
+        return self.publishes.get((tenant_id, idempotency_key))
+
+    def remember_publish(self, tenant_id: UUID, idempotency_key: str, version: PolicyVersionId) -> None:
+        self.publishes[(tenant_id, idempotency_key)] = version
+
+
+class _Staged:
+    """A staged write kept per thread, so the turn worker and an owner page never share one stage."""
+
+    def __set_name__(self, owner, name: str) -> None:
+        self.name = name
+
+    def __get__(self, unit, owner=None):
+        if unit is None:
+            return self
+        return getattr(unit._stage, self.name, None)
+
+    def __set__(self, unit, value) -> None:
+        setattr(unit._stage, self.name, value)
+
 
 class Unit:
+    _pending_key = _Staged()
+    _pending_quote = _Staged()
+    _pending_audit = _Staged()
+    _pending_replace = _Staged()
+    _pending_change = _Staged()
+    _pending_result = _Staged()
+
     def __init__(self) -> None:
+        self._stage = threading.local()
+        self._commit_lock = threading.Lock()
         self.committed: dict[tuple[UUID, UUID], Quote] = {}
         self.audits: list = []
         self.changes: dict[tuple[UUID, str], object] = {}
+        self.operator_results: dict[tuple[UUID, str], object] = {}
         self._pending_key = None
         self._pending_quote = None
         self._pending_audit = None
         self._pending_replace = None
         self._pending_change = None
+        self._pending_result = None
 
     def get_quote(self, tenant_id: UUID, conversation_id: UUID) -> Quote | None:
         return self.committed.get((tenant_id, conversation_id))
@@ -114,7 +168,24 @@ class Unit:
     def save_change(self, record) -> None:
         self._pending_change = record
 
+    def list_changes(self, tenant_id: UUID) -> tuple:
+        return tuple(record for (tenant, _), record in list(self.changes.items()) if tenant == tenant_id)
+
+    def find_operator_result(self, tenant_id: UUID, idempotency_key: str):
+        return self.operator_results.get((tenant_id, idempotency_key))
+
+    def save_operator_result(self, tenant_id: UUID, idempotency_key: str, result) -> None:
+        self._pending_result = ((tenant_id, idempotency_key), result)
+
+    def list_audits(self, tenant_id: UUID) -> tuple:
+        return tuple(event for event in list(self.audits) if event.tenant_id == tenant_id)
+
     def commit(self) -> None:
+        with self._commit_lock:
+            self._apply()
+        self.rollback()
+
+    def _apply(self) -> None:
         if self._pending_key is not None and self._pending_quote is not None:
             self.committed[self._pending_key] = self._pending_quote
         if self._pending_replace is not None:
@@ -127,9 +198,11 @@ class Unit:
             self.changes[(self._pending_change.tenant_id, self._pending_change.idempotency_key)] = (
                 self._pending_change
             )
+        if self._pending_result is not None:
+            key, result = self._pending_result
+            self.operator_results[key] = result
         if self._pending_audit is not None:
             self.audits.append(self._pending_audit)
-        self.rollback()
 
     def rollback(self) -> None:
         self._pending_key = None
@@ -137,6 +210,7 @@ class Unit:
         self._pending_audit = None
         self._pending_replace = None
         self._pending_change = None
+        self._pending_result = None
 
 
 class QuoteClock:
@@ -276,6 +350,9 @@ class QuoteLookup:
                 return quote
         return None
 
+    def list_for(self, tenant_id: UUID) -> tuple[Quote, ...]:
+        return tuple(quote for (stored, _), quote in list(self._unit.committed.items()) if stored == tenant_id)
+
     def save(self, tenant_id: UUID, conversation_id: UUID, quote) -> None:
         return None
 
@@ -313,6 +390,29 @@ def published_bundle() -> PublishedPolicy:
             settings={"deposit_percent": 30, "validity_days": 14},
             rate_card_codes=("TANK-5000",),
         ),
+    )
+
+
+def policy_draft(bundle: PublishedPolicy, discount_cap_percent: Decimal) -> PolicyDraft:
+    """The editor's starting draft: a copy of the published bundle with every rule enabled."""
+    settings = bundle.clause_policy.settings
+    vat_inclusive = bundle.rate_card.vat_inclusive
+    return PolicyDraft(
+        deposit_percent=int(settings["deposit_percent"]),
+        discount_cap_percent=int(discount_cap_percent),
+        validity_days=int(settings["validity_days"]),
+        vat_inclusive=vat_inclusive,
+        rate_rows=tuple(
+            DraftRateRow(item_code=item.item_code, unit_price=item.unit_price.amount, vat_inclusive=vat_inclusive)
+            for item in bundle.rate_card.items
+        ),
+        clauses=tuple(
+            DraftClause(clause_id=t.clause_id, text=t.text, variation_item_code=t.variation_item_code)
+            for t in bundle.clause_policy.templates
+        ),
+        required_facts=(),
+        rules=tuple(DraftRule(rule_id=rule.rule_id.value, enabled=True) for rule in bundle.policy.rules),
+        settings=tuple(settings),
     )
 
 
@@ -387,6 +487,7 @@ def install(
     ids = Ids()
     catalog = Catalog()
     policies = Policies(published)
+    policies.save_draft(TENANT_A, policy_draft(published, _caps().for_tenant(TENANT_A).discount_cap_percent))
     update = UpdateCase(cases, catalog, ids)
     quoted = Remembering(GetQuote(cases, policies, unit, QuoteClock(), ids))
     handover = HandoverToHuman(cases)
@@ -407,6 +508,7 @@ def install(
         window=LIVE_WINDOW if live else timedelta(seconds=5),
         card_base=card_base,
         card_code=card_code,
+        enricher=RecordedEnricher(),
     )
     app.state.tenant_id = TENANT_A
     app.state.conversation_id = CONVERSATION
@@ -420,6 +522,11 @@ def install(
     app.state.turn = turn
     app.state.quoted = quoted
     app.state.status = GetQuoteStatus(QuoteLookup(unit), Codes())
+    app.state.policies = policies
+    app.state.list_pending = ListPending(QuoteLookup(unit), unit, _caps())
+    app.state.approve = ApproveException(QuoteLookup(unit), unit, clock)
+    app.state.reject = RejectException(QuoteLookup(unit), unit, clock)
+    app.state.publish = PublishPolicy(policies, unit, clock)
     app.state.flags = GateFlags(afrikaans_text=False, afrikaans_voice=False)
     allowed = ("image/jpeg", "image/png", "audio/ogg", "video/mp4")
     app.state.limits = GateLimits(

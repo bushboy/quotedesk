@@ -1,0 +1,188 @@
+{% extends "owner.html" %}
+{% block title %}Policy{% endblock %}
+{% block style %}
+      .layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr); align-items: start; gap: 16px; margin-top: 24px; }
+      .version {
+        margin: 4px 0 16px;
+        color: var(--muted);
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 0.8125rem;
+        overflow-wrap: anywhere;
+      }
+      .facts { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+      .sub { margin: 20px 0 6px; color: var(--muted); font-size: 0.8125rem; font-weight: 600; }
+      .rates { margin: 0; padding: 0; list-style: none; border-top: 1px solid var(--line); }
+      .rates li { display: flex; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+      .rates .code { color: var(--muted); font-size: 0.8125rem; }
+      .field { margin-top: 18px; }
+      .suffix { position: relative; max-width: 9rem; }
+      .suffix input { padding-right: 2.25rem; font-size: 1.125rem; font-variant-numeric: tabular-nums; font-weight: 600; }
+      .suffix span { position: absolute; top: 50%; right: 12px; transform: translateY(-50%); color: var(--muted); pointer-events: none; }
+      .errors ul {
+        margin: 12px 0 0;
+        padding: 12px 14px 12px 32px;
+        border: 1px solid var(--warn-line);
+        border-radius: 8px;
+        background: var(--warn-soft);
+        color: var(--warn-ink);
+      }
+      .errors li + li { margin-top: 4px; }
+      .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-top: 22px; }
+      .actions .hint { margin: 0; }
+      .js #check { display: none; }
+      @media (max-width: 760px) {
+        .layout { grid-template-columns: 1fr; }
+        .actions button { flex: 1 1 100%; }
+      }
+{% endblock %}
+{% block main %}
+      {% set live = bundle.clause_policy.settings %}
+      <h1>Policy</h1>
+      <p class="lede">Change the deposit asked on new quotes. Quotes already sent keep the terms they were issued with.</p>
+      <div aria-live="polite">
+        {% if published %}
+        <div class="notice ok" role="status">
+          <p class="title">Published {{ published }}</p>
+          <p class="detail">New quotes ask for a <span class="num">{{ live.deposit_percent }}%</span> deposit. Quotes already sent are unchanged.</p>
+        </div>
+        {% endif %}
+        {% if refusal %}
+        <div class="notice warn" role="alert">
+          <p class="title">Not published</p>
+          <p class="detail">{{ refusal }}</p>
+        </div>
+        {% endif %}
+      </div>
+      <div class="layout">
+        <section class="card" aria-labelledby="live-title">
+          <h2 id="live-title">Live now</h2>
+          <p class="version">{{ bundle.policy.version.value }}</p>
+          <dl class="facts">
+            <div><dt>Deposit</dt><dd class="num">{{ live.deposit_percent }}%</dd></div>
+            <div><dt>Valid for</dt><dd>{{ live.validity_days }} days</dd></div>
+            <div><dt>Prices</dt><dd>{% if bundle.rate_card.vat_inclusive %}Include VAT{% else %}Exclude VAT{% endif %}</dd></div>
+            <div><dt>Rules</dt><dd>{{ bundle.policy.rules|length }} on</dd></div>
+          </dl>
+          <h3 class="sub">Rate card</h3>
+          <ul class="rates">
+            {% for item in bundle.rate_card.items %}
+            {% set name = names.get(item.item_code, item.description) %}
+            <li><span>{{ name }}{% if name != item.item_code %} <span class="code">{{ item.item_code }}</span>{% endif %}</span><span class="amount">{{ item.unit_price|rand }}</span></li>
+            {% endfor %}
+          </ul>
+        </section>
+        <section class="card" aria-labelledby="draft-title">
+          <h2 id="draft-title">Draft</h2>
+          {% if draft %}
+          <form id="draft" method="post" action="/editor/publish" novalidate data-valid="{{ 'true' if not errors else 'false' }}">
+            <div class="field">
+              <label for="deposit">Deposit percent</label>
+              <div class="suffix">
+                <input id="deposit" name="deposit" value="{{ deposit }}" inputmode="numeric" autocomplete="off" spellcheck="false" aria-describedby="deposit-hint draft-errors"{% if errors %} aria-invalid="true"{% endif %}>
+                <span aria-hidden="true">%</span>
+              </div>
+              <p class="hint" id="deposit-hint">The share of the total a customer pays to hold a date.</p>
+              <div class="errors" id="draft-errors" aria-live="polite">
+                {% if errors %}<ul>{% for sentence in errors %}<li>{{ sentence }}</li>{% endfor %}</ul>{% endif %}
+              </div>
+            </div>
+            <div class="field">
+              <label for="reason">Reason</label>
+              <textarea id="reason" name="reason" rows="3" maxlength="500" aria-describedby="reason-hint">{{ reason }}</textarea>
+              <p class="hint" id="reason-hint">Saved with the new version so you can tell why it changed.</p>
+            </div>
+            <div class="actions">
+              <button type="submit" class="primary" id="publish" data-busy="Publishing…"{% if not ready %} disabled{% endif %}>Publish</button>
+              <button type="submit" class="secondary" id="check" formaction="/editor/draft">Check draft</button>
+              <p class="hint" id="publish-hint" aria-live="polite">{% if errors %}Fix the draft to publish.{% elif not ready %}Add a reason to publish.{% else %}Ready to publish.{% endif %}</p>
+            </div>
+          </form>
+          {% else %}
+          <p class="hint">There is no draft to edit.</p>
+          {% endif %}
+        </section>
+      </div>
+{% endblock %}
+{% block script %}
+      (function () {
+        var form = document.getElementById("draft");
+        if (!form) { return; }
+        document.documentElement.classList.add("js");
+        var deposit = form.elements.deposit;
+        var reason = form.elements.reason;
+        var publish = document.getElementById("publish");
+        var hint = document.getElementById("publish-hint");
+        var box = document.getElementById("draft-errors");
+        var valid = form.dataset.valid === "true";
+        var checking = false;
+        var busy = false;
+        var sequence = 0;
+        var timer = null;
+        function sync() {
+          var hasReason = reason.value.trim() !== "";
+          publish.disabled = busy || checking || !valid || !hasReason;
+          if (busy) { return; }
+          hint.textContent = checking ? "Checking the draft…" : !valid ? "Fix the draft to publish." : !hasReason ? "Add a reason to publish." : "Ready to publish.";
+        }
+        function show(sentences) {
+          box.textContent = "";
+          if (sentences.length === 0) { deposit.removeAttribute("aria-invalid"); return; }
+          var list = document.createElement("ul");
+          sentences.forEach(function (sentence) {
+            var item = document.createElement("li");
+            item.textContent = sentence;
+            list.appendChild(item);
+          });
+          box.appendChild(list);
+          deposit.setAttribute("aria-invalid", "true");
+        }
+        function check() {
+          var mine = ++sequence;
+          checking = true;
+          sync();
+          fetch("/editor/draft", {
+            method: "POST",
+            cache: "no-store",
+            headers: { Accept: "application/json", "Content-Type": "application/x-www-form-urlencoded" },
+            body: new URLSearchParams({ deposit: deposit.value }),
+          })
+            .then(function (response) {
+              if (!response.ok) { throw new Error("check failed"); }
+              return response.json();
+            })
+            .then(function (data) {
+              if (mine !== sequence) { return; }
+              valid = data.errors.length === 0;
+              show(data.errors);
+            })
+            .catch(function () {
+              if (mine !== sequence) { return; }
+              valid = false;
+              show(["The draft could not be checked. Try again."]);
+            })
+            .finally(function () {
+              if (mine !== sequence) { return; }
+              checking = false;
+              sync();
+            });
+        }
+        deposit.addEventListener("input", function () {
+          window.clearTimeout(timer);
+          checking = true;
+          sync();
+          timer = window.setTimeout(check, 250);
+        });
+        reason.addEventListener("input", sync);
+        form.addEventListener("submit", function (event) {
+          if (busy || publish.disabled) { event.preventDefault(); return; }
+          busy = true;
+          window.setTimeout(function () {
+            publish.disabled = true;
+            publish.setAttribute("aria-busy", "true");
+            publish.textContent = publish.dataset.busy;
+            hint.textContent = "";
+          }, 0);
+        });
+        sync();
+      })();
+{% endblock %}

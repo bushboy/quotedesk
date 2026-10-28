@@ -1,0 +1,121 @@
+{% extends "owner.html" %}
+{% block title %}Requests{% endblock %}
+{% block style %}
+      .queue { display: grid; gap: 12px; margin: 0; padding: 0; list-style: none; }
+      .row {
+        display: grid;
+        grid-template-columns: minmax(8rem, 1fr) minmax(0, 2fr) auto;
+        align-items: center;
+        gap: 16px 24px;
+      }
+      .row-head { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+      .quote-id { margin: 0; font-size: 1.125rem; font-weight: 650; letter-spacing: 0.01em; }
+      .tag {
+        padding: 1px 10px;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        background: var(--sunk);
+        color: var(--muted);
+        font-size: 0.8125rem;
+      }
+      .facts { display: grid; grid-template-columns: repeat(3, max-content); gap: 8px 28px; }
+      .facts dd { font-size: 1.0625rem; }
+      .actions { display: flex; gap: 8px; }
+      .section-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin: 32px 0 12px; }
+      .count { color: var(--muted); font-size: 0.875rem; font-variant-numeric: tabular-nums; }
+      .empty { padding: 40px 20px; text-align: center; }
+      .empty-title { margin: 0; font-size: 1.0625rem; font-weight: 600; }
+      @media (max-width: 720px) {
+        .row { grid-template-columns: 1fr; }
+        .row-head { flex-direction: row; align-items: center; justify-content: space-between; }
+        .facts { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px 12px; }
+        .actions button { flex: 1; }
+      }
+{% endblock %}
+{% block main %}
+      <h1>Discount requests</h1>
+      <p class="lede">Asks above the discount cap wait here until you approve or reject them.</p>
+      <div id="outcome" aria-live="polite">
+        {% if result %}
+        <div class="notice ok" role="status">
+          <p class="title">{{ result.quote_id.value }} {% if action == "approved" %}approved{% else %}rejected{% endif %}</p>
+          <p class="detail">Version <span class="num">{{ result.version }}</span> · {{ result.state|state }} · <span class="amount">{{ result_total|rand }}</span>{% if action == "approved" %} · {{ result.discount_percent|percent }}% off{% else %} · price unchanged{% endif %}</p>
+        </div>
+        {% endif %}
+        {% if error %}
+        <div class="notice warn" role="alert">
+          <p class="title">That did not go through</p>
+          <p class="detail">{{ error }}</p>
+        </div>
+        {% endif %}
+      </div>
+      <section id="queue" aria-labelledby="queue-title">
+        <div class="section-head">
+          <h2 id="queue-title">Waiting</h2>
+          <span class="count">{{ rows|length }} {% if rows|length == 1 %}request{% else %}requests{% endif %}</span>
+        </div>
+        {% if rows %}
+        <ul class="queue">
+          {% for row in rows %}
+          {% set complete = row.version and row.requested_discount_percent is not none and row.total %}
+          <li class="card row">
+            <div class="row-head">
+              <h3 class="quote-id">{{ row.quote_id.value }}</h3>
+              <span class="tag">Version {{ row.version }}</span>
+            </div>
+            <dl class="facts">
+              <div><dt>Requested</dt><dd class="num">{{ row.requested_discount_percent|percent }}%</dd></div>
+              <div><dt>Cap</dt><dd class="num">{{ row.discount_cap_percent|percent }}%</dd></div>
+              <div><dt>Current total</dt><dd class="amount">{{ row.total|rand }}</dd></div>
+            </dl>
+            <form class="actions" method="post" action="/console/approve" data-lock>
+              <input type="hidden" name="quote_id" value="{{ row.quote_id.value }}">
+              <input type="hidden" name="version" value="{{ row.version }}">
+              <button type="submit" class="primary" data-busy="Approving…" aria-label="Approve {{ row.quote_id.value }}, version {{ row.version }}"{% if not complete %} disabled{% endif %}>Approve</button>
+              <button type="submit" class="secondary" formaction="/console/reject" data-busy="Rejecting…" aria-label="Reject {{ row.quote_id.value }}, version {{ row.version }}"{% if not complete %} disabled{% endif %}>Reject</button>
+            </form>
+          </li>
+          {% endfor %}
+        </ul>
+        {% else %}
+        <div class="card empty">
+          <p class="empty-title">There is nothing waiting.</p>
+          <p class="hint">New requests from the chat show up here on their own.</p>
+        </div>
+        {% endif %}
+      </section>
+{% endblock %}
+{% block script %}
+      (function () {
+        var busy = false;
+        document.addEventListener("submit", function (event) {
+          var form = event.target;
+          if (!form.matches("[data-lock]")) { return; }
+          if (busy) { event.preventDefault(); return; }
+          busy = true;
+          var chosen = event.submitter;
+          window.setTimeout(function () {
+            document.querySelectorAll("form[data-lock] button").forEach(function (button) {
+              button.disabled = true;
+              if (button === chosen) {
+                button.setAttribute("aria-busy", "true");
+                button.textContent = button.dataset.busy;
+              }
+            });
+          }, 0);
+        });
+        function refresh() {
+          var queue = document.getElementById("queue");
+          if (busy || document.hidden || !queue || queue.contains(document.activeElement)) { return; }
+          fetch("/console", { cache: "no-store", headers: { Accept: "text/html" } })
+            .then(function (response) { return response.ok ? response.text() : null; })
+            .then(function (text) {
+              if (!text || busy || queue.contains(document.activeElement)) { return; }
+              var next = new DOMParser().parseFromString(text, "text/html").getElementById("queue");
+              if (next && next.innerHTML !== queue.innerHTML) { queue.innerHTML = next.innerHTML; }
+            })
+            .catch(function () {});
+        }
+        window.setInterval(refresh, 5000);
+      })();
+{% endblock %}

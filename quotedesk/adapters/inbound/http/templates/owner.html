@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light dark">
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+    <meta name="theme-color" content="#1d1a16" media="(prefers-color-scheme: dark)">
+    <title>{% block title %}{% endblock %} · QuoteDesk</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%231f5c4a'/%3E%3Ctext x='16' y='22' font-family='system-ui,sans-serif' font-size='17' font-weight='700' fill='white' text-anchor='middle'%3EQ%3C/text%3E%3C/svg%3E">
+    <style>
+      :root {
+        color-scheme: light dark;
+        --page: #f4f1ea;
+        --surface: #ffffff;
+        --sunk: #faf8f3;
+        --ink: #1c1915;
+        --muted: #5e584e;
+        --line: #e4ddd0;
+        --line-strong: #cfc6b5;
+        --accent: #1d5c48;
+        --accent-hover: #164a3a;
+        --accent-ink: #ffffff;
+        --ok-soft: #e8f2ed;
+        --ok-line: #b9d7c9;
+        --ok-ink: #17402f;
+        --warn-soft: #fbefea;
+        --warn-line: #eec3b6;
+        --warn-ink: #8a2c1b;
+        --focus: #1f6feb;
+        --radius: 12px;
+        --shadow: 0 1px 2px rgba(28, 25, 21, 0.06), 0 1px 1px rgba(28, 25, 21, 0.03);
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --page: #14120f;
+          --surface: #1d1a16;
+          --sunk: #181613;
+          --ink: #f1ece2;
+          --muted: #ada596;
+          --line: #322d26;
+          --line-strong: #4a4339;
+          --accent: #6cc3a0;
+          --accent-hover: #86d2b3;
+          --accent-ink: #0c1a14;
+          --ok-soft: #15241d;
+          --ok-line: #2b4a3c;
+          --ok-ink: #bfe6d4;
+          --warn-soft: #2b1915;
+          --warn-line: #5c2f25;
+          --warn-ink: #f3ab9a;
+          --focus: #8ab4ff;
+          --shadow: none;
+        }
+      }
+      * { box-sizing: border-box; }
+      html { -webkit-text-size-adjust: 100%; }
+      body {
+        margin: 0;
+        background: var(--page);
+        color: var(--ink);
+        font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+        font-size: 1rem;
+        line-height: 1.45;
+      }
+      .skip {
+        position: absolute;
+        left: -999px;
+        top: 8px;
+        z-index: 10;
+        padding: 8px 12px;
+        border-radius: 8px;
+        background: var(--surface);
+        color: var(--ink);
+      }
+      .skip:focus { left: 8px; }
+      .bar { background: var(--surface); border-bottom: 1px solid var(--line); }
+      .bar-inner, main { width: 100%; max-width: 54rem; margin: 0 auto; padding-left: 16px; padding-right: 16px; }
+      .bar-inner {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px 16px;
+        min-height: 60px;
+      }
+      .brand { display: flex; align-items: center; gap: 10px; margin: 0; font-weight: 650; }
+      .brand-mark {
+        display: inline-grid;
+        place-items: center;
+        width: 28px;
+        height: 28px;
+        border-radius: 8px;
+        background: var(--accent);
+        color: var(--accent-ink);
+        font-size: 0.9375rem;
+      }
+      .tenant { padding-left: 10px; border-left: 1px solid var(--line); color: var(--muted); font-size: 0.875rem; font-weight: 400; }
+      nav { display: flex; gap: 4px; }
+      nav a {
+        padding: 8px 14px;
+        border-radius: 8px;
+        color: var(--muted);
+        font-size: 0.9375rem;
+        font-weight: 550;
+        text-decoration: none;
+      }
+      nav a:hover { background: var(--sunk); color: var(--ink); }
+      nav a[aria-current="page"] { background: var(--page); color: var(--ink); box-shadow: inset 0 0 0 1px var(--line); }
+      main { padding-top: 32px; padding-bottom: 72px; }
+      main:focus { outline: none; }
+      h1 { margin: 0; font-size: 1.75rem; font-weight: 650; line-height: 1.2; letter-spacing: -0.01em; }
+      h2 { margin: 0; font-size: 1.0625rem; font-weight: 650; }
+      .lede { max-width: 36rem; margin: 0.4rem 0 0; color: var(--muted); }
+      .card {
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        box-shadow: var(--shadow);
+        padding: 20px;
+      }
+      .notice { margin-top: 20px; padding: 14px 16px; border: 1px solid; border-radius: var(--radius); }
+      .notice p { margin: 0; }
+      .notice .title { font-weight: 650; }
+      .notice .detail { margin-top: 0.2rem; }
+      .notice.ok { background: var(--ok-soft); border-color: var(--ok-line); color: var(--ok-ink); }
+      .notice.warn { background: var(--warn-soft); border-color: var(--warn-line); color: var(--warn-ink); }
+      .num, .amount { font-variant-numeric: tabular-nums; white-space: nowrap; }
+      dl { margin: 0; }
+      dt { color: var(--muted); font-size: 0.8125rem; }
+      dd { margin: 2px 0 0; font-weight: 600; }
+      .hint { margin: 6px 0 0; color: var(--muted); font-size: 0.875rem; }
+      label { display: block; margin-bottom: 6px; font-weight: 600; }
+      input, textarea {
+        width: 100%;
+        min-height: 44px;
+        padding: 10px 12px;
+        border: 1px solid var(--line-strong);
+        border-radius: 8px;
+        background: var(--surface);
+        color: var(--ink);
+        font: inherit;
+      }
+      input:hover, textarea:hover { border-color: var(--muted); }
+      input[aria-invalid="true"] { border-color: var(--warn-ink); }
+      textarea { min-height: 88px; resize: vertical; }
+      button {
+        min-height: 44px;
+        padding: 10px 18px;
+        border: 1px solid transparent;
+        border-radius: 8px;
+        cursor: pointer;
+        font: inherit;
+        font-weight: 600;
+        transition: background-color 0.15s, border-color 0.15s, opacity 0.15s;
+      }
+      button.primary { background: var(--accent); color: var(--accent-ink); }
+      button.primary:hover:not(:disabled) { background: var(--accent-hover); }
+      button.secondary { background: var(--surface); border-color: var(--line-strong); color: var(--ink); }
+      button.secondary:hover:not(:disabled) { background: var(--sunk); }
+      button:disabled { cursor: not-allowed; opacity: 0.45; }
+      button[aria-busy="true"] { cursor: progress; opacity: 0.7; }
+      :focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+      @media (max-width: 480px) {
+        h1 { font-size: 1.5rem; }
+        .tenant { display: none; }
+        main { padding-top: 24px; }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        * { transition: none !important; }
+      }
+      {% block style %}{% endblock %}
+    </style>
+  </head>
+  <body>
+    <a class="skip" href="#main">Skip to content</a>
+    <header class="bar">
+      <div class="bar-inner">
+        <p class="brand"><span class="brand-mark" aria-hidden="true">Q</span><span>QuoteDesk</span><span class="tenant">AquaSure Gauteng</span></p>
+        <nav aria-label="Owner pages">
+          <a href="/console"{% if page == "console" %} aria-current="page"{% endif %}>Requests</a>
+          <a href="/editor"{% if page == "editor" %} aria-current="page"{% endif %}>Policy</a>
+        </nav>
+      </div>
+    </header>
+    <main id="main" tabindex="-1">
+      {% block main %}{% endblock %}
+    </main>
+    <script>
+      window.addEventListener("pageshow", function (event) {
+        if (event.persisted) { window.location.reload(); }
+      });
+      {% block script %}{% endblock %}
+    </script>
+  </body>
+</html>

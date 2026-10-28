@@ -1,6 +1,7 @@
 import hashlib
 import hmac
 import json
+import logging
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, BackgroundTasks, Request
@@ -10,6 +11,7 @@ from quotedesk.application.dto.inbound import InboundMessage
 from quotedesk.application.dto.tenant import TenantContext
 
 router = APIRouter()
+_log = logging.getLogger(__name__)
 
 _MEDIA = ("image", "audio", "video")
 
@@ -34,14 +36,33 @@ async def webhook(request: Request, background: BackgroundTasks) -> Response:
     raw = await request.body()
     secret = request.app.state.settings.whatsapp_app_secret
     if secret and not _signed(raw, secret, request.headers.get("x-hub-signature-256", "")):
+        _log.warning("WhatsApp webhook rejected: signature did not match")
         return Response(status_code=403)
     try:
         payload = json.loads(raw)
     except ValueError:
+        _log.warning("WhatsApp webhook rejected: body was not JSON")
         return Response(status_code=400)
     context = TenantContext(tenant_id=request.app.state.tenant_id)
-    for message in inbound_messages(payload, request.app.state.conversation_id):
-        request.app.state.receive.execute(context, message, request.app.state.flags, request.app.state.limits)
+    messages = inbound_messages(payload, request.app.state.conversation_id)
+    if not messages:
+        _log.info("WhatsApp inbound with no customer message")
+    for message in messages:
+        result = request.app.state.receive.execute(context, message, request.app.state.flags, request.app.state.limits)
+        if result.duplicate:
+            outcome = "duplicate"
+        elif result.sentence is not None:
+            outcome = "handled by gate"
+        else:
+            outcome = "stored for the turn"
+        _log.info(
+            "WhatsApp inbound id=%s from=%s kind=%s body=%s outcome=%s",
+            message.provider_message_id,
+            message.wa_id,
+            message.kind,
+            message.body,
+            outcome,
+        )
     background.add_task(request.app.state.run_turn)
     return Response(status_code=200)
 

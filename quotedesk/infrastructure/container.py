@@ -7,6 +7,8 @@ from fastapi import FastAPI
 from quotedesk.adapters.inbound.http.card import router as card_router
 from quotedesk.adapters.inbound.http.chat import SimulatedMedia
 from quotedesk.adapters.inbound.http.chat import router as chat_router
+from quotedesk.adapters.inbound.http.console import router as console_router
+from quotedesk.adapters.inbound.http.editor import router as editor_router
 from quotedesk.adapters.inbound.http.quote_card import router as quote_card_router
 from quotedesk.adapters.inbound.http.whatsapp import router as whatsapp_router
 from quotedesk.adapters.outbound.models.spark import SdkTransport, SparkTurn
@@ -15,6 +17,18 @@ from quotedesk.infrastructure.demo import QuoteScript, install, published_bundle
 
 _TICK_SECONDS = 0.25
 _log = logging.getLogger(__name__)
+
+
+def _configure_logging() -> None:
+    """Show webhook, handler, model, and front-end lines under uvicorn and Docker."""
+    log = logging.getLogger("quotedesk")
+    if log.handlers:
+        return
+    handler = logging.StreamHandler()
+    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s"))
+    log.addHandler(handler)
+    log.setLevel(logging.INFO)
+    log.propagate = False
 
 
 def _model(settings: Settings):
@@ -59,6 +73,7 @@ async def _worker(app: FastAPI):
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
+    _configure_logging()
     if settings is None:
         settings = get_settings()
     app = FastAPI(title="QuoteDesk", lifespan=_worker)
@@ -87,4 +102,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(whatsapp_router)
     app.include_router(card_router)
     app.include_router(chat_router)
+    app.include_router(console_router)
+    app.include_router(editor_router)
     return app

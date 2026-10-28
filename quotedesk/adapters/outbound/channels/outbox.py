@@ -1,6 +1,9 @@
+import logging
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
+
+_log = logging.getLogger(__name__)
 
 
 class OutboxMessage(BaseModel):
@@ -32,4 +35,5 @@ class OutboxSender:
         self._outbox = outbox
 
     def send(self, wa_id: str, body: str) -> None:
+        _log.info("Front end reply wa_id=%s body=%s", wa_id, body)
         self._outbox.append(body, wa_id)

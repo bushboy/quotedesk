@@ -4,6 +4,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field
 
 from quotedesk.domain.case.case_file import CaseFile
+from quotedesk.domain.services.confidence import RecordedMask
 
 PromptKind = Literal["text", "image", "audio", "video"]
 
@@ -63,6 +64,27 @@ class PromptRateItem(BaseModel):
     description: str
 
 
+class PromptExtraction(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    provider_message_id: str
+    summary: str
+    objects: tuple[str, ...]
+
+
+class ExtractionResult(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    summary: str
+    objects: tuple[str, ...]
+    blur: bool = False
+    darkness: bool = False
+    wrong_subject: bool = False
+    masks: tuple[RecordedMask, ...] = ()
+    sam_error: bool = False
+    sam_sentence: str = ""
+
+
 class ToolPayload(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -79,3 +101,5 @@ class TurnPrompt(BaseModel):
     case: CaseView = Field(default_factory=CaseView)
     rate_card: tuple[PromptRateItem, ...] = ()
     tool_payloads: tuple[ToolPayload, ...] = ()
+    extractions: tuple[PromptExtraction, ...] = ()
+    task: str = ""

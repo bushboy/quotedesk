@@ -24,7 +24,7 @@ export DATABASE_URL="postgresql+psycopg://quotedesk:quotedesk@127.0.0.1:5432/quo
 python -m uvicorn quotedesk.infrastructure.main:create_app --factory --host 127.0.0.1 --port 8000
 ```
 
-`DATABASE_URL` has to be set or the process refuses to start. The chat does not open that database. The same URL is in `.env.example`. Copying that file does not load it. The shell that starts uvicorn has to export the variable. `.env` stays uncommitted. There is no Meta API key in this slice.
+`DATABASE_URL` has to be set or the process refuses to start. The chat does not open that database. `.env.example` lists that URL, plus `MODEL`, `META_API_KEY`, `META_BASE_URL`, and `SPARK_MODEL_ID`. Copying that file does not load it for a shell. The shell that starts uvicorn has to export the variables. `.env` stays uncommitted. `MODEL` defaults to `script`. `MODEL=spark` also needs `META_API_KEY` and `SPARK_MODEL_ID`, or the process refuses to start. Docker Compose does load `.env` into the app container. The compose file still sets `DATABASE_URL`, so the container does not use the `127.0.0.1` address from that file.
 
 Open http://127.0.0.1:8000/chat. http://127.0.0.1:8000/health returns `{"status":"ok"}`.
 
@@ -81,7 +81,7 @@ pytest tests/adapters/test_harness.py tests/adapters/test_whatsapp_fixture.py -q
 
 ## Run with Docker
 
-`docker compose up --build` starts the app and uses the PostgreSQL already installed on this machine. The container reaches it at `host.docker.internal` on port 5432. That server needs database `quotedesk`, user `quotedesk`, and password `quotedesk`, which is the URL in `.env.example`.
+`docker compose up --build` starts the app and uses the PostgreSQL already installed on this machine. The container reaches it at `host.docker.internal` on port 5432. That server needs database `quotedesk`, user `quotedesk`, and password `quotedesk`, which is the URL in `.env.example`. The app container also receives `MODEL`, `META_API_KEY`, `META_BASE_URL`, and `SPARK_MODEL_ID` from `.env`.
 
 ```bash
 docker compose up --build
@@ -117,7 +117,7 @@ alembic upgrade head
 
 The customer channel is the web chat. `GET /whatsapp/webhook` answers Meta's verification handshake when `WHATSAPP_VERIFY_TOKEN` is set. `WHATSAPP_APP_SECRET` turns on the `X-Hub-Signature-256` check. With that secret set, the chat page's unsigned posts are rejected. Outbound delivery is the in-process outbox. `CHANNEL` accepts `outbox` only.
 
-`seeds/frameworks.yaml` is loaded by tests. The running app loads `seeds/aquasure.yaml` only. Live Spark, SAM, and Voice Transcribe are not called. Excel import, approval, and publish exist as use cases. They are not pages. Word, PowerPoint, PDF, and photo import are not in this build. Deposit links, where a use case returns one, are sandbox URLs.
+`seeds/frameworks.yaml` is loaded by tests. The running app loads `seeds/aquasure.yaml` only. With `MODEL=script` the chat does not call Spark. SAM and Voice Transcribe are not called. Excel import, approval, and publish exist as use cases. They are not pages. Word, PowerPoint, PDF, and photo import are not in this build. Deposit links, where a use case returns one, are sandbox URLs.
 
 There is no evaluation runner yet. The planned set and the metrics are in the build spec. Do not treat an unrun case as a result.
 

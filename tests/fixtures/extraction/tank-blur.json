@@ -1,0 +1,8 @@
+{
+  "summary": "A tank on a level base.",
+  "objects": ["tank"],
+  "blur": true,
+  "darkness": false,
+  "wrong_subject": false,
+  "sam": "tank_success.json"
+}
