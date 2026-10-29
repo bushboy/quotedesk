@@ -1,3 +1,5 @@
+import socket
+
 import pytest
 
 from quotedesk.application.dto.agent import ModelReply, PromptMessage, ToolCall, TurnPrompt
@@ -82,7 +84,18 @@ def _prompt() -> TurnPrompt:
 
 def _spark_env(monkeypatch, **values: str) -> None:
     monkeypatch.setenv("DATABASE_URL", DATABASE_URL)
-    for name in ("MODEL", "META_API_KEY", "META_BASE_URL", "SPARK_MODEL_ID"):
+    for name in (
+        "MODEL",
+        "META_API_KEY",
+        "META_BASE_URL",
+        "SPARK_MODEL_ID",
+        "AGENT_PROVIDER",
+        "IMAGE_PROVIDER",
+        "BASETEN_API_KEY",
+        "BASETEN_BASE_URL",
+        "BASETEN_MODEL_ID",
+        "BASETEN_IMAGE_MODEL_ID",
+    ):
         monkeypatch.delenv(name, raising=False)
     for name, value in values.items():
         monkeypatch.setenv(name, value)
@@ -176,3 +189,96 @@ def test_spark_setting_refuses_to_start_without_a_key(monkeypatch):
     spark_app = create_app(get_settings())
     assert isinstance(spark_app.state.slot.model, SparkTurn)
     assert spark_app.state.slot.model is not script_app.state.slot.model
+
+
+def test_baseten_can_host_the_agent_and_the_image_read(monkeypatch):
+    real_socket = socket.socket
+
+    def guarded_socket(*args, **kwargs):
+        raw = real_socket(*args, **kwargs)
+        connect = raw.connect
+
+        def connect_local(address):
+            host = address[0] if isinstance(address, tuple) and address else ""
+            if host not in ("127.0.0.1", "localhost", "::1"):
+                raise AssertionError("This test must not call Meta or Baseten.")
+            return connect(address)
+
+        raw.connect = connect_local
+        return raw
+
+    monkeypatch.setattr(socket, "socket", guarded_socket)
+
+    _spark_env(
+        monkeypatch,
+        MODEL="spark",
+        AGENT_PROVIDER="baseten",
+        IMAGE_PROVIDER="baseten",
+        BASETEN_API_KEY="test-key",
+        BASETEN_BASE_URL="https://inference.example/v1",
+        BASETEN_MODEL_ID="zai-org/GLM-5.3",
+        BASETEN_IMAGE_MODEL_ID="vision-slug",
+    )
+    app = create_app(get_settings())
+    assert app.state.slot.model._base_url == "https://inference.example/v1"
+    assert app.state.slot.model._model_id == "zai-org/GLM-5.3"
+    assert app.state.turn.enricher._url == "https://inference.example/v1/responses"
+    assert app.state.turn.enricher._model_id == "vision-slug"
+
+    _spark_env(
+        monkeypatch,
+        MODEL="spark",
+        AGENT_PROVIDER="baseten",
+        IMAGE_PROVIDER="meta",
+        META_API_KEY="test-key",
+        SPARK_MODEL_ID="muse-spark-1.3",
+        BASETEN_API_KEY="test-key",
+        BASETEN_MODEL_ID="zai-org/GLM-5.3",
+    )
+    mixed = create_app(get_settings())
+    assert mixed.state.slot.model._base_url == "https://inference.baseten.co/v1"
+    assert mixed.state.turn.enricher._url == "https://api.meta.ai/v1/responses"
+    assert mixed.state.turn.enricher._model_id == "muse-spark-1.3"
+
+    _spark_env(monkeypatch, MODEL="script", AGENT_PROVIDER="baseten", IMAGE_PROVIDER="baseten")
+    script_app = create_app(get_settings())
+    assert isinstance(script_app.state.slot.model, QuoteScript)
+
+    _spark_env(
+        monkeypatch,
+        MODEL="spark",
+        AGENT_PROVIDER="baseten",
+        IMAGE_PROVIDER="baseten",
+        BASETEN_API_KEY="",
+    )
+    with pytest.raises(SettingsError) as missing_key:
+        get_settings()
+    assert str(missing_key.value) == "BASETEN_API_KEY is required when AGENT_PROVIDER is baseten."
+
+    _spark_env(
+        monkeypatch,
+        MODEL="spark",
+        AGENT_PROVIDER="baseten",
+        IMAGE_PROVIDER="baseten",
+        BASETEN_API_KEY="test-key",
+        BASETEN_MODEL_ID="",
+    )
+    with pytest.raises(SettingsError) as missing_id:
+        get_settings()
+    assert str(missing_id.value) == "BASETEN_MODEL_ID is required when AGENT_PROVIDER is baseten."
+
+    _spark_env(monkeypatch, MODEL="spark", AGENT_PROVIDER="elsewhere")
+    with pytest.raises(SettingsError) as unknown:
+        get_settings()
+    assert str(unknown.value) == "AGENT_PROVIDER is meta or baseten."
+
+    _spark_env(
+        monkeypatch,
+        MODEL="spark",
+        META_API_KEY="test-key",
+        SPARK_MODEL_ID="muse-spark-1.3",
+        IMAGE_PROVIDER="elsewhere",
+    )
+    with pytest.raises(SettingsError) as unknown_image:
+        get_settings()
+    assert str(unknown_image.value) == "IMAGE_PROVIDER is meta or baseten."

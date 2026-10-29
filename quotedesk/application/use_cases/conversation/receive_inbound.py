@@ -48,15 +48,15 @@ class ReceiveInboundEvent:
         if any(event.provider_message_id == data.provider_message_id for event in conversation.log):
             return ReceiveResult(stored=True, duplicate=True, sentence=None, injection_instruction=False)
         if self._over_rate(context.tenant_id, data, limits):
-            return self._refuse(data.wa_id, _RATE)
+            return self._refuse(context, data, _RATE)
         if _file_refused(data, limits):
-            return self._refuse(data.wa_id, _FILE)
+            return self._refuse(context, data, _FILE)
         if _language_refused(data, flags):
-            return self._refuse(data.wa_id, _LANGUAGE)
+            return self._refuse(context, data, _LANGUAGE)
         if data.kind == "image":
             category = self._classifier.classify(data)
             if category in ("explicit", "sensitive_document"):
-                return self._refuse(data.wa_id, _SENSITIVE)
+                return self._refuse(context, data, _SENSITIVE)
         instruction = _instruction(data)
         stored = conversation.append(data.provider_message_id, data.at, _event_body(data))
         self._conversations.save(context.tenant_id, stored.conversation)
@@ -74,8 +74,11 @@ class ReceiveInboundEvent:
         count = sum(1 for at in self._conversations.noted(tenant_id, data.wa_id) if start <= at <= data.at)
         return count >= limits.messages_per_minute
 
-    def _refuse(self, wa_id: str, sentence: str) -> ReceiveResult:
-        self._sender.send(wa_id, sentence)
+    def _refuse(self, context: TenantContext, data: InboundMessage, sentence: str) -> ReceiveResult:
+        self._sender.send(data.wa_id, sentence)
+        record = getattr(self._conversations, "record_reply", None)
+        if record is not None:
+            record(context.tenant_id, data.conversation_id, self._clock.now(), sentence)
         return ReceiveResult(stored=False, duplicate=False, sentence=sentence, injection_instruction=False)
 
 

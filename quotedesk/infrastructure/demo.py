@@ -12,7 +12,7 @@ from fastapi import FastAPI
 
 from quotedesk.adapters.outbound.channels.outbox import Outbox, OutboxSender
 from quotedesk.adapters.outbound.models.recorded_extraction import RecordedEnricher
-from quotedesk.application.dto.agent import ModelReply, ToolCall
+from quotedesk.application.dto.agent import BusinessView, ModelReply, ToolCall
 from quotedesk.application.use_cases.tools.get_quote_status import GetQuoteStatus
 from quotedesk.application.dto.inbound import GateFlags, GateLimits, InboundMessage
 from quotedesk.application.dto.published import PublishedPolicy
@@ -33,6 +33,7 @@ from quotedesk.domain.policy.draft import DraftClause, DraftRateRow, DraftRule, 
 from quotedesk.domain.quotes.quote import Quote
 from quotedesk.domain.quotes.schedule import Capacity, ScheduleSettings
 from quotedesk.domain.shared.ids import PolicyVersionId, QuoteId
+from quotedesk.infrastructure.tenants import TenantProfile, known_tenant
 
 TENANT_A = UUID("11111111-1111-4111-8111-111111111111")
 CONVERSATION = UUID("33333333-3333-4333-8333-333333333333")
@@ -45,12 +46,53 @@ class Conversations:
         self.rows: dict[tuple[UUID, UUID], Conversation] = {}
         self.notes: list[tuple[UUID, str, datetime]] = []
         self.remembered: list[tuple[UUID, InboundMessage]] = []
+        self._by_sender: dict[tuple[UUID, str], UUID] = {}
+        self._replies: list[tuple[UUID, UUID, datetime, str]] = []
 
     def get(self, tenant_id: UUID, conversation_id: UUID) -> Conversation | None:
         return self.rows.get((tenant_id, conversation_id))
 
     def save(self, tenant_id: UUID, conversation: Conversation) -> None:
         self.rows[(tenant_id, conversation.conversation_id)] = conversation
+
+    def find(self, tenant_id: UUID, wa_id: str) -> UUID | None:
+        return self._by_sender.get((tenant_id, wa_id))
+
+    def bind(self, tenant_id: UUID, wa_id: str, conversation_id: UUID) -> None:
+        self._by_sender[(tenant_id, wa_id)] = conversation_id
+
+    def taken(self, conversation_id: UUID) -> bool:
+        return conversation_id in self._by_sender.values()
+
+    def ids(self, tenant_id: UUID) -> tuple[UUID, ...]:
+        return tuple(conversation_id for (tenant, conversation_id) in self.rows if tenant == tenant_id)
+
+    def record_reply(self, tenant_id: UUID, conversation_id: UUID, at: datetime, body: str) -> None:
+        self._replies.append((tenant_id, conversation_id, at, body))
+
+    def replies(self, tenant_id: UUID, conversation_id: UUID) -> tuple[tuple[datetime, str], ...]:
+        return tuple(
+            (at, body)
+            for tenant, stored, at, body in self._replies
+            if tenant == tenant_id and stored == conversation_id
+        )
+
+    def trail(self, tenant_id: UUID, conversation_id: UUID) -> tuple[dict[str, str], ...]:
+        rows: list[tuple[datetime, int, dict[str, str]]] = []
+        conversation = self.get(tenant_id, conversation_id)
+        if conversation is not None:
+            for event in conversation.events:
+                rows.append(
+                    (
+                        event.at,
+                        0,
+                        {"role": "customer", "id": event.provider_message_id, "body": event.body},
+                    )
+                )
+        for index, (at, body) in enumerate(self.replies(tenant_id, conversation_id)):
+            rows.append((at, 1, {"role": "assistant", "id": f"reply-{index}", "body": body}))
+        rows.sort(key=lambda item: (item[0], item[1]))
+        return tuple(item[2] for item in rows)
 
     def note(self, tenant_id: UUID, wa_id: str, at: datetime) -> None:
         self.notes.append((tenant_id, wa_id, at))
@@ -71,15 +113,17 @@ class Conversations:
 
 class Cases:
     def __init__(self, case: CaseFile) -> None:
-        self.case = case
+        self._rows = {(case.tenant_id, case.conversation_id): case}
 
     def get(self, tenant_id: UUID, conversation_id: UUID) -> CaseFile | None:
-        if tenant_id != TENANT_A or conversation_id != self.case.conversation_id:
-            return None
-        return self.case
+        return self._rows.get((tenant_id, conversation_id))
 
     def save(self, tenant_id: UUID, case: CaseFile) -> None:
-        self.case = case
+        self._rows[(tenant_id, case.conversation_id)] = case
+
+    def ensure(self, tenant_id: UUID, conversation_id: UUID) -> None:
+        if self.get(tenant_id, conversation_id) is None:
+            self.save(tenant_id, CaseFile.open(conversation_id, tenant_id))
 
 
 class Policies:
@@ -365,6 +409,42 @@ class Codes:
         return quote_id.value == "QD-1042" and code == "1042"
 
 
+def bundle_for(slug: str) -> PublishedPolicy:
+    """The published policy for the business this process started as."""
+    if slug == "frameworks":
+        return _frameworks_bundle()
+    return published_bundle()
+
+
+def _frameworks_bundle() -> PublishedPolicy:
+    from pathlib import Path
+
+    from quotedesk.adapters.outbound.parsers.aquasure import load_policy
+    from quotedesk.domain.policy.clauses import ClausePolicy
+    from quotedesk.domain.services.price import RateCard, RateCardItem
+    from quotedesk.domain.shared.money import Money
+
+    path = Path("seeds/frameworks.yaml")
+    if not path.is_file():
+        path = Path(__file__).resolve().parents[2] / "seeds" / "frameworks.yaml"
+    return PublishedPolicy(
+        policy=load_policy(path),
+        rate_card=RateCard(
+            vat_inclusive=True,
+            site_visit_fee=Money("750.00"),
+            items=(
+                RateCardItem(item_code="SHEET-ECO", description="Economy sheeting", unit_price=Money("8500.00")),
+                RateCardItem(item_code="SHEET-POLY", description="Polycarbonate sheeting", unit_price=Money("12400.00")),
+            ),
+        ),
+        clause_policy=ClausePolicy(
+            templates=(),
+            settings={"deposit_percent": 30, "validity_days": 14},
+            rate_card_codes=("SHEET-ECO", "SHEET-POLY"),
+        ),
+    )
+
+
 def published_bundle() -> PublishedPolicy:
     from pathlib import Path
 
@@ -458,6 +538,9 @@ def _schedule_settings() -> ScheduleSettings:
     )
 
 
+_LIVE_BYTES = 5 * 1024 * 1024
+
+
 def install(
     app: FastAPI,
     bundle: PublishedPolicy,
@@ -466,6 +549,8 @@ def install(
     card_code: str | None = None,
     sender=None,
     live: bool = False,
+    enricher=None,
+    tenant: TenantProfile | None = None,
 ) -> None:
     """`live` runs on wall-clock time with a short quiet window, for a person at the chat page.
 
@@ -473,8 +558,9 @@ def install(
     `sender` is the ChannelSender. It defaults to the in-process outbox.
     """
     published = bundle
+    profile = tenant or known_tenant("aquasure")
     conversations = Conversations()
-    cases = Cases(CaseFile.open(CONVERSATION, TENANT_A))
+    cases = Cases(CaseFile.open(CONVERSATION, profile.tenant_id))
     unit = Unit()
     outbox = Outbox()
     if sender is None:
@@ -487,7 +573,10 @@ def install(
     ids = Ids()
     catalog = Catalog()
     policies = Policies(published)
-    policies.save_draft(TENANT_A, policy_draft(published, _caps().for_tenant(TENANT_A).discount_cap_percent))
+    policies.save_draft(
+        profile.tenant_id,
+        policy_draft(published, _caps().for_tenant(profile.tenant_id).discount_cap_percent),
+    )
     update = UpdateCase(cases, catalog, ids)
     quoted = Remembering(GetQuote(cases, policies, unit, QuoteClock(), ids))
     handover = HandoverToHuman(cases)
@@ -508,9 +597,16 @@ def install(
         window=LIVE_WINDOW if live else timedelta(seconds=5),
         card_base=card_base,
         card_code=card_code,
-        enricher=RecordedEnricher(),
+        enricher=RecordedEnricher() if enricher is None else enricher,
+        business=BusinessView(
+            name=profile.display_name,
+            trade=profile.trade,
+            area=profile.area,
+            about=profile.about,
+        ),
     )
-    app.state.tenant_id = TENANT_A
+    app.state.tenant_id = profile.tenant_id
+    app.state.tenant = profile
     app.state.conversation_id = CONVERSATION
     app.state.conversations = conversations
     app.state.cases = cases
@@ -530,13 +626,15 @@ def install(
     app.state.flags = GateFlags(afrikaans_text=False, afrikaans_voice=False)
     allowed = ("image/jpeg", "image/png", "audio/ogg", "video/mp4")
     app.state.limits = GateLimits(
-        max_bytes=100,
+        max_bytes=_LIVE_BYTES if live else 100,
         max_audio_seconds=Decimal("30"),
         messages_per_minute=10 if live else 3,
         allowed_types=allowed + ("audio/webm", "audio/mp4") if live else allowed,
     )
 
     def run_turn() -> None:
-        turn.execute(TenantContext(tenant_id=app.state.tenant_id), app.state.conversation_id)
+        context = TenantContext(tenant_id=app.state.tenant_id)
+        for conversation_id in conversations.ids(app.state.tenant_id):
+            turn.execute(context, conversation_id)
 
     app.state.run_turn = run_turn

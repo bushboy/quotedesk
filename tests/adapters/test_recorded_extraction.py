@@ -1,6 +1,7 @@
 import socket
 from decimal import Decimal
 
+from quotedesk.adapters.outbound.models.image_context import ImageEnricher
 from quotedesk.adapters.outbound.models.recorded_extraction import RecordedEnricher, load_recording
 from quotedesk.adapters.outbound.models.spark import SparkTurn
 from quotedesk.infrastructure.config import get_settings
@@ -12,7 +13,18 @@ DATABASE_URL = "postgresql://quotedesk:quotedesk@127.0.0.1:1/quotedesk"
 
 def _env(monkeypatch, **values: str) -> None:
     monkeypatch.setenv("DATABASE_URL", DATABASE_URL)
-    for name in ("MODEL", "META_API_KEY", "META_BASE_URL", "SPARK_MODEL_ID"):
+    for name in (
+        "MODEL",
+        "META_API_KEY",
+        "META_BASE_URL",
+        "SPARK_MODEL_ID",
+        "AGENT_PROVIDER",
+        "IMAGE_PROVIDER",
+        "BASETEN_API_KEY",
+        "BASETEN_BASE_URL",
+        "BASETEN_MODEL_ID",
+        "BASETEN_IMAGE_MODEL_ID",
+    ):
         monkeypatch.delenv(name, raising=False)
     for name, value in values.items():
         monkeypatch.setenv(name, value)
@@ -60,4 +72,4 @@ def test_install_uses_the_recorded_enricher(monkeypatch):
     )
     spark_app = create_app(get_settings())
     assert isinstance(spark_app.state.slot.model, SparkTurn)
-    assert isinstance(spark_app.state.turn.enricher, RecordedEnricher)
+    assert isinstance(spark_app.state.turn.enricher, ImageEnricher)

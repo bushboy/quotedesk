@@ -2,7 +2,7 @@
 
 QuoteDesk is a conversational quoting agent for South African trade businesses. A customer writes, speaks, or sends a photo. Domain code decides whether the business may promise a fixed price, a range, a site visit, or no price. The model does not set a price, grant a discount, or change a quote's state.
 
-The running app is a web chat for one fictional installer, AquaSure. It speaks WhatsApp Cloud API payloads and keeps replies in an in-memory outbox. It does not connect a WhatsApp Business number, and it does not call a live model.
+The running app is a web chat for one business at a time, AquaSure or FrameWorks. It speaks WhatsApp Cloud API payloads and keeps replies in an in-memory outbox. It does not connect a WhatsApp Business number. `MODEL`, below, chooses whether a turn calls a live model.
 
 Product scope, the two tenants, and the policy rules are in [docs/design/QuoteDesk_Hackathon_Build_Spec.md](docs/design/QuoteDesk_Hackathon_Build_Spec.md). Layer rules are in [docs/design/QuoteDesk_Clean_Architecture.md](docs/design/QuoteDesk_Clean_Architecture.md). The day-by-day build is in [docs/build/QuoteDesk_Build_Plan.md](docs/build/QuoteDesk_Build_Plan.md).
 
@@ -24,17 +24,36 @@ export DATABASE_URL="postgresql+psycopg://quotedesk:quotedesk@127.0.0.1:5432/quo
 python -m uvicorn quotedesk.infrastructure.main:create_app --factory --host 127.0.0.1 --port 8000
 ```
 
-`DATABASE_URL` has to be set or the process refuses to start. The chat does not open that database. `.env.example` lists that URL, plus `MODEL`, `META_API_KEY`, `META_BASE_URL`, and `SPARK_MODEL_ID`. Copying that file does not load it for a shell. The shell that starts uvicorn has to export the variables. `.env` stays uncommitted. `MODEL` defaults to `script`. `MODEL=spark` also needs `META_API_KEY` and `SPARK_MODEL_ID`, or the process refuses to start. Docker Compose does load `.env` into the app container. The compose file still sets `DATABASE_URL`, so the container does not use the `127.0.0.1` address from that file.
+`DATABASE_URL` has to be set or the process refuses to start. The conversation stays in memory. Startup reads the `tenant` table when Postgres is up, and otherwise uses the built-in AquaSure and FrameWorks rows. `TENANT` is `aquasure` or `frameworks`. It defaults to `aquasure`. One process is one business. `.env.example` lists every setting. Copying that file does not load it for a shell. The shell that starts uvicorn has to export the variables. `.env` stays uncommitted. Docker Compose does load `.env` into the app container. The compose file still sets `DATABASE_URL`, so the container does not use the `127.0.0.1` address from that file.
 
 Open http://127.0.0.1:8000/chat. http://127.0.0.1:8000/health returns `{"status":"ok"}`.
 
-Every turn runs the same script. It records a 5000 L tank replacement and replies:
+With `MODEL=spark`, each turn asks the host in `AGENT_PROVIDER`. The reply is that model's, after the tools run. A price, a date, an inclusion, or a guarantee still has to come from a tool. The card for the 5000 L fixture opens only with code `1042`. Refresh loads the same version. **Clear chat** in the menu calls `POST /sim/reset` and starts that conversation again.
 
-```text
-The total is R 4 250. Your card: /card/QD-1042?code=1042
-```
+## Model settings
 
-The words you type do not change that reply. The card opens only with code `1042`. Refresh loads the same version. **Clear chat** in the menu calls `POST /sim/reset` and starts that conversation again.
+Three keys decide who answers. `MODEL` chooses whether a live model runs. The other two choose the host for each live call, and they apply only when `MODEL` is `spark`.
+
+`MODEL` is `script` or `spark`. It defaults to `spark`.
+
+- `spark` runs a live model for the WhatsApp reply and for a photo.
+- `script` uses a fixed reply and a recorded photo. `AGENT_PROVIDER` and `IMAGE_PROVIDER` are ignored, and the process does not need a Meta or Baseten key.
+
+`AGENT_PROVIDER` is `meta` or `baseten`. It defaults to `meta`. It chooses the host for the WhatsApp reply: the model that reads the conversation and calls tools.
+
+- `meta` uses `SPARK_MODEL_ID` at `META_BASE_URL`. That needs `META_API_KEY`. `META_BASE_URL` defaults to `https://api.meta.ai/v1`. `.env.example` sets `SPARK_MODEL_ID` to `muse-spark-1.3`.
+- `baseten` uses `BASETEN_MODEL_ID` at `BASETEN_BASE_URL`. That needs `BASETEN_API_KEY`. `BASETEN_BASE_URL` defaults to `https://inference.baseten.co/v1`.
+
+`IMAGE_PROVIDER` is `meta` or `baseten`. It defaults to `meta`. It chooses the host for a photo.
+
+- `meta` reads the photo with `SPARK_MODEL_ID` and needs `META_API_KEY`.
+- `baseten` reads the photo with `BASETEN_IMAGE_MODEL_ID`. When that value is empty, the photo uses `BASETEN_MODEL_ID`.
+
+The two providers are independent. The reply can come from Baseten while the photo still goes to Meta. A side left on `meta` still needs the Meta key and `SPARK_MODEL_ID`.
+
+A photo is read once. A second call on those same bytes asks for segments, and that call uses `IMAGE_PROVIDER` as well. Voice Transcribe is not called. There is no separate setting for Segment Anything.
+
+Startup logs the live choice, for example `Model agent provider=meta id=muse-spark-1.3 image provider=baseten id=...`. `MODEL=script` logs `Model script`.
 
 The page posts Cloud API JSON to `POST /whatsapp/webhook` and paints agent bubbles from `GET /whatsapp/outbox`. The webhook body is not drawn. Uploads go to `POST /sim/media`. The webhook carries a media id, not the file bytes. Reads of the outbox do not delete rows.
 
@@ -81,7 +100,7 @@ pytest tests/adapters/test_harness.py tests/adapters/test_whatsapp_fixture.py -q
 
 ## Run with Docker
 
-`docker compose up --build` starts the app and uses the PostgreSQL already installed on this machine. The container reaches it at `host.docker.internal` on port 5432. That server needs database `quotedesk`, user `quotedesk`, and password `quotedesk`, which is the URL in `.env.example`. The app container also receives `MODEL`, `META_API_KEY`, `META_BASE_URL`, and `SPARK_MODEL_ID` from `.env`.
+`docker compose up --build` starts the app and uses the PostgreSQL already installed on this machine. The container reaches it at `host.docker.internal` on port 5432. That server needs database `quotedesk`, user `quotedesk`, and password `quotedesk`, which is the URL in `.env.example`. The app container also receives `MODEL`, `AGENT_PROVIDER`, `IMAGE_PROVIDER`, the keys those providers need, and `TENANT` from `.env`.
 
 ```bash
 docker compose up --build
@@ -117,7 +136,7 @@ alembic upgrade head
 
 The customer channel is the web chat. `GET /whatsapp/webhook` answers Meta's verification handshake when `WHATSAPP_VERIFY_TOKEN` is set. `WHATSAPP_APP_SECRET` turns on the `X-Hub-Signature-256` check. With that secret set, the chat page's unsigned posts are rejected. Outbound delivery is the in-process outbox. `CHANNEL` accepts `outbox` only.
 
-`seeds/frameworks.yaml` is loaded by tests. The running app loads `seeds/aquasure.yaml` only. With `MODEL=script` the chat does not call Spark. SAM and Voice Transcribe are not called. Excel import, approval, and publish exist as use cases. They are not pages. Word, PowerPoint, PDF, and photo import are not in this build. Deposit links, where a use case returns one, are sandbox URLs.
+`seeds/frameworks.yaml` is loaded by tests. The running app loads `seeds/aquasure.yaml` only. With `MODEL=spark`, the chat uses `AGENT_PROVIDER` and a photo uses `IMAGE_PROVIDER`, as in [Model settings](#model-settings). With `MODEL=script`, both stay on the fixed reply and the recorded photo. Voice Transcribe is not called yet. Excel import, approval, and publish exist as use cases. They are not pages. Word, PowerPoint, PDF, and photo import are not in this build. Deposit links, where a use case returns one, are sandbox URLs.
 
 There is no evaluation runner yet. The planned set and the metrics are in the build spec. Do not treat an unrun case as a result.
 

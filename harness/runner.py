@@ -9,17 +9,19 @@ _FIXTURE = Path("tests/fixtures/whatsapp/text_message.json")
 
 
 class RunReport:
-    def __init__(self, outbox: tuple, case, responses: tuple[tuple[int, str], ...]) -> None:
+    def __init__(self, outbox: tuple, case, responses: tuple[tuple[int, str], ...], trail: tuple) -> None:
         self.outbox = outbox
         self.case = case
         self.responses = responses
+        self.trail = trail
 
 
 def run(app, scenario_path: str) -> RunReport:
     fixture = json.loads(_FIXTURE.read_text(encoding="utf-8"))
     client = TestClient(app)
     responses: list[tuple[int, str]] = []
-    for event in _load(Path(scenario_path)):
+    events = _load(Path(scenario_path))
+    for event in events:
         response = client.post("/whatsapp/webhook", json=_payload(fixture, event))
         responses.append((response.status_code, response.text))
         turn = getattr(app.state, "run_turn", None)
@@ -29,8 +31,11 @@ def run(app, scenario_path: str) -> RunReport:
     second = client.get("/whatsapp/outbox")
     if first.json() != second.json():
         raise RuntimeError("An outbox read removed rows.")
-    case = app.state.cases.get(app.state.tenant_id, app.state.conversation_id)
-    return RunReport(outbox=tuple(first.json()), case=case, responses=tuple(responses))
+    wa_id = events[-1]["from"] if events else ""
+    conversation_id = app.state.conversations.find(app.state.tenant_id, wa_id) or app.state.conversation_id
+    case = app.state.cases.get(app.state.tenant_id, conversation_id)
+    trail = app.state.conversations.trail(app.state.tenant_id, conversation_id)
+    return RunReport(outbox=tuple(first.json()), case=case, responses=tuple(responses), trail=trail)
 
 
 def _load(path: Path) -> tuple[dict[str, str], ...]:

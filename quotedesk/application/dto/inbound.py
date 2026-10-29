@@ -18,6 +18,7 @@ class InboundMessage(BaseModel):
     at: datetime
     kind: InboundKind
     body: str | None = None
+    media_id: str | None = None
     mime: str | None = None
     size_bytes: int | None = None
     duration_seconds: Decimal | None = None

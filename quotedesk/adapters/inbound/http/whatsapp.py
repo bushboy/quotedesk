@@ -3,6 +3,7 @@ import hmac
 import json
 import logging
 from datetime import datetime, timezone
+from uuid import uuid4
 
 from fastapi import APIRouter, BackgroundTasks, Request
 from fastapi.responses import PlainTextResponse, Response
@@ -48,6 +49,9 @@ async def webhook(request: Request, background: BackgroundTasks) -> Response:
     if not messages:
         _log.info("WhatsApp inbound with no customer message")
     for message in messages:
+        message = message.model_copy(update={"conversation_id": _resume(request, message.wa_id)})
+        message = _measured(request, message)
+        _note_image(request, message)
         result = request.app.state.receive.execute(context, message, request.app.state.flags, request.app.state.limits)
         if result.duplicate:
             outcome = "duplicate"
@@ -56,9 +60,10 @@ async def webhook(request: Request, background: BackgroundTasks) -> Response:
         else:
             outcome = "stored for the turn"
         _log.info(
-            "WhatsApp inbound id=%s from=%s kind=%s body=%s outcome=%s",
+            "WhatsApp inbound id=%s from=%s conversation=%s kind=%s body=%s outcome=%s",
             message.provider_message_id,
             message.wa_id,
+            message.conversation_id,
             message.kind,
             message.body,
             outcome,
@@ -75,6 +80,23 @@ def read_outbox(request: Request, wa_id: str | None = None, after: int | None = 
     if after is not None:
         rows = tuple(row for row in rows if row.id > after)
     return [row.model_dump() for row in rows]
+
+
+def _resume(request: Request, wa_id: str):
+    """The customer's existing thread, or a new one with its own case."""
+    conversations = request.app.state.conversations
+    cases = request.app.state.cases
+    tenant_id = request.app.state.tenant_id
+    found = conversations.find(tenant_id, wa_id)
+    if found is not None:
+        request.app.state.conversation_id = found
+        return found
+    seeded = request.app.state.conversation_id
+    conversation_id = uuid4() if conversations.taken(seeded) else seeded
+    conversations.bind(tenant_id, wa_id, conversation_id)
+    cases.ensure(tenant_id, conversation_id)
+    request.app.state.conversation_id = conversation_id
+    return conversation_id
 
 
 def inbound_messages(payload: dict, conversation_id) -> list[InboundMessage]:
@@ -100,6 +122,7 @@ def _inbound(message: dict, wa_id: str, conversation_id) -> InboundMessage:
     else:
         body = (media or {}).get("caption")
     mime = (media or {}).get("mime_type")
+    media_id = (media or {}).get("id") if isinstance(media, dict) else None
     return InboundMessage(
         conversation_id=conversation_id,
         provider_message_id=message["id"],
@@ -107,8 +130,33 @@ def _inbound(message: dict, wa_id: str, conversation_id) -> InboundMessage:
         at=datetime.fromtimestamp(int(message["timestamp"]), tz=timezone.utc),
         kind=kind,
         body=body,
+        media_id=media_id,
         mime=mime.split(";", 1)[0].strip().lower() if mime else None,
     )
+
+
+def _measured(request: Request, message: InboundMessage) -> InboundMessage:
+    """The live gate sees the hosted object's length. A missing id stays unset."""
+    if message.kind != "image" or not message.media_id:
+        return message
+    host = getattr(request.app.state, "sim_media", None)
+    if host is None:
+        return message
+    found = host.get(message.media_id)
+    if found is None:
+        return message
+    return message.model_copy(update={"size_bytes": len(found[1])})
+
+
+def _note_image(request: Request, message: InboundMessage) -> None:
+    """Tell the enricher which hosted object belongs to this message."""
+    if message.kind != "image":
+        return
+    enricher = getattr(getattr(request.app.state, "turn", None), "enricher", None)
+    note = getattr(enricher, "note", None)
+    if note is None:
+        return
+    note(message.provider_message_id, message.media_id, message.body or "")
 
 
 def _signed(raw: bytes, secret: str, header: str) -> bool:

@@ -8,6 +8,7 @@ _log = logging.getLogger(__name__)
 from pydantic import ValidationError as ModelError
 
 from quotedesk.application.dto.agent import (
+    BusinessView,
     CaseView,
     Handover,
     ModelReply,
@@ -27,7 +28,7 @@ from quotedesk.application.dto.tool_inputs import (
     RequestChangeInput,
     UpdateCaseInput,
 )
-from quotedesk.application.errors import ModelTimeout, TenantRequired
+from quotedesk.application.errors import CaseNotFound, ModelTimeout, TenantRequired
 from quotedesk.application.ports.agent import AgentModel, ConversationLock
 from quotedesk.application.ports.gate import ChannelSender
 from quotedesk.application.ports.repositories import CaseFileRepository, ConversationRepository
@@ -68,7 +69,11 @@ AGENT_TASK = (
     "Call request_change when they ask to change a quote, using the quote id from an earlier payload.\n"
     "When the reply depends on a tool, return the tool calls and no text.\n"
     "When you can greet them or ask a question, return the text and no tool call.\n"
-    "When tool_payloads is filled, write the reply from those payloads. Do not invent a second total."
+    "When tool_payloads is filled, write the reply from those payloads. Do not invent a second total.\n"
+    "Use each extraction with the message it names.\n"
+    "When the photo and the customer disagree, ask one question.\n"
+    "A size that appears only in an extraction is not customer_stated.\n"
+    "The business in the prompt is who you speak for. Use its name, and do not mention another business."
 )
 _VIDEO = "Got your video, having a look."
 _HANDOVER = "I'll ask someone from the business to pick this up. You can keep sending details here."
@@ -135,6 +140,7 @@ class RunAgentTurn:
         card_base: str | None = None,
         card_code: str | None = None,
         enricher=None,
+        business: BusinessView | None = None,
     ) -> None:
         self._conversations = conversations
         self._sender = sender
@@ -155,6 +161,8 @@ class RunAgentTurn:
         self.enricher = enricher
         self._closed: set[str] = set()
         self._change_key: str | None = None
+        self._seen: dict[str, ExtractionResult] = {}
+        self._business = business or BusinessView()
 
     def execute(self, context: TenantContext | None, conversation_id: UUID) -> None:
         if context is None:
@@ -176,33 +184,33 @@ class RunAgentTurn:
             wa_id = _wa_id(self._conversations, context.tenant_id, conversation_id)
             if _unfinished_video(batch, self._conversations.messages(context.tenant_id, conversation_id)):
                 _log.info("Turn handled by video acknowledgement")
-                self._sender.send(wa_id, _VIDEO)
+                self._speak(context, conversation_id, wa_id, _VIDEO)
                 self._close(batch)
                 return
             if _PHRASE in "\n".join(event.body for event in batch).casefold():
                 _log.info("Turn handled by handover")
                 self._handover.execute(context, conversation_id, reason=_PHRASE_REASON)
-                self._sender.send(wa_id, _HANDOVER)
+                self._speak(context, conversation_id, wa_id, _HANDOVER)
                 self._close(batch)
                 return
             _log.info("Turn handled by %s", type(self._model).__name__)
             reply = self._complete(prompt)
             if reply is None:
                 self._handover.execute(context, conversation_id, reason=_TIMEOUT_REASON)
-                self._sender.send(wa_id, _HANDOVER)
+                self._speak(context, conversation_id, wa_id, _HANDOVER)
                 self._close(batch)
                 return
             if not reply.tool_calls and not reply.text.strip():
                 _log.info("Turn produced no front-end reply")
                 self._close(batch)
                 return
-            facts, answered = self._run_tools(context, reply, prompt, batch)
+            facts, answered = self._run_tools(context, reply, prompt, batch, conversation_id)
             text = reply.text
             if reply.tool_calls and not text.strip():
                 spoken = self._complete(answered)
                 if spoken is None:
                     self._handover.execute(context, conversation_id, reason=_TIMEOUT_REASON)
-                    self._sender.send(wa_id, _HANDOVER)
+                    self._speak(context, conversation_id, wa_id, _HANDOVER)
                     self._close(batch)
                     return
                 if not spoken.text.strip():
@@ -210,7 +218,7 @@ class RunAgentTurn:
                     self._close(batch)
                     return
                 text = spoken.text
-            if not check_reply(text, facts).ok:
+            if reply.tool_calls and not check_reply(text, facts).ok:
                 second = self._model.complete(answered)
                 _log_model_reply(self._model, second)
                 if second.text and check_reply(second.text, facts).ok:
@@ -218,7 +226,7 @@ class RunAgentTurn:
                 else:
                     _log.info("Checked reply replaced the model text")
                     text = _REFUSAL
-            self._sender.send(wa_id, text)
+            self._speak(context, conversation_id, wa_id, text)
             self._close(batch)
         finally:
             self._lock.release(conversation_id)
@@ -241,22 +249,55 @@ class RunAgentTurn:
             message.provider_message_id: message.kind
             for message in self._conversations.messages(context.tenant_id, conversation.conversation_id)
         }
-        messages = tuple(
-            PromptMessage(
-                provider_message_id=event.provider_message_id,
-                kind=kinds.get(event.provider_message_id, "text"),
-                body=event.body,
-            )
-            for event in ordered[-20:]
-        )
+        messages = self._trail(context, conversation, kinds)
         return TurnPrompt(
             event_ids=tuple(event.provider_message_id for event in ordered),
             messages=messages,
             case=self._case_view(context, conversation.conversation_id),
             rate_card=self._rate_card(context),
-            extractions=self._extractions(ordered[-20:], kinds),
+            extractions=self._extractions(context, conversation.conversation_id, ordered[-20:], kinds),
+            business=self._business,
             task=AGENT_TASK,
         )
+
+    def _trail(self, context: TenantContext, conversation, kinds: dict[str, str]) -> tuple[PromptMessage, ...]:
+        rows: list[tuple[datetime, int, PromptMessage]] = []
+        for event in conversation.events:
+            rows.append(
+                (
+                    event.at,
+                    0,
+                    PromptMessage(
+                        provider_message_id=event.provider_message_id,
+                        kind=kinds.get(event.provider_message_id, "text"),
+                        body=event.body,
+                        role="customer",
+                    ),
+                )
+            )
+        replies = getattr(self._conversations, "replies", None)
+        if replies is not None:
+            for index, (at, body) in enumerate(replies(context.tenant_id, conversation.conversation_id)):
+                rows.append(
+                    (
+                        at,
+                        1,
+                        PromptMessage(
+                            provider_message_id=f"reply-{index}",
+                            kind="text",
+                            body=body,
+                            role="assistant",
+                        ),
+                    )
+                )
+        rows.sort(key=lambda item: (item[0], item[1]))
+        return tuple(item[2] for item in rows[-20:])
+
+    def _speak(self, context: TenantContext, conversation_id: UUID, wa_id: str, body: str) -> None:
+        self._sender.send(wa_id, body)
+        record = getattr(self._conversations, "record_reply", None)
+        if record is not None:
+            record(context.tenant_id, conversation_id, self._clock.now(), body)
 
     def _case_view(self, context: TenantContext, conversation_id: UUID) -> CaseView:
         case = self._handover._cases.get(context.tenant_id, conversation_id)
@@ -286,14 +327,18 @@ class RunAgentTurn:
             contradiction_count=len(case.contradictions),
         )
 
-    def _extractions(self, events: tuple[ConversationEvent, ...], kinds: dict[str, str]) -> tuple[PromptExtraction, ...]:
-        if self.enricher is None:
-            return ()
+    def _extractions(
+        self,
+        context: TenantContext,
+        conversation_id: UUID,
+        events: tuple[ConversationEvent, ...],
+        kinds: dict[str, str],
+    ) -> tuple[PromptExtraction, ...]:
         rows: list[PromptExtraction] = []
         for event in events:
             if kinds.get(event.provider_message_id) != "image":
                 continue
-            result = self.enricher.for_image(event.provider_message_id)
+            result = self._read_image(context, conversation_id, event)
             if result is None:
                 continue
             rows.append(
@@ -304,6 +349,30 @@ class RunAgentTurn:
                 )
             )
         return tuple(rows)
+
+    def _read_image(
+        self,
+        context: TenantContext,
+        conversation_id: UUID,
+        event: ConversationEvent,
+    ) -> ExtractionResult | None:
+        cached = self._seen.get(event.provider_message_id)
+        if cached is not None:
+            return cached
+        if self.enricher is None:
+            return None
+        result = self.enricher.for_image(event.provider_message_id)
+        if result is None:
+            return None
+        self._seen[event.provider_message_id] = result
+        if event.extraction_id is None:
+            conversation = self._conversations.get(context.tenant_id, conversation_id)
+            if conversation is not None:
+                self._conversations.save(
+                    context.tenant_id,
+                    conversation.attach(event.provider_message_id, extraction_id=event.provider_message_id),
+                )
+        return result
 
     def _rate_card(self, context: TenantContext) -> tuple[PromptRateItem, ...]:
         if self._policies is None:
@@ -322,6 +391,7 @@ class RunAgentTurn:
         reply: ModelReply,
         prompt: TurnPrompt,
         batch: tuple[ConversationEvent, ...],
+        conversation_id: UUID,
     ) -> tuple[TurnFacts, TurnPrompt]:
         amounts: list[Money] = []
         clauses: list = []
@@ -333,10 +403,11 @@ class RunAgentTurn:
         payloads: list[ToolPayload] = []
         for call in reply.tool_calls:
             names.append(call.name)
+            arguments = _on_conversation(call.name, call.arguments, conversation_id)
             if call.name == "update_case":
-                payloads.append(self._update(context, call.arguments))
+                payloads.append(self._update(context, arguments))
             elif call.name == "get_quote":
-                payloads.append(self._quote(context, call.arguments, batch, amounts, clauses))
+                payloads.append(self._quote(context, arguments, batch, amounts, clauses))
                 price_kind, card_link = _quote_facts(payloads[-1], self._card_base, self._card_code, price_kind, card_link)
             elif call.name == "request_change":
                 payloads.append(self._change(context, call.arguments, amounts, clauses))
@@ -346,6 +417,7 @@ class RunAgentTurn:
                     schedule_status = "indicative"
             else:
                 payloads.append(_refused(call.name))
+            _log_tool(payloads[-1])
         answered = prompt.model_copy(
             update={"tool_results": tuple(names), "tool_payloads": tuple(payloads)}
         )
@@ -366,7 +438,10 @@ class RunAgentTurn:
             data = UpdateCaseInput(**_without_confidence(arguments))
         except (ModelError, ValidationError):
             return _refused("update_case")
-        result = self._update_case.execute(context, data)
+        try:
+            result = self._update_case.execute(context, data)
+        except CaseNotFound as error:
+            return ToolPayload(name="update_case", body={"error": error.sentence})
         return ToolPayload(name="update_case", body=_body(result))
 
     def _quote(self, context, arguments: dict, batch, amounts: list, clauses: list) -> ToolPayload:
@@ -375,7 +450,10 @@ class RunAgentTurn:
         except (ModelError, ValidationError):
             return _refused("get_quote")
         self._write_confidence(context, data.conversation_id, batch)
-        result = self._get_quote.execute(context, data)
+        try:
+            result = self._get_quote.execute(context, data)
+        except CaseNotFound as error:
+            return ToolPayload(name="get_quote", body={"error": error.sentence})
         if result.total is not None:
             amounts.append(result.total)
         clauses.extend(result.clauses)
@@ -441,7 +519,11 @@ class RunAgentTurn:
             message.provider_message_id: message.kind
             for message in self._conversations.messages(context.tenant_id, conversation_id)
         }
-        has_image, has_video, objects, sam_error, masks, usability = _evidence(self.enricher, batch, kinds)
+        stored = self._conversations.get(context.tenant_id, conversation_id)
+        recent = stored.events[-20:] if stored is not None else ()
+        has_image, has_video, objects, sam_error, masks, usability = _evidence(
+            self, context, conversation_id, recent, kinds
+        )
         sizes = _sizes(current)
         flags = {
             "required_fields": required_fields_complete(current, self._catalog.required(job.job_type or "")),
@@ -479,15 +561,15 @@ class RunAgentTurn:
             self._closed.add(event.provider_message_id)
 
 
-def _evidence(enricher, batch: tuple[ConversationEvent, ...], kinds: dict[str, str]):
-    has_image = any(kinds.get(event.provider_message_id) == "image" for event in batch)
-    has_video = any(kinds.get(event.provider_message_id) == "video" for event in batch)
+def _evidence(turn: RunAgentTurn, context: TenantContext, conversation_id: UUID, events, kinds: dict[str, str]):
+    has_image = any(kinds.get(event.provider_message_id) == "image" for event in events)
+    has_video = any(kinds.get(event.provider_message_id) == "video" for event in events)
     empty = MediaUsability(has_media=False)
-    if enricher is None or not has_image:
+    if turn.enricher is None or not has_image:
         return has_image, has_video, (), False, (), empty
     found: list[ExtractionResult | None] = [
-        enricher.for_image(event.provider_message_id)
-        for event in batch
+        turn._read_image(context, conversation_id, event)
+        for event in events
         if kinds.get(event.provider_message_id) == "image"
     ]
     usable = MediaUsability(has_media=True)
@@ -535,6 +617,35 @@ def _quote_facts(payload, card_base, card_code, price_kind, card_link):
         if card_code:
             card_link = f"{card_link}?code={card_code}"
     return price_kind, card_link
+
+
+def _log_tool(payload: ToolPayload) -> None:
+    _log.info("Tool %s outcome %s", payload.name, _tool_outcome(payload))
+
+
+def _tool_outcome(payload: ToolPayload) -> str:
+    body = payload.body
+    if body.get("error"):
+        return f"error={body['error']}"
+    if payload.name == "update_case":
+        missing = body.get("missing_required") or ()
+        return (
+            f"job={body.get('job_id')} created={body.get('created')} "
+            f"current={body.get('current')} "
+            f"missing={', '.join(missing) if missing else 'none'} "
+            f"contradictions={body.get('contradiction_count')}"
+        )
+    if payload.name == "get_quote":
+        total = body.get("total")
+        amount = total.get("amount") if isinstance(total, dict) else None
+        rule = body.get("rule_id")
+        rule_id = rule.get("value") if isinstance(rule, dict) else rule
+        return f"outcome={body.get('outcome')} rule={rule_id} total={amount or 'none'}"
+    if payload.name == "request_change":
+        return f"state={body.get('state')} discount={body.get('discount_percent')}"
+    if payload.name == "check_availability":
+        return f"status={body.get('status')} earliest={body.get('earliest_window')} sentence={body.get('sentence')}"
+    return str(body)
 
 
 def _refused(name: str) -> ToolPayload:
@@ -587,6 +698,14 @@ def _event_uuid(provider_message_id: str) -> UUID:
         return UUID(provider_message_id)
     except ValueError:
         return uuid5(NAMESPACE_OID, provider_message_id)
+
+
+def _on_conversation(name: str, arguments: dict, conversation_id: UUID) -> dict:
+    if name not in ("update_case", "get_quote"):
+        return arguments
+    bound = dict(arguments)
+    bound["conversation_id"] = conversation_id
+    return bound
 
 
 def _wa_id(conversations: ConversationRepository, tenant_id, conversation_id: UUID) -> str:

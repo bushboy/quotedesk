@@ -115,6 +115,7 @@ def _context(prompt: TurnPrompt) -> str:
         "rate_card": dumped["rate_card"],
         "extractions": dumped["extractions"],
         "tool_payloads": dumped["tool_payloads"],
+        "business": dumped["business"],
     }
     body = json.dumps(context, ensure_ascii=False)
     if not prompt.task:

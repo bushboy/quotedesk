@@ -690,7 +690,7 @@
       </div>
 
       <div class="toast" id="toast" role="status"></div>
-      <input class="sr" type="file" id="file" accept="image/*,video/*" tabindex="-1">
+      <input class="sr" type="file" id="file" accept="image/*,video/*" multiple tabindex="-1">
       <input class="sr" type="file" id="shoot" accept="image/*" capture="environment" tabindex="-1">
     </div>
 
@@ -1117,6 +1117,13 @@
         return true;
       }
 
+      function sendSelected(files, caption) {
+        files.forEach((file, index) => {
+          const kind = (file.type || "").startsWith("video/") ? "video" : "image";
+          sendMedia(file, kind, index === 0 ? caption : "", 0, 0);
+        });
+      }
+
       function sendMedia(blob, kind, caption, w, h) {
         const mid = messageId();
         blobs.set(mid, blob);
@@ -1244,9 +1251,18 @@
         }));
       ["file", "shoot"].forEach((id) =>
         $(id).addEventListener("change", (e) => {
-          const file = e.target.files[0];
+          const files = Array.from(e.target.files || []);
           e.target.value = "";
-          if (file) { openViewer(file, text.value.trim()); text.value = ""; autosize(); }
+          if (!files.length) return;
+          if (id === "file" && files.length > 1) {
+            sendSelected(files, text.value.trim());
+            text.value = "";
+            autosize();
+            return;
+          }
+          openViewer(files[0], text.value.trim());
+          text.value = "";
+          autosize();
         }));
       document.querySelectorAll("[data-call]").forEach((b) => b.addEventListener("click", () => toast(`Calling isn't available for ${business}.`)));
       $("back").addEventListener("click", () => toast(`You're chatting with ${business}.`));

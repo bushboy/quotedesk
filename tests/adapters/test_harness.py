@@ -140,3 +140,21 @@ def test_harness_fixed_offer_replies_with_the_tool_amount(monkeypatch):
     assert len(application.state.unit.committed) == 1
     facts = report.case.facts("tank")
     assert any(fact.source == "photo_extraction" and fact.value == "tank on a sound base" for fact in facts)
+
+
+def test_harness_resumes_the_customer_trail(monkeypatch):
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    application = app()
+    run(application, "harness/scenarios/text.yaml")
+    report = run(application, "harness/scenarios/resume_followup.yaml")
+    assert [row["body"] for row in report.trail] == [
+        "The tank in the yard is leaking.",
+        "It is a 5000 litre tank.",
+        "Thanks.",
+        "Thanks.",
+    ]
+    assert [row["role"] for row in report.trail] == ["customer", "customer", "assistant", "assistant"]
+    stored = application.state.conversations.get(TENANT_A, CONVERSATION)
+    assert stored is not None
+    assert [event.provider_message_id for event in stored.events] == ["wamid.TEXT1", "wamid.TEXT2"]
+    assert report.case is application.state.cases.get(TENANT_A, CONVERSATION)

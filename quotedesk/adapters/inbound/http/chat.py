@@ -48,10 +48,12 @@ def _environment() -> Environment:
 
 
 @router.get("/chat", response_class=HTMLResponse)
-def chat(wa_id: str = _PINNED) -> HTMLResponse:
+def chat(request: Request, wa_id: str = _PINNED) -> HTMLResponse:
     if _WA_ID.fullmatch(wa_id) is None:
         wa_id = _PINNED
-    html = _environment().get_template("chat.html").render(business="AquaSure", wa_id=wa_id, customer="Thabo")
+    profile = getattr(request.app.state, "tenant", None)
+    business = profile.display_name if profile is not None else "AquaSure"
+    html = _environment().get_template("chat.html").render(business=business, wa_id=wa_id, customer="Thabo")
     return HTMLResponse(html)
 
 

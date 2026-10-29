@@ -1,4 +1,4 @@
-from quotedesk.application.dto.agent import ModelReply
+from quotedesk.application.dto.agent import ModelReply, ToolCall
 from quotedesk.application.dto.inbound import InboundMessage
 from quotedesk.application.use_cases.conversation.run_agent_turn import AGENT_TASK
 from quotedesk.domain.conversation.events import Conversation
@@ -61,15 +61,34 @@ def test_unstructured_words_are_answered_by_the_model():
     assert sender.sent == [(WA, CHOSEN)]
 
 
+def test_a_wrong_conversation_id_still_uses_the_open_thread():
+    class WrongId:
+        def complete(self, prompt) -> ModelReply:
+            self.prompt = prompt
+            if not prompt.tool_payloads:
+                calls = []
+                for call in replacement_calls(prompt):
+                    arguments = dict(call.arguments)
+                    arguments["conversation_id"] = "99999999-9999-4999-8999-999999999999"
+                    calls.append(ToolCall(name=call.name, arguments=arguments))
+                return ModelReply(text="", tool_calls=tuple(calls))
+            return ModelReply(text=CHOSEN, tool_calls=())
+
+    conversations, _, sender, _, turn = harness(WrongId())
+    say(conversations, CUSTOMER)
+    turn.execute(CONTEXT, CONVERSATION)
+    assert sender.sent == [(WA, CHOSEN)]
+
+
 def test_a_greeting_is_sent():
     class Greeting:
         def complete(self, prompt) -> ModelReply:
-            return ModelReply(text="Hi, what can I help you with?", tool_calls=())
+            return ModelReply(text="Hi, what can I help you with today?", tool_calls=())
 
     conversations, _, sender, _, turn = harness(Greeting())
     say(conversations, "hello")
     turn.execute(CONTEXT, CONVERSATION)
-    assert sender.sent == [(WA, "Hi, what can I help you with?")]
+    assert sender.sent == [(WA, "Hi, what can I help you with today?")]
 
 
 def test_a_chosen_sentence_with_the_wrong_total_is_refused():

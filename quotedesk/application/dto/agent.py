@@ -37,6 +37,7 @@ class PromptMessage(BaseModel):
     provider_message_id: str
     kind: PromptKind
     body: str
+    role: Literal["customer", "assistant"] = "customer"
 
 
 class PromptFact(BaseModel):
@@ -92,6 +93,15 @@ class ToolPayload(BaseModel):
     body: dict[str, Any]
 
 
+class BusinessView(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    name: str = ""
+    trade: str = ""
+    area: str = ""
+    about: str = ""
+
+
 class TurnPrompt(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -102,4 +112,5 @@ class TurnPrompt(BaseModel):
     rate_card: tuple[PromptRateItem, ...] = ()
     tool_payloads: tuple[ToolPayload, ...] = ()
     extractions: tuple[PromptExtraction, ...] = ()
+    business: BusinessView = Field(default_factory=BusinessView)
     task: str = ""

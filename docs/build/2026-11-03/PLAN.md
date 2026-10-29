@@ -124,7 +124,7 @@ Repair only inside this list. No new artifact. Run this only after the typed-tur
 
 ## Slip list
 
-Write one line per red item: id, failing check, and where it moves. A red photo quote stays here. Voice is the following slice. It does not start while this gate is red.
+Write one line per red item: id, failing check, and where it moves. A red photo quote stays here. The following slice is [the image-context plan](../2026-11-04/PLAN.md). Voice does not start while that gate is red.
 
 - [ ] Slip list reviewed. Empty is fine.
 

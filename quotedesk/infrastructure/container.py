@@ -11,9 +11,12 @@ from quotedesk.adapters.inbound.http.console import router as console_router
 from quotedesk.adapters.inbound.http.editor import router as editor_router
 from quotedesk.adapters.inbound.http.quote_card import router as quote_card_router
 from quotedesk.adapters.inbound.http.whatsapp import router as whatsapp_router
+from quotedesk.adapters.outbound.models.image_context import ImageEnricher
+from quotedesk.adapters.outbound.models.recorded_extraction import RecordedEnricher
 from quotedesk.adapters.outbound.models.spark import SdkTransport, SparkTurn
 from quotedesk.infrastructure.config import Settings, get_settings
-from quotedesk.infrastructure.demo import QuoteScript, install, published_bundle
+from quotedesk.infrastructure.demo import QuoteScript, bundle_for, install
+from quotedesk.infrastructure.tenants import resolve_tenant
 
 _TICK_SECONDS = 0.25
 _log = logging.getLogger(__name__)
@@ -34,10 +37,34 @@ def _configure_logging() -> None:
 def _model(settings: Settings):
     if settings.model == "script":
         return QuoteScript()
+    if settings.agent_provider == "baseten":
+        return SparkTurn(
+            model_id=settings.baseten_model_id,
+            base_url=settings.baseten_base_url,
+            transport=SdkTransport(settings.baseten_api_key),
+        )
     return SparkTurn(
         model_id=settings.spark_model_id,
         base_url=settings.meta_base_url,
         transport=SdkTransport(settings.meta_api_key),
+    )
+
+
+def _enricher(settings: Settings, host):
+    if settings.model != "spark":
+        return RecordedEnricher()
+    if settings.image_provider == "baseten":
+        return ImageEnricher(
+            host=host,
+            transport=SdkTransport(settings.baseten_api_key),
+            model_id=settings.baseten_image_model_id,
+            base_url=settings.baseten_base_url,
+        )
+    return ImageEnricher(
+        host=host,
+        transport=SdkTransport(settings.meta_api_key),
+        model_id=settings.spark_model_id,
+        base_url=settings.meta_base_url,
     )
 
 
@@ -79,16 +106,36 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app = FastAPI(title="QuoteDesk", lifespan=_worker)
     app.state.settings = settings
     app.state.sim_media = SimulatedMedia()
+    profile, source = resolve_tenant(settings.database_url, settings.tenant)
+    _log.info(
+        "Active tenant slug=%s id=%s name=%s source=%s",
+        profile.slug,
+        profile.tenant_id,
+        profile.display_name,
+        source,
+    )
+    if settings.model == "script":
+        _log.info("Model script")
+    else:
+        _log.info(
+            "Model agent provider=%s id=%s image provider=%s id=%s",
+            settings.agent_provider,
+            settings.baseten_model_id if settings.agent_provider == "baseten" else settings.spark_model_id,
+            settings.image_provider,
+            settings.baseten_image_model_id if settings.image_provider == "baseten" else settings.spark_model_id,
+        )
 
     def reset() -> None:
         install(
             app,
-            published_bundle(),
+            bundle_for(profile.slug),
             model=_model(settings),
             card_base="/card",
             card_code="1042",
             sender=_sender(settings),
             live=True,
+            enricher=_enricher(settings, app.state.sim_media),
+            tenant=profile,
         )
 
     reset()

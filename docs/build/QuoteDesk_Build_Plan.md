@@ -738,6 +738,10 @@ The code gate is green. `MODEL=script` still installs `QuoteScript`. `MODEL=spar
 
 The working list is [2026-11-03/PLAN.md](2026-11-03/PLAN.md). It does not start while the typed-turn evening gate is red. A photo is enriched from a recorded extraction and the recorded SAM fixture. `get_quote` still sets the price. Voice and video enrichment wait. The console and the editor are handed off in [2026-11-01/design/console-editor-handoff.md](2026-11-01/design/console-editor-handoff.md).
 
+## Next slice — image context
+
+The working list is [2026-11-04/PLAN.md](2026-11-04/PLAN.md). The running model is `spark`. Each photo on the channel is described from its bytes and kept on the conversation, so a caption, a later text, and several photos can change the reply and the agreement. `get_quote` still sets the price. Voice waits until that gate is green.
+
 ## Monday 2 November — test
 
 The evaluation below starts after the typed-turn gate is green. This section still adds no screen. A failing demo step is a repair of an existing slice. A missing nice-to-have stays cut.
