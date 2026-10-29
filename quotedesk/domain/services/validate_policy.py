@@ -11,6 +11,8 @@ _CAP = "A discount cap is a percent from 0 to 100."
 _VALIDITY = "Validity is at least one day."
 _PLACEHOLDER = "A clause placeholder has no setting."
 _VAT = "A rate card uses one VAT basis."
+_DUPLICATE = "Each item code appears once on the rate card."
+_EMPTY_CARD = "The rate card needs at least one item."
 _LOCKED_SENTENCE = "A safety rule cannot be turned off."
 
 
@@ -42,6 +44,10 @@ def validate_policy(draft: PolicyDraft) -> tuple[PolicyError, ...]:
     for row in draft.rate_rows:
         if row.unit_price <= 0:
             errors.append(PolicyError(code="policy.price", sentence=_PRICE))
+    if not draft.rate_rows:
+        errors.append(PolicyError(code="policy.empty_rate_card", sentence=_EMPTY_CARD))
+    if len(codes) < len(draft.rate_rows):
+        errors.append(PolicyError(code="policy.duplicate_item", sentence=_DUPLICATE))
     if draft.deposit_percent < 0 or draft.deposit_percent > 99:
         errors.append(PolicyError(code="policy.deposit_percent", sentence=_DEPOSIT))
     if draft.discount_cap_percent < 0 or draft.discount_cap_percent > 100:

@@ -130,13 +130,15 @@ PostgreSQL 16 is for the migrations and for `tests/adapters/test_quote_tables.py
 alembic upgrade head
 ```
 
-`alembic.ini` uses the same local URL as `.env.example`. Those two tests apply the migrations themselves when the database is up.
+`alembic.ini` uses the same local URL as `.env.example`. Those two tests apply the migrations themselves when the database is up. They need `quotedesk` to be an ordinary role: a superuser skips row-level security.
+
+The published rate card lives in the `rate_card` and `rate_card_item` tables. The migration seeds the AquaSure and FrameWorks prices. Startup reads them, and a publish from the Policy section of `/console` writes them back. With the database down, the app uses the built-in prices and a publish lasts until restart. `tests/adapters/test_rate_card_tables.py` skips itself when nothing listens on port 5432.
 
 ## What this build simulates
 
 The customer channel is the web chat. `GET /whatsapp/webhook` answers Meta's verification handshake when `WHATSAPP_VERIFY_TOKEN` is set. `WHATSAPP_APP_SECRET` turns on the `X-Hub-Signature-256` check. With that secret set, the chat page's unsigned posts are rejected. Outbound delivery is the in-process outbox. `CHANNEL` accepts `outbox` only.
 
-`seeds/frameworks.yaml` is loaded by tests. The running app loads `seeds/aquasure.yaml` only. With `MODEL=spark`, the chat uses `AGENT_PROVIDER` and a photo uses `IMAGE_PROVIDER`, as in [Model settings](#model-settings). With `MODEL=script`, both stay on the fixed reply and the recorded photo. Voice Transcribe is not called yet. Excel import, approval, and publish exist as use cases. They are not pages. Word, PowerPoint, PDF, and photo import are not in this build. Deposit links, where a use case returns one, are sandbox URLs.
+`seeds/frameworks.yaml` is loaded by tests. The running app loads `seeds/aquasure.yaml` only. With `MODEL=spark`, the chat uses `AGENT_PROVIDER` and a photo uses `IMAGE_PROVIDER`, as in [Model settings](#model-settings). With `MODEL=script`, both stay on the fixed reply and the recorded photo. Voice Transcribe is not called yet. Excel import exists as a use case. It is not a page. Approval, publish, and rate card edits are on `/console`. Word, PowerPoint, PDF, and photo import are not in this build. Deposit links, where a use case returns one, are sandbox URLs.
 
 There is no evaluation runner yet. The planned set and the metrics are in the build spec. Do not treat an unrun case as a result.
 

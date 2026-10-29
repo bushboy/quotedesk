@@ -97,8 +97,14 @@ class ImportRateCard:
 
 
 def _replace_rows(draft: PolicyDraft, rows: tuple[ImportedRow, ...]) -> PolicyDraft:
+    names = {row.item_code: row.description for row in draft.rate_rows}
     rate_rows = tuple(
-        DraftRateRow(item_code=row.item_code, unit_price=row.unit_price, vat_inclusive=draft.vat_inclusive)
+        DraftRateRow(
+            item_code=row.item_code,
+            unit_price=row.unit_price,
+            vat_inclusive=draft.vat_inclusive,
+            description=names.get(row.item_code, ""),
+        )
         for row in rows
         if row.unit_price is not None
     )

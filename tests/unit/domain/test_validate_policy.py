@@ -96,3 +96,10 @@ def test_validate_locked_rules_cannot_be_disabled() -> None:
         assert "policy.locked_rule" in {error.code for error in errors}
         assert any(error.sentence == "A safety rule cannot be turned off." for error in errors)
     assert validate_policy(_draft(rules=(DraftRule(rule_id="WATER-E01", enabled=True),))) == ()
+
+
+def test_validate_rate_card_codes_are_unique_and_present() -> None:
+    row = DraftRateRow(item_code="TANK-5000", unit_price=Decimal("4250.00"), vat_inclusive=True)
+    assert "policy.duplicate_item" in _codes(_draft(rate_rows=(row, row)))
+    assert "policy.empty_rate_card" in _codes(_draft(rate_rows=()))
+    assert _codes(_draft()) == set()

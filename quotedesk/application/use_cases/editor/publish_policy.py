@@ -78,7 +78,11 @@ def _bundle(current: PublishedPolicy, draft: PolicyDraft, version: PolicyVersion
             vat_inclusive=draft.vat_inclusive,
             site_visit_fee=current.rate_card.site_visit_fee,
             items=tuple(
-                RateCardItem(item_code=row.item_code, description=row.item_code, unit_price=Money(row.unit_price))
+                RateCardItem(
+                    item_code=row.item_code,
+                    description=row.description or row.item_code,
+                    unit_price=Money(row.unit_price),
+                )
                 for row in draft.rate_rows
             ),
         ),

@@ -314,3 +314,23 @@ def test_publish_requires_a_tenant() -> None:
     library, unit, _ = _world()
     with pytest.raises(TenantRequired):
         PublishPolicy(library, unit, Clock()).execute(None, PublishInput(reason="Raise the deposit.", idempotency_key="publish-1"))
+
+
+def test_publish_keeps_the_item_names_from_the_draft() -> None:
+    named = _draft().model_copy(
+        update={
+            "rate_rows": (
+                DraftRateRow(item_code="TANK-5000", unit_price=Decimal("4400.00"), vat_inclusive=True, description="5000 L tank"),
+                DraftRateRow(item_code="HEIGHT-EXTRA", unit_price=Decimal("100.00"), vat_inclusive=True),
+            )
+        }
+    )
+    library, unit, _ = _world(30, named)
+
+    _publish(library, unit)
+
+    items = library.published(TENANT).rate_card.items
+    assert [(item.item_code, item.description) for item in items] == [
+        ("TANK-5000", "5000 L tank"),
+        ("HEIGHT-EXTRA", "HEIGHT-EXTRA"),
+    ]

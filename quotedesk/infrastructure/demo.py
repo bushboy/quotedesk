@@ -32,6 +32,7 @@ from quotedesk.domain.conversation.events import Conversation
 from quotedesk.domain.policy.draft import DraftClause, DraftRateRow, DraftRule, PolicyDraft
 from quotedesk.domain.quotes.quote import Quote
 from quotedesk.domain.quotes.schedule import Capacity, ScheduleSettings
+from quotedesk.domain.services.price import RateCard
 from quotedesk.domain.shared.ids import PolicyVersionId, QuoteId
 from quotedesk.infrastructure.tenants import TenantProfile, known_tenant
 
@@ -127,8 +128,11 @@ class Cases:
 
 
 class Policies:
-    def __init__(self, bundle: PublishedPolicy) -> None:
+    """`rate_cards` is where a published rate card is kept. `None` keeps it in memory only."""
+
+    def __init__(self, bundle: PublishedPolicy, rate_cards=None) -> None:
         self.bundle = bundle
+        self.rate_cards = rate_cards
         self.versions: dict[str, PublishedPolicy] = {bundle.policy.version.value: bundle}
         self.drafts: dict[UUID, PolicyDraft] = {}
         self.publishes: dict[tuple[UUID, str], PolicyVersionId] = {}
@@ -148,6 +152,8 @@ class Policies:
     def save_published(self, tenant_id: UUID, bundle: PublishedPolicy) -> None:
         self.bundle = bundle
         self.versions[bundle.policy.version.value] = bundle
+        if self.rate_cards is not None:
+            self.rate_cards.save(tenant_id, bundle.rate_card)
 
     def find_publish(self, tenant_id: UUID, idempotency_key: str) -> PolicyVersionId | None:
         return self.publishes.get((tenant_id, idempotency_key))
@@ -409,6 +415,20 @@ class Codes:
         return quote_id.value == "QD-1042" and code == "1042"
 
 
+def with_rate_card(bundle: PublishedPolicy, card: RateCard | None) -> PublishedPolicy:
+    """The bundle with a stored rate card in place of the built-in one, and the item codes to match."""
+    if card is None:
+        return bundle
+    codes = tuple(item.item_code for item in card.items)
+    return bundle.model_copy(
+        update={
+            "rate_card": card,
+            "policy": bundle.policy.model_copy(update={"rate_card_codes": codes}),
+            "clause_policy": bundle.clause_policy.model_copy(update={"rate_card_codes": codes}),
+        }
+    )
+
+
 def bundle_for(slug: str) -> PublishedPolicy:
     """The published policy for the business this process started as."""
     if slug == "frameworks":
@@ -483,7 +503,12 @@ def policy_draft(bundle: PublishedPolicy, discount_cap_percent: Decimal) -> Poli
         validity_days=int(settings["validity_days"]),
         vat_inclusive=vat_inclusive,
         rate_rows=tuple(
-            DraftRateRow(item_code=item.item_code, unit_price=item.unit_price.amount, vat_inclusive=vat_inclusive)
+            DraftRateRow(
+                item_code=item.item_code,
+                unit_price=item.unit_price.amount,
+                vat_inclusive=vat_inclusive,
+                description=item.description,
+            )
             for item in bundle.rate_card.items
         ),
         clauses=tuple(
@@ -551,6 +576,7 @@ def install(
     live: bool = False,
     enricher=None,
     tenant: TenantProfile | None = None,
+    rate_cards=None,
 ) -> None:
     """`live` runs on wall-clock time with a short quiet window, for a person at the chat page.
 
@@ -572,7 +598,7 @@ def install(
     receive = ReceiveInboundEvent(conversations, sender, Media(), Ordinary(), clock)
     ids = Ids()
     catalog = Catalog()
-    policies = Policies(published)
+    policies = Policies(published, rate_cards)
     policies.save_draft(
         profile.tenant_id,
         policy_draft(published, _caps().for_tenant(profile.tenant_id).discount_cap_percent),

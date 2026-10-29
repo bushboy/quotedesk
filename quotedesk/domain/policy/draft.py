@@ -17,6 +17,7 @@ class DraftRateRow(BaseModel):
     item_code: str
     unit_price: Decimal
     vat_inclusive: bool
+    description: str = ""
 
 
 class DraftClause(BaseModel):

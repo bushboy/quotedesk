@@ -166,3 +166,72 @@ def test_the_editor_link_opens_the_policy_on_the_console(monkeypatch):
     response = _client(monkeypatch).get("/editor", follow_redirects=False)
     assert response.status_code == 303
     assert response.headers["location"] == "/console#policy"
+
+
+def _rates(**changes: str) -> dict[str, str]:
+    form = {"deposit": "30", "code-0": "TANK-5000", "name-0": "5000 L tank", "price-0": "4250.00"}
+    form.update(changes)
+    return form
+
+
+def test_the_draft_lists_the_rate_card_with_an_empty_row_to_add(monkeypatch):
+    page = _text(_client(monkeypatch).get("/console"))
+
+    assert 'name="code-0" value="TANK-5000"' in page
+    assert 'name="name-0" value="5000 L tank"' in page
+    assert 'name="price-0" value="4250.00"' in page
+    assert 'name="code-1" value=""' in page
+
+
+def test_a_new_price_an_added_item_and_a_removal_publish_together(monkeypatch):
+    client = _client(monkeypatch)
+    client.app.state.unit.committed[(TENANT_A, CONVERSATION)] = _issued_quote()
+    form = _rates(**{"price-0": "R 4 400.50", "code-1": "PUMP-STD", "name-1": "Standard pump", "price-1": "1800"})
+    form.update({"code-2": "HOSE-10", "name-2": "10 m hose", "price-2": "95.00", "remove-2": "on", "reason": "New prices"})
+
+    response = client.post("/editor/publish", data=form)
+
+    assert response.status_code == 200
+    card = _published(client).rate_card
+    assert [(item.item_code, item.description, item.unit_price) for item in card.items] == [
+        ("TANK-5000", "5000 L tank", Money("4400.50")),
+        ("PUMP-STD", "Standard pump", Money("1800.00")),
+    ]
+    assert _published(client).policy.rate_card_codes == ("TANK-5000", "PUMP-STD")
+    page = _text(response)
+    assert "Standard pump" in page and "R 1 800.00" in page
+    issued = client.app.state.unit.committed[(TENANT_A, CONVERSATION)]
+    assert issued.current.lines[0].unit_price == Money("4250.00")
+
+
+def test_an_unreadable_price_keeps_the_draft_and_the_typed_row(monkeypatch):
+    client = _client(monkeypatch)
+    before = client.app.state.policies.draft(TENANT_A)
+
+    response = client.post("/editor/publish", data=_rates(**{"price-0": "lots", "reason": "Testing"}))
+    page = _text(response)
+
+    assert response.status_code == 422
+    assert "Type each price in rand, like 4250.00." in page
+    assert 'name="price-0" value="lots"' in page
+    assert client.app.state.policies.draft(TENANT_A) == before
+
+
+def test_rate_card_mistakes_are_sentences(monkeypatch):
+    client = _client(monkeypatch)
+    headers = {"Accept": "application/json"}
+
+    def errors(**changes: str) -> list[str]:
+        return client.post("/editor/draft", data=_rates(**changes), headers=headers).json()["errors"]
+
+    assert errors(**{"code-0": "tank 5000"}) == ["An item code is letters and numbers joined by dashes, like TANK-5000."]
+    assert errors(**{"code-0": ""}) == ["Each priced item needs a code, like TANK-5000."]
+    assert errors(**{"price-0": "0"}) == ["A rate-card price must be greater than zero."]
+    assert errors(**{"code-1": "TANK-5000", "price-1": "10"}) == ["Each item code appears once on the rate card."]
+    assert errors(**{"remove-0": "on"}) == ["The rate card needs at least one item."]
+    assert errors() == []
+
+
+def test_without_a_database_the_page_says_prices_last_until_restart(monkeypatch):
+    page = _text(_client(monkeypatch).get("/console"))
+    assert "The database isn't reachable, so price changes last until the app restarts." in page

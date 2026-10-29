@@ -15,7 +15,8 @@ from quotedesk.adapters.outbound.models.image_context import ImageEnricher
 from quotedesk.adapters.outbound.models.recorded_extraction import RecordedEnricher
 from quotedesk.adapters.outbound.models.spark import SdkTransport, SparkTurn
 from quotedesk.infrastructure.config import Settings, get_settings
-from quotedesk.infrastructure.demo import QuoteScript, bundle_for, install
+from quotedesk.infrastructure.demo import QuoteScript, bundle_for, install, with_rate_card
+from quotedesk.infrastructure.rate_cards import StoredRateCards
 from quotedesk.infrastructure.tenants import resolve_tenant
 
 _TICK_SECONDS = 0.25
@@ -125,10 +126,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             settings.baseten_image_model_id if settings.image_provider == "baseten" else settings.spark_model_id,
         )
 
+    rate_cards = StoredRateCards(settings.database_url)
+
     def reset() -> None:
         install(
             app,
-            bundle_for(profile.slug),
+            with_rate_card(bundle_for(profile.slug), rate_cards.load(profile.tenant_id)),
             model=_model(settings),
             card_base="/card",
             card_code="1042",
@@ -136,7 +139,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             live=True,
             enricher=_enricher(settings, app.state.sim_media),
             tenant=profile,
+            rate_cards=rate_cards,
         )
+        app.state.rate_cards = rate_cards
 
     reset()
     app.state.reset = reset

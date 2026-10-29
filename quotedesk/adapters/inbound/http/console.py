@@ -33,7 +33,7 @@ _APPROVAL_DAYS = timedelta(days=7)
 _VERSION = re.compile(r"\d{1,9}")
 _BAD_VERSION = "That version is not a number."
 _ACTIONS = ("approved", "rejected")
-_MAX_FORM = 4096
+_MAX_FORM = 32768
 _SAST = timezone(timedelta(hours=2))
 _SNIPPET = 80
 _LIST_LIMIT = 20
@@ -189,6 +189,7 @@ def policy_view(
     errors: tuple[str, ...] | None = None,
     refusal: str | None = None,
     published: str = "",
+    rows: list[dict] | None = None,
 ) -> dict:
     state = request.app.state
     draft = state.policies.draft(state.tenant_id)
@@ -196,6 +197,9 @@ def policy_view(
         deposit = str(draft.deposit_percent) if draft is not None else ""
     if errors is None:
         errors = policy_sentences(draft)
+    if rows is None:
+        rows = draft_rows(draft)
+    store = getattr(state, "rate_cards", None)
     return {
         "bundle": state.policies.published(state.tenant_id),
         "draft": draft,
@@ -205,8 +209,20 @@ def policy_view(
         "refusal": refusal,
         "published": _published_version(request, published),
         "names": _item_names(state),
+        "rows": [*rows, {"code": "", "name": "", "price": "", "remove": False, "blank": True}],
+        "deposit_invalid": any("deposit" in sentence.lower() for sentence in errors),
+        "storage": None if store is None else store.reachable,
         "ready": not errors and draft is not None and reason.strip() != "",
     }
+
+
+def draft_rows(draft) -> list[dict]:
+    if draft is None:
+        return []
+    return [
+        {"code": row.item_code, "name": row.description, "price": f"{row.unit_price:.2f}", "remove": False}
+        for row in draft.rate_rows
+    ]
 
 
 def policy_sentences(draft) -> tuple[str, ...]:

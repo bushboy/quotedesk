@@ -42,7 +42,8 @@
       .queue .facts dd { font-size: 1.0625rem; }
       .queue .actions { display: flex; gap: 8px; }
 
-      .layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr); align-items: start; gap: 16px; }
+      .layout { display: grid; grid-template-columns: minmax(0, 1fr); align-items: start; gap: 16px; }
+      .live .rates { max-width: 32rem; }
       .version {
         margin: 4px 0 16px;
         color: var(--muted);
@@ -72,6 +73,19 @@
       #draft .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-top: 22px; }
       #draft .actions .hint { margin: 0; }
       .js #check { display: none; }
+      .rate-edit { min-width: 0; margin: 18px 0 0; padding: 0; border: 0; }
+      .rate-edit legend { margin-bottom: 6px; padding: 0; font-weight: 600; }
+      .rate-edit table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+      .rate-edit th { padding: 0 6px 6px 0; color: var(--muted); font-size: 0.8125rem; font-weight: 600; text-align: left; }
+      .rate-edit td { padding: 4px 6px 4px 0; vertical-align: middle; }
+      .rate-edit .hint { margin: 0 0 10px; }
+      .rate-edit .c-code { width: 26%; }
+      .rate-edit .c-price { width: 20%; }
+      .rate-edit .c-remove { width: 6rem; }
+      .rate-edit input[name^="price-"] { font-variant-numeric: tabular-nums; text-align: right; }
+      .rate-edit .remove { display: flex; align-items: center; gap: 6px; margin: 0; color: var(--muted); font-size: 0.875rem; font-weight: 400; }
+      .rate-edit .remove input { width: auto; }
+      .rate-edit tr.new input { border-style: dashed; }
       #policy .notice { margin: 0 0 16px; }
 
       @media (max-width: 760px) {
@@ -196,12 +210,12 @@
         <div class="section-head">
           <h2 id="policy-title">Policy</h2>
         </div>
-        <p class="hint" style="margin-bottom:16px">Change the deposit asked on new quotes. Quotes already sent keep the terms they were issued with.</p>
+        <p class="hint" style="margin-bottom:16px">Change the deposit and the prices used on new quotes. Quotes already sent keep the terms and prices they were issued with.</p>
         <div aria-live="polite">
           {% if p.published %}
           <div class="notice ok" role="status">
             <p class="title">Published {{ p.published }}</p>
-            <p class="detail">New quotes ask for a <span class="num">{{ live.deposit_percent }}%</span> deposit. Quotes already sent are unchanged.</p>
+            <p class="detail">New quotes ask for a <span class="num">{{ live.deposit_percent }}%</span> deposit and use the rate card below. Quotes already sent are unchanged.</p>
           </div>
           {% endif %}
           {% if p.refusal %}
@@ -228,6 +242,9 @@
               <li><span>{{ name }}{% if name != item.item_code %} <span class="code">{{ item.item_code }}</span>{% endif %}</span><span class="amount">{{ item.unit_price|rand }}</span></li>
               {% endfor %}
             </ul>
+            {% if p.storage is not none %}
+            <p class="hint" id="storage">{% if p.storage %}Saved in the database.{% else %}The database isn't reachable, so price changes last until the app restarts.{% endif %}</p>
+            {% endif %}
           </div>
           <div class="card" aria-labelledby="draft-title">
             <h3 id="draft-title">Draft</h3>
@@ -236,13 +253,33 @@
               <div class="field">
                 <label for="deposit">Deposit percent</label>
                 <div class="suffix">
-                  <input id="deposit" name="deposit" value="{{ p.deposit }}" inputmode="numeric" autocomplete="off" spellcheck="false" aria-describedby="deposit-hint draft-errors"{% if p.errors %} aria-invalid="true"{% endif %}>
+                  <input id="deposit" name="deposit" value="{{ p.deposit }}" inputmode="numeric" autocomplete="off" spellcheck="false" aria-describedby="deposit-hint draft-errors"{% if p.deposit_invalid %} aria-invalid="true"{% endif %}>
                   <span aria-hidden="true">%</span>
                 </div>
                 <p class="hint" id="deposit-hint">The share of the total a customer pays to hold a date.</p>
-                <div class="errors" id="draft-errors" aria-live="polite">
-                  {% if p.errors %}<ul>{% for sentence in p.errors %}<li>{{ sentence }}</li>{% endfor %}</ul>{% endif %}
-                </div>
+              </div>
+              <fieldset class="rate-edit" aria-describedby="rates-hint draft-errors">
+                <legend>Rate card</legend>
+                <p class="hint" id="rates-hint">Prices in rand, {% if p.draft.vat_inclusive %}including{% else %}excluding{% endif %} VAT. Fill in the empty row to add an item.</p>
+                <table>
+                  <thead>
+                    <tr><th scope="col" class="c-code">Code</th><th scope="col">Name</th><th scope="col" class="c-price">Price</th><th scope="col" class="c-remove"><span hidden>Remove</span></th></tr>
+                  </thead>
+                  <tbody>
+                    {% for row in p.rows %}
+                    {% set i = loop.index0 %}
+                    <tr{% if row.blank %} class="new"{% endif %}>
+                      <td><input name="code-{{ i }}" value="{{ row.code }}" autocomplete="off" spellcheck="false" aria-label="{% if row.blank %}New item code{% else %}Code, row {{ loop.index }}{% endif %}"{% if row.blank %} placeholder="New code"{% endif %}></td>
+                      <td><input name="name-{{ i }}" value="{{ row.name }}" autocomplete="off" aria-label="{% if row.blank %}New item name{% else %}Name, row {{ loop.index }}{% endif %}"></td>
+                      <td><input name="price-{{ i }}" value="{{ row.price }}" inputmode="decimal" autocomplete="off" aria-label="{% if row.blank %}New item price{% else %}Price, row {{ loop.index }}{% endif %}"></td>
+                      <td>{% if not row.blank %}<label class="remove"><input type="checkbox" name="remove-{{ i }}"{% if row.remove %} checked{% endif %}> Remove</label>{% endif %}</td>
+                    </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              </fieldset>
+              <div class="errors" id="draft-errors" aria-live="polite">
+                {% if p.errors %}<ul>{% for sentence in p.errors %}<li>{{ sentence }}</li>{% endfor %}</ul>{% endif %}
               </div>
               <div class="field">
                 <label for="reason">Reason</label>
@@ -324,7 +361,9 @@
         }
         function show(sentences) {
           box.textContent = "";
-          if (sentences.length === 0) { deposit.removeAttribute("aria-invalid"); return; }
+          var depositWrong = sentences.some(function (sentence) { return /deposit/i.test(sentence); });
+          if (depositWrong) { deposit.setAttribute("aria-invalid", "true"); } else { deposit.removeAttribute("aria-invalid"); }
+          if (sentences.length === 0) { return; }
           var list = document.createElement("ul");
           sentences.forEach(function (sentence) {
             var item = document.createElement("li");
@@ -332,7 +371,6 @@
             list.appendChild(item);
           });
           box.appendChild(list);
-          deposit.setAttribute("aria-invalid", "true");
         }
         function check() {
           var mine = ++sequence;
@@ -342,7 +380,7 @@
             method: "POST",
             cache: "no-store",
             headers: { Accept: "application/json", "Content-Type": "application/x-www-form-urlencoded" },
-            body: new URLSearchParams({ deposit: deposit.value }),
+            body: new URLSearchParams(new FormData(form)),
           })
             .then(function (response) {
               if (!response.ok) { throw new Error("check failed"); }
@@ -364,12 +402,15 @@
               sync();
             });
         }
-        deposit.addEventListener("input", function () {
+        function later(event) {
+          if (event.target === reason) { return; }
           window.clearTimeout(timer);
           checking = true;
           sync();
           timer = window.setTimeout(check, 250);
-        });
+        }
+        form.addEventListener("input", later);
+        form.addEventListener("change", function (event) { if (event.target.type === "checkbox") { later(event); } });
         reason.addEventListener("input", sync);
         form.addEventListener("submit", function (event) {
           if (busy || publish.disabled) { event.preventDefault(); return; }
