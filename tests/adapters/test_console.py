@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 
 from quotedesk.adapters.inbound.http.console import percent, rand
 from quotedesk.application.dto.changes import ChangeRecord
+from quotedesk.application.dto.inbound import InboundMessage
 from quotedesk.application.dto.tool_outputs import RequestChangeResult
 from quotedesk.domain.policy.rules import Outcome
 from quotedesk.domain.quotes.quote import Quote, QuoteLine, QuoteState
@@ -75,6 +76,10 @@ def _queue(page: str) -> str:
     return page.split('id="queue"', 1)[1]
 
 
+def _activity(page: str) -> str:
+    return page.split('id="activity"', 1)[1].split('id="approvals"', 1)[0]
+
+
 def test_console_lists_the_pending_ask(monkeypatch):
     client = _client(monkeypatch)
     seed(client.app, "QD-1042", FIRST)
@@ -111,8 +116,9 @@ def test_approve_issues_the_next_version_and_leaves_the_queue(monkeypatch):
     assert client.app.state.unit.audits[-1].action == "quote.approved"
 
     again = _text(client.get("/console"))
-    assert "QD-1042" not in again
+    assert "QD-1042" not in _queue(again)
     assert "There is nothing waiting." in again
+    assert "QD-1042" in _activity(again)
 
 
 def test_approval_expires_seven_days_after_the_app_clock(monkeypatch):
@@ -214,3 +220,44 @@ def test_money_and_percent_are_formatted_from_decimals():
     assert rand(Money("0")) == "R 0.00"
     assert percent(Decimal("10")) == "10"
     assert percent(Decimal("12.50")) == "12.5"
+
+
+def test_activity_lists_contacts_and_quotes_that_went_out(monkeypatch):
+    client = _client(monkeypatch)
+    seed(client.app, "QD-1042", FIRST)
+    at = datetime(2026, 10, 28, 12, 5, tzinfo=timezone.utc)
+    for n, body in enumerate(("Hi, I need a 5000 L tank", "Can you do 10% off?")):
+        client.app.state.conversations.remember(
+            TENANT_A,
+            InboundMessage(
+                conversation_id=FIRST,
+                provider_message_id=f"wamid.{n}",
+                wa_id="27821234567",
+                at=at.replace(minute=n),
+                kind="text",
+                body=body,
+            ),
+        )
+
+    activity = _plain(_activity(_text(client.get("/console"))))
+
+    assert "+27821234567" in activity
+    assert "Can you do 10% off?" in activity
+    assert "2 messages" in activity
+    assert "28 Oct 14:01" in activity
+    assert "QD-1042" in activity
+    assert "Pending approval" in activity
+    assert "R 4 250.00" in activity
+
+
+def test_activity_is_empty_before_anyone_writes(monkeypatch):
+    activity = _activity(_text(_client(monkeypatch).get("/console")))
+    assert "No customer has been in touch yet." in activity
+    assert "No quote has gone out yet." in activity
+
+
+def test_the_console_is_one_page_with_no_tabs(monkeypatch):
+    page = _text(_client(monkeypatch).get("/console"))
+    assert "<nav" not in page
+    assert 'id="policy"' in page
+    assert 'action="/editor/publish"' in page

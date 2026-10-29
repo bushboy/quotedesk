@@ -1,6 +1,34 @@
 {% extends "owner.html" %}
-{% block title %}Requests{% endblock %}
+{% block title %}Console{% endblock %}
 {% block style %}
+      section + section { margin-top: 40px; }
+      .section-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin: 32px 0 12px; }
+      .count { color: var(--muted); font-size: 0.875rem; font-variant-numeric: tabular-nums; }
+      .tag {
+        padding: 1px 10px;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        background: var(--sunk);
+        color: var(--muted);
+        font-size: 0.8125rem;
+        white-space: nowrap;
+      }
+      .empty { padding: 40px 20px; text-align: center; }
+      .empty-title { margin: 0; font-size: 1.0625rem; font-weight: 600; }
+
+      .feeds { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; gap: 16px; }
+      .feed { padding: 0; }
+      .feed-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 16px 20px 12px; border-bottom: 1px solid var(--line); }
+      .feed ul { margin: 0; padding: 0; list-style: none; }
+      .feed li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 12px; padding: 12px 20px; }
+      .feed li + li { border-top: 1px solid var(--line); }
+      .feed .who { font-weight: 600; }
+      .feed .at { color: var(--muted); font-size: 0.8125rem; font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+      .feed .said { grid-column: 1 / -1; color: var(--muted); font-size: 0.9375rem; overflow-wrap: anywhere; }
+      .feed .meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; grid-column: 1 / -1; color: var(--muted); font-size: 0.9375rem; }
+      .feed .meta .amount { color: var(--ink); font-weight: 600; }
+      .feed .none { padding: 20px; color: var(--muted); }
+
       .queue { display: grid; gap: 12px; margin: 0; padding: 0; list-style: none; }
       .row {
         display: grid;
@@ -10,79 +38,228 @@
       }
       .row-head { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
       .quote-id { margin: 0; font-size: 1.125rem; font-weight: 650; letter-spacing: 0.01em; }
-      .tag {
-        padding: 1px 10px;
-        border: 1px solid var(--line);
-        border-radius: 999px;
-        background: var(--sunk);
+      .queue .facts { display: grid; grid-template-columns: repeat(3, max-content); gap: 8px 28px; }
+      .queue .facts dd { font-size: 1.0625rem; }
+      .queue .actions { display: flex; gap: 8px; }
+
+      .layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr); align-items: start; gap: 16px; }
+      .version {
+        margin: 4px 0 16px;
         color: var(--muted);
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
         font-size: 0.8125rem;
+        overflow-wrap: anywhere;
       }
-      .facts { display: grid; grid-template-columns: repeat(3, max-content); gap: 8px 28px; }
-      .facts dd { font-size: 1.0625rem; }
-      .actions { display: flex; gap: 8px; }
-      .section-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin: 32px 0 12px; }
-      .count { color: var(--muted); font-size: 0.875rem; font-variant-numeric: tabular-nums; }
-      .empty { padding: 40px 20px; text-align: center; }
-      .empty-title { margin: 0; font-size: 1.0625rem; font-weight: 600; }
+      .layout h3 { margin: 0; }
+      .live .facts { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+      .sub { margin: 20px 0 6px; color: var(--muted); font-size: 0.8125rem; font-weight: 600; }
+      .rates { margin: 0; padding: 0; list-style: none; border-top: 1px solid var(--line); }
+      .rates li { display: flex; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+      .rates .code { color: var(--muted); font-size: 0.8125rem; }
+      .field { margin-top: 18px; }
+      .suffix { position: relative; max-width: 9rem; }
+      .suffix input { padding-right: 2.25rem; font-size: 1.125rem; font-variant-numeric: tabular-nums; font-weight: 600; }
+      .suffix span { position: absolute; top: 50%; right: 12px; transform: translateY(-50%); color: var(--muted); pointer-events: none; }
+      .errors ul {
+        margin: 12px 0 0;
+        padding: 12px 14px 12px 32px;
+        border: 1px solid var(--warn-line);
+        border-radius: 8px;
+        background: var(--warn-soft);
+        color: var(--warn-ink);
+      }
+      .errors li + li { margin-top: 4px; }
+      #draft .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-top: 22px; }
+      #draft .actions .hint { margin: 0; }
+      .js #check { display: none; }
+      #policy .notice { margin: 0 0 16px; }
+
+      @media (max-width: 760px) {
+        .feeds, .layout { grid-template-columns: 1fr; }
+        #draft .actions button { flex: 1 1 100%; }
+      }
       @media (max-width: 720px) {
         .row { grid-template-columns: 1fr; }
         .row-head { flex-direction: row; align-items: center; justify-content: space-between; }
-        .facts { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px 12px; }
-        .actions button { flex: 1; }
+        .queue .facts { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px 12px; }
+        .queue .actions button { flex: 1; }
       }
 {% endblock %}
 {% block main %}
-      <h1>Discount requests</h1>
-      <p class="lede">Asks above the discount cap wait here until you approve or reject them.</p>
-      <div id="outcome" aria-live="polite">
-        {% if result %}
-        <div class="notice ok" role="status">
-          <p class="title">{{ result.quote_id.value }} {% if action == "approved" %}approved{% else %}rejected{% endif %}</p>
-          <p class="detail">Version <span class="num">{{ result.version }}</span> · {{ result.state|state }} · <span class="amount">{{ result_total|rand }}</span>{% if action == "approved" %} · {{ result.discount_percent|percent }}% off{% else %} · price unchanged{% endif %}</p>
-        </div>
-        {% endif %}
-        {% if error %}
-        <div class="notice warn" role="alert">
-          <p class="title">That did not go through</p>
-          <p class="detail">{{ error }}</p>
-        </div>
-        {% endif %}
-      </div>
-      <section id="queue" aria-labelledby="queue-title">
+      <h1>Console</h1>
+      <p class="lede">Who got in touch, which quotes went out, and what needs your decision.</p>
+
+      <section id="activity" aria-labelledby="activity-title">
         <div class="section-head">
-          <h2 id="queue-title">Waiting</h2>
-          <span class="count">{{ rows|length }} {% if rows|length == 1 %}request{% else %}requests{% endif %}</span>
+          <h2 id="activity-title">Activity</h2>
         </div>
-        {% if rows %}
-        <ul class="queue">
-          {% for row in rows %}
-          {% set complete = row.version and row.requested_discount_percent is not none and row.total %}
-          <li class="card row">
-            <div class="row-head">
-              <h3 class="quote-id">{{ row.quote_id.value }}</h3>
-              <span class="tag">Version {{ row.version }}</span>
+        <div class="feeds">
+          <div class="card feed" aria-labelledby="contacts-title">
+            <div class="feed-head">
+              <h3 id="contacts-title" class="sub" style="margin:0">Contacts</h3>
+              <span class="count">{{ contacts|length }}</span>
             </div>
-            <dl class="facts">
-              <div><dt>Requested</dt><dd class="num">{{ row.requested_discount_percent|percent }}%</dd></div>
-              <div><dt>Cap</dt><dd class="num">{{ row.discount_cap_percent|percent }}%</dd></div>
-              <div><dt>Current total</dt><dd class="amount">{{ row.total|rand }}</dd></div>
-            </dl>
-            <form class="actions" method="post" action="/console/approve" data-lock>
-              <input type="hidden" name="quote_id" value="{{ row.quote_id.value }}">
-              <input type="hidden" name="version" value="{{ row.version }}">
-              <button type="submit" class="primary" data-busy="Approving…" aria-label="Approve {{ row.quote_id.value }}, version {{ row.version }}"{% if not complete %} disabled{% endif %}>Approve</button>
-              <button type="submit" class="secondary" formaction="/console/reject" data-busy="Rejecting…" aria-label="Reject {{ row.quote_id.value }}, version {{ row.version }}"{% if not complete %} disabled{% endif %}>Reject</button>
-            </form>
-          </li>
-          {% endfor %}
-        </ul>
-        {% else %}
-        <div class="card empty">
-          <p class="empty-title">There is nothing waiting.</p>
-          <p class="hint">New requests from the chat show up here on their own.</p>
+            {% if contacts %}
+            <ul>
+              {% for contact in contacts %}
+              <li>
+                <span class="who num">{% if contact.wa_id.isdigit() %}+{% endif %}{{ contact.wa_id }}</span>
+                <span class="at">{{ contact.at|when }}</span>
+                <span class="said">{{ contact.last }}</span>
+                <span class="meta">{{ contact.count }} {% if contact.count == 1 %}message{% else %}messages{% endif %}</span>
+              </li>
+              {% endfor %}
+            </ul>
+            {% else %}
+            <p class="none">No customer has been in touch yet.</p>
+            {% endif %}
+          </div>
+          <div class="card feed" aria-labelledby="quotes-title">
+            <div class="feed-head">
+              <h3 id="quotes-title" class="sub" style="margin:0">Quotes sent</h3>
+              <span class="count">{{ quotes|length }}</span>
+            </div>
+            {% if quotes %}
+            <ul>
+              {% for sent in quotes %}
+              <li>
+                <span class="who">{{ sent.quote_id }}</span>
+                <span class="at">{{ sent.at|when }}</span>
+                <span class="meta"><span class="tag">Version {{ sent.version }}</span>{{ sent.state|state }}<span class="amount">{{ sent.total|rand }}</span></span>
+              </li>
+              {% endfor %}
+            </ul>
+            {% else %}
+            <p class="none">No quote has gone out yet.</p>
+            {% endif %}
+          </div>
         </div>
-        {% endif %}
+      </section>
+
+      <section id="approvals" aria-labelledby="approvals-title">
+        <div class="section-head">
+          <h2 id="approvals-title">Approvals</h2>
+          <span class="count" id="queue-count">{{ rows|length }} {% if rows|length == 1 %}request{% else %}requests{% endif %}</span>
+        </div>
+        <p class="hint">Discount asks above the cap wait here until you approve or reject them.</p>
+        <div id="outcome" aria-live="polite">
+          {% if result %}
+          <div class="notice ok" role="status">
+            <p class="title">{{ result.quote_id.value }} {% if action == "approved" %}approved{% else %}rejected{% endif %}</p>
+            <p class="detail">Version <span class="num">{{ result.version }}</span> · {{ result.state|state }} · <span class="amount">{{ result_total|rand }}</span>{% if action == "approved" %} · {{ result.discount_percent|percent }}% off{% else %} · price unchanged{% endif %}</p>
+          </div>
+          {% endif %}
+          {% if error %}
+          <div class="notice warn" role="alert">
+            <p class="title">That did not go through</p>
+            <p class="detail">{{ error }}</p>
+          </div>
+          {% endif %}
+        </div>
+        <div id="queue" style="margin-top:16px">
+          {% if rows %}
+          <ul class="queue">
+            {% for row in rows %}
+            {% set complete = row.version and row.requested_discount_percent is not none and row.total %}
+            <li class="card row">
+              <div class="row-head">
+                <h3 class="quote-id">{{ row.quote_id.value }}</h3>
+                <span class="tag">Version {{ row.version }}</span>
+              </div>
+              <dl class="facts">
+                <div><dt>Requested</dt><dd class="num">{{ row.requested_discount_percent|percent }}%</dd></div>
+                <div><dt>Cap</dt><dd class="num">{{ row.discount_cap_percent|percent }}%</dd></div>
+                <div><dt>Current total</dt><dd class="amount">{{ row.total|rand }}</dd></div>
+              </dl>
+              <form class="actions" method="post" action="/console/approve" data-lock>
+                <input type="hidden" name="quote_id" value="{{ row.quote_id.value }}">
+                <input type="hidden" name="version" value="{{ row.version }}">
+                <button type="submit" class="primary" data-busy="Approving…" aria-label="Approve {{ row.quote_id.value }}, version {{ row.version }}"{% if not complete %} disabled{% endif %}>Approve</button>
+                <button type="submit" class="secondary" formaction="/console/reject" data-busy="Rejecting…" aria-label="Reject {{ row.quote_id.value }}, version {{ row.version }}"{% if not complete %} disabled{% endif %}>Reject</button>
+              </form>
+            </li>
+            {% endfor %}
+          </ul>
+          {% else %}
+          <div class="card empty">
+            <p class="empty-title">There is nothing waiting.</p>
+            <p class="hint">New requests from customers show up here on their own.</p>
+          </div>
+          {% endif %}
+        </div>
+      </section>
+
+      {% set p = policy %}
+      {% set bundle = p.bundle %}
+      {% set live = bundle.clause_policy.settings %}
+      <section id="policy" aria-labelledby="policy-title">
+        <div class="section-head">
+          <h2 id="policy-title">Policy</h2>
+        </div>
+        <p class="hint" style="margin-bottom:16px">Change the deposit asked on new quotes. Quotes already sent keep the terms they were issued with.</p>
+        <div aria-live="polite">
+          {% if p.published %}
+          <div class="notice ok" role="status">
+            <p class="title">Published {{ p.published }}</p>
+            <p class="detail">New quotes ask for a <span class="num">{{ live.deposit_percent }}%</span> deposit. Quotes already sent are unchanged.</p>
+          </div>
+          {% endif %}
+          {% if p.refusal %}
+          <div class="notice warn" role="alert">
+            <p class="title">Not published</p>
+            <p class="detail">{{ p.refusal }}</p>
+          </div>
+          {% endif %}
+        </div>
+        <div class="layout">
+          <div class="card live" aria-labelledby="live-title">
+            <h3 id="live-title">Live now</h3>
+            <p class="version">{{ bundle.policy.version.value }}</p>
+            <dl class="facts">
+              <div><dt>Deposit</dt><dd class="num">{{ live.deposit_percent }}%</dd></div>
+              <div><dt>Valid for</dt><dd>{{ live.validity_days }} days</dd></div>
+              <div><dt>Prices</dt><dd>{% if bundle.rate_card.vat_inclusive %}Include VAT{% else %}Exclude VAT{% endif %}</dd></div>
+              <div><dt>Rules</dt><dd>{{ bundle.policy.rules|length }} on</dd></div>
+            </dl>
+            <h4 class="sub">Rate card</h4>
+            <ul class="rates">
+              {% for item in bundle.rate_card.items %}
+              {% set name = p.names.get(item.item_code, item.description) %}
+              <li><span>{{ name }}{% if name != item.item_code %} <span class="code">{{ item.item_code }}</span>{% endif %}</span><span class="amount">{{ item.unit_price|rand }}</span></li>
+              {% endfor %}
+            </ul>
+          </div>
+          <div class="card" aria-labelledby="draft-title">
+            <h3 id="draft-title">Draft</h3>
+            {% if p.draft %}
+            <form id="draft" method="post" action="/editor/publish" novalidate data-valid="{{ 'true' if not p.errors else 'false' }}">
+              <div class="field">
+                <label for="deposit">Deposit percent</label>
+                <div class="suffix">
+                  <input id="deposit" name="deposit" value="{{ p.deposit }}" inputmode="numeric" autocomplete="off" spellcheck="false" aria-describedby="deposit-hint draft-errors"{% if p.errors %} aria-invalid="true"{% endif %}>
+                  <span aria-hidden="true">%</span>
+                </div>
+                <p class="hint" id="deposit-hint">The share of the total a customer pays to hold a date.</p>
+                <div class="errors" id="draft-errors" aria-live="polite">
+                  {% if p.errors %}<ul>{% for sentence in p.errors %}<li>{{ sentence }}</li>{% endfor %}</ul>{% endif %}
+                </div>
+              </div>
+              <div class="field">
+                <label for="reason">Reason</label>
+                <textarea id="reason" name="reason" rows="3" maxlength="500" aria-describedby="reason-hint">{{ p.reason }}</textarea>
+                <p class="hint" id="reason-hint">Saved with the new version so you can tell why it changed.</p>
+              </div>
+              <div class="actions">
+                <button type="submit" class="primary" id="publish" data-busy="Publishing…"{% if not p.ready %} disabled{% endif %}>Publish</button>
+                <button type="submit" class="secondary" id="check" formaction="/editor/draft">Check draft</button>
+                <p class="hint" id="publish-hint" aria-live="polite">{% if p.errors %}Fix the draft to publish.{% elif not p.ready %}Add a reason to publish.{% else %}Ready to publish.{% endif %}</p>
+              </div>
+            </form>
+            {% else %}
+            <p class="hint">There is no draft to edit.</p>
+            {% endif %}
+          </div>
+        </div>
       </section>
 {% endblock %}
 {% block script %}
@@ -104,6 +281,11 @@
             });
           }, 0);
         });
+        function swap(next, id) {
+          var here = document.getElementById(id);
+          var there = next.getElementById(id);
+          if (here && there && here.innerHTML !== there.innerHTML) { here.innerHTML = there.innerHTML; }
+        }
         function refresh() {
           var queue = document.getElementById("queue");
           if (busy || document.hidden || !queue || queue.contains(document.activeElement)) { return; }
@@ -111,11 +293,94 @@
             .then(function (response) { return response.ok ? response.text() : null; })
             .then(function (text) {
               if (!text || busy || queue.contains(document.activeElement)) { return; }
-              var next = new DOMParser().parseFromString(text, "text/html").getElementById("queue");
-              if (next && next.innerHTML !== queue.innerHTML) { queue.innerHTML = next.innerHTML; }
+              var next = new DOMParser().parseFromString(text, "text/html");
+              swap(next, "activity");
+              swap(next, "queue");
+              swap(next, "queue-count");
             })
             .catch(function () {});
         }
         window.setInterval(refresh, 5000);
+      })();
+      (function () {
+        var form = document.getElementById("draft");
+        if (!form) { return; }
+        document.documentElement.classList.add("js");
+        var deposit = form.elements.deposit;
+        var reason = form.elements.reason;
+        var publish = document.getElementById("publish");
+        var hint = document.getElementById("publish-hint");
+        var box = document.getElementById("draft-errors");
+        var valid = form.dataset.valid === "true";
+        var checking = false;
+        var busy = false;
+        var sequence = 0;
+        var timer = null;
+        function sync() {
+          var hasReason = reason.value.trim() !== "";
+          publish.disabled = busy || checking || !valid || !hasReason;
+          if (busy) { return; }
+          hint.textContent = checking ? "Checking the draft…" : !valid ? "Fix the draft to publish." : !hasReason ? "Add a reason to publish." : "Ready to publish.";
+        }
+        function show(sentences) {
+          box.textContent = "";
+          if (sentences.length === 0) { deposit.removeAttribute("aria-invalid"); return; }
+          var list = document.createElement("ul");
+          sentences.forEach(function (sentence) {
+            var item = document.createElement("li");
+            item.textContent = sentence;
+            list.appendChild(item);
+          });
+          box.appendChild(list);
+          deposit.setAttribute("aria-invalid", "true");
+        }
+        function check() {
+          var mine = ++sequence;
+          checking = true;
+          sync();
+          fetch("/editor/draft", {
+            method: "POST",
+            cache: "no-store",
+            headers: { Accept: "application/json", "Content-Type": "application/x-www-form-urlencoded" },
+            body: new URLSearchParams({ deposit: deposit.value }),
+          })
+            .then(function (response) {
+              if (!response.ok) { throw new Error("check failed"); }
+              return response.json();
+            })
+            .then(function (data) {
+              if (mine !== sequence) { return; }
+              valid = data.errors.length === 0;
+              show(data.errors);
+            })
+            .catch(function () {
+              if (mine !== sequence) { return; }
+              valid = false;
+              show(["The draft could not be checked. Try again."]);
+            })
+            .finally(function () {
+              if (mine !== sequence) { return; }
+              checking = false;
+              sync();
+            });
+        }
+        deposit.addEventListener("input", function () {
+          window.clearTimeout(timer);
+          checking = true;
+          sync();
+          timer = window.setTimeout(check, 250);
+        });
+        reason.addEventListener("input", sync);
+        form.addEventListener("submit", function (event) {
+          if (busy || publish.disabled) { event.preventDefault(); return; }
+          busy = true;
+          window.setTimeout(function () {
+            publish.disabled = true;
+            publish.setAttribute("aria-busy", "true");
+            publish.textContent = publish.dataset.busy;
+            hint.textContent = "";
+          }, 0);
+        });
+        sync();
       })();
 {% endblock %}

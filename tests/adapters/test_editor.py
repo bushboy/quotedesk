@@ -160,3 +160,9 @@ def test_a_deposit_that_is_not_a_number_is_a_sentence(monkeypatch):
 def test_an_unknown_published_version_is_not_announced(monkeypatch):
     page = _text(_client(monkeypatch).get("/editor?published=made-up-policy-v9.9"))
     assert "Published made-up" not in page
+
+
+def test_the_editor_link_opens_the_policy_on_the_console(monkeypatch):
+    response = _client(monkeypatch).get("/editor", follow_redirects=False)
+    assert response.status_code == 303
+    assert response.headers["location"] == "/console#policy"

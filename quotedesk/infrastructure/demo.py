@@ -618,6 +618,7 @@ def install(
     app.state.turn = turn
     app.state.quoted = quoted
     app.state.status = GetQuoteStatus(QuoteLookup(unit), Codes())
+    app.state.quotes = QuoteLookup(unit)
     app.state.policies = policies
     app.state.list_pending = ListPending(QuoteLookup(unit), unit, _caps())
     app.state.approve = ApproveException(QuoteLookup(unit), unit, clock)

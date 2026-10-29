@@ -1,11 +1,12 @@
-"""The owner's console: discount asks waiting for a decision.
+"""The owner's console: who wrote in, which quotes went out, what waits for approval, and the policy.
 
-The page shows what `ListPending`, `ApproveException`, and `RejectException` return.
-It never computes a price, a version, or whether an ask is allowed.
+The page shows what `ListPending`, `ApproveException`, `RejectException`, and `PublishPolicy` return,
+plus read-only lists of stored messages and quotes. It never computes a price, a version,
+or whether an ask or a draft is allowed.
 """
 
 import re
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
 from urllib.parse import parse_qs
@@ -19,8 +20,10 @@ from quotedesk.application.dto.tenant import TenantContext
 from quotedesk.application.dto.tool_inputs import ApproveExceptionInput, RejectExceptionInput
 from quotedesk.application.dto.tool_outputs import ApproveResult
 from quotedesk.application.errors import ApplicationError
+from quotedesk.domain.quotes.quote import QuoteState
+from quotedesk.domain.services.validate_policy import validate_policy
 from quotedesk.domain.shared.errors import DomainError
-from quotedesk.domain.shared.ids import QuoteId
+from quotedesk.domain.shared.ids import PolicyVersionId, QuoteId
 from quotedesk.domain.shared.money import Money
 
 router = APIRouter()
@@ -31,6 +34,10 @@ _VERSION = re.compile(r"\d{1,9}")
 _BAD_VERSION = "That version is not a number."
 _ACTIONS = ("approved", "rejected")
 _MAX_FORM = 4096
+_SAST = timezone(timedelta(hours=2))
+_SNIPPET = 80
+_LIST_LIMIT = 20
+_KINDS = {"image": "Photo", "audio": "Voice note", "video": "Video"}
 
 
 def owner_templates() -> Environment:
@@ -38,6 +45,7 @@ def owner_templates() -> Environment:
     environment.filters["rand"] = rand
     environment.filters["percent"] = percent
     environment.filters["state"] = state_label
+    environment.filters["when"] = when
     return environment
 
 
@@ -53,6 +61,13 @@ def percent(value: Decimal | int) -> str:
 
 def state_label(state) -> str:
     return state.value.replace("_", " ").capitalize()
+
+
+def when(at: datetime | None) -> str:
+    if at is None:
+        return ""
+    local = at.astimezone(_SAST) if at.tzinfo is not None else at
+    return f"{local.day} {local:%b %H:%M}"
 
 
 def total(lines) -> Money:
@@ -72,11 +87,16 @@ def _context(request: Request) -> TenantContext:
 
 
 @router.get("/console", response_class=HTMLResponse)
-def console(request: Request, done: str = "", action: str = "") -> HTMLResponse:
+def console(request: Request, done: str = "", action: str = "", published: str = "") -> HTMLResponse:
     result = None
     if done and action in _ACTIONS:
         result = request.app.state.unit.find_operator_result(request.app.state.tenant_id, done)
-    return _page(request, result=result, action=action if result is not None else "")
+    return owner_page(
+        request,
+        result=result,
+        action=action if result is not None else "",
+        policy=policy_view(request, published=published),
+    )
 
 
 @router.post("/console/approve", response_model=None)
@@ -96,7 +116,7 @@ def _decide(request: Request, form: dict[str, str], action: str) -> HTMLResponse
         quote_id = QuoteId(form.get("quote_id", "").strip())
         version = form.get("version", "").strip()
         if _VERSION.fullmatch(version) is None:
-            return _page(request, error=_BAD_VERSION, status_code=400)
+            return owner_page(request, error=_BAD_VERSION, status_code=400)
         if action == "approved":
             state.approve.execute(
                 _context(request),
@@ -113,24 +133,128 @@ def _decide(request: Request, form: dict[str, str], action: str) -> HTMLResponse
                 RejectExceptionInput(quote_id=quote_id, version=int(version), idempotency_key=key),
             )
     except (DomainError, ApplicationError) as error:
-        return _page(request, error=error.sentence, status_code=409)
-    return RedirectResponse(f"/console?done={key}&action={action}", status_code=303)
+        return owner_page(request, error=error.sentence, status_code=409)
+    return RedirectResponse(f"/console?done={key}&action={action}#approvals", status_code=303)
 
 
-def _page(
+def contacts(state) -> list[dict]:
+    """One row per customer number, newest first, from the messages the app has stored."""
+    rows: dict[str, dict] = {}
+    for tenant, message in list(getattr(state.conversations, "remembered", ())):
+        if tenant != state.tenant_id:
+            continue
+        row = rows.setdefault(message.wa_id, {"wa_id": message.wa_id, "count": 0, "at": None, "last": ""})
+        row["count"] += 1
+        if row["at"] is None or message.at >= row["at"]:
+            row["at"] = message.at
+            row["last"] = _snippet(message)
+    return sorted(rows.values(), key=lambda row: row["at"], reverse=True)[:_LIST_LIMIT]
+
+
+def _snippet(message) -> str:
+    text = (message.body or message.transcript or "").strip()
+    label = _KINDS.get(message.kind)
+    if label and text:
+        text = f"{label}: {text}"
+    elif label:
+        text = label
+    return text if len(text) <= _SNIPPET else text[: _SNIPPET - 1].rstrip() + "…"
+
+
+def sent_quotes(state) -> list[dict]:
+    """Every stored quote past draft, newest first, as the quote store holds it."""
+    rows = []
+    for quote in state.quotes.list_for(state.tenant_id):
+        current = quote.current
+        if current.state is QuoteState.DRAFT:
+            continue
+        rows.append(
+            {
+                "quote_id": quote.quote_id.value,
+                "version": current.number,
+                "state": current.state,
+                "total": total(current.lines),
+                "at": current.at,
+            }
+        )
+    floor = datetime.min.replace(tzinfo=timezone.utc)
+    rows.sort(key=lambda row: row["at"] or floor, reverse=True)
+    return rows[:_LIST_LIMIT]
+
+
+def policy_view(
+    request: Request,
+    deposit: str | None = None,
+    reason: str = "",
+    errors: tuple[str, ...] | None = None,
+    refusal: str | None = None,
+    published: str = "",
+) -> dict:
+    state = request.app.state
+    draft = state.policies.draft(state.tenant_id)
+    if deposit is None:
+        deposit = str(draft.deposit_percent) if draft is not None else ""
+    if errors is None:
+        errors = policy_sentences(draft)
+    return {
+        "bundle": state.policies.published(state.tenant_id),
+        "draft": draft,
+        "deposit": deposit,
+        "reason": reason,
+        "errors": errors,
+        "refusal": refusal,
+        "published": _published_version(request, published),
+        "names": _item_names(state),
+        "ready": not errors and draft is not None and reason.strip() != "",
+    }
+
+
+def policy_sentences(draft) -> tuple[str, ...]:
+    if draft is None:
+        return ()
+    return tuple(error.sentence for error in validate_policy(draft))
+
+
+def _published_version(request: Request, value: str) -> str | None:
+    if not value:
+        return None
+    try:
+        version = PolicyVersionId(value)
+    except DomainError:
+        return None
+    if request.app.state.policies.get(request.app.state.tenant_id, version) is None:
+        return None
+    return version.value
+
+
+def _item_names(state) -> dict[str, str]:
+    """Item descriptions from every kept version, since a published draft only carries item codes."""
+    names: dict[str, str] = {}
+    for bundle in getattr(state.policies, "versions", {}).values():
+        for item in bundle.rate_card.items:
+            if item.description != item.item_code:
+                names.setdefault(item.item_code, item.description)
+    return names
+
+
+def owner_page(
     request: Request,
     result: ApproveResult | None = None,
     action: str = "",
     error: str | None = None,
+    policy: dict | None = None,
     status_code: int = 200,
 ) -> HTMLResponse:
-    rows = request.app.state.list_pending.execute(_context(request))
+    state = request.app.state
+    rows = state.list_pending.execute(_context(request))
     html = owner_templates().get_template("console.html").render(
-        page="console",
+        contacts=contacts(state),
+        quotes=sent_quotes(state),
         rows=rows,
         result=result,
         result_total=total(result.lines) if result is not None else None,
         action=action,
         error=error,
+        policy=policy if policy is not None else policy_view(request),
     )
     return HTMLResponse(html, status_code=status_code, headers={"Cache-Control": "no-store"})

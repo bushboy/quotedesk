@@ -96,17 +96,6 @@
         font-size: 0.9375rem;
       }
       .tenant { padding-left: 10px; border-left: 1px solid var(--line); color: var(--muted); font-size: 0.875rem; font-weight: 400; }
-      nav { display: flex; gap: 4px; }
-      nav a {
-        padding: 8px 14px;
-        border-radius: 8px;
-        color: var(--muted);
-        font-size: 0.9375rem;
-        font-weight: 550;
-        text-decoration: none;
-      }
-      nav a:hover { background: var(--sunk); color: var(--ink); }
-      nav a[aria-current="page"] { background: var(--page); color: var(--ink); box-shadow: inset 0 0 0 1px var(--line); }
       main { padding-top: 32px; padding-bottom: 72px; }
       main:focus { outline: none; }
       h1 { margin: 0; font-size: 1.75rem; font-weight: 650; line-height: 1.2; letter-spacing: -0.01em; }
@@ -177,10 +166,6 @@
     <header class="bar">
       <div class="bar-inner">
         <p class="brand"><span class="brand-mark" aria-hidden="true">Q</span><span>QuoteDesk</span><span class="tenant">AquaSure Gauteng</span></p>
-        <nav aria-label="Owner pages">
-          <a href="/console"{% if page == "console" %} aria-current="page"{% endif %}>Requests</a>
-          <a href="/editor"{% if page == "editor" %} aria-current="page"{% endif %}>Policy</a>
-        </nav>
       </div>
     </header>
     <main id="main" tabindex="-1">
