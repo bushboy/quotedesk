@@ -482,13 +482,15 @@ def published_bundle() -> PublishedPolicy:
             vat_inclusive=True,
             site_visit_fee=Money("750.00"),
             items=(
+                RateCardItem(item_code="TANK-2500", description="2500 L tank", unit_price=Money("2850.00")),
                 RateCardItem(item_code="TANK-5000", description="5000 L tank", unit_price=Money("4250.00")),
+                RateCardItem(item_code="TANK-10000", description="10000 L tank", unit_price=Money("7900.00")),
             ),
         ),
         clause_policy=ClausePolicy(
             templates=(),
             settings={"deposit_percent": 30, "validity_days": 14},
-            rate_card_codes=("TANK-5000",),
+            rate_card_codes=("TANK-2500", "TANK-5000", "TANK-10000"),
         ),
     )
 

@@ -24,7 +24,7 @@ def aquasure_policy() -> Policy:
     return Policy(
         version=PolicyVersionId("water-policy-v1.0"),
         sam_score_threshold=Decimal("0.80"),
-        rate_card_codes=("TANK-5000", "PUMP-STD"),
+        rate_card_codes=("TANK-2500", "TANK-5000", "TANK-10000", "PUMP-STD"),
         rules=(
             _rule(
                 "WATER-E01",

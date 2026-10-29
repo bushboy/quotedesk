@@ -318,8 +318,12 @@ def test_typed_replacement_issues_water_f01():
     first, second = model.prompts
     assert first.messages[-1].body == TANK
     assert first.tool_payloads == ()
-    assert first.rate_card == (PromptRateItem(item_code="TANK-5000", description="5000 L tank"),)
-    assert "4250" not in first.rate_card[0].description
+    assert first.rate_card == (
+        PromptRateItem(item_code="TANK-2500", description="2500 L tank"),
+        PromptRateItem(item_code="TANK-5000", description="5000 L tank"),
+        PromptRateItem(item_code="TANK-10000", description="10000 L tank"),
+    )
+    assert all("2850" not in item.description and "4250" not in item.description and "7900" not in item.description for item in first.rate_card)
     update = next(item for item in second.tool_payloads if item.name == "update_case")
     assert "agreement" not in update.body["current"]
     assert update.body["current"]["size_litres"] == "5000"
@@ -450,6 +454,43 @@ def test_ten_percent_waits_and_states_no_new_total():
 
     assert run(WAITING)[-1] == (WA, WAITING)
     assert run("The total is R 3 825.")[-1] == (WA, REFUSAL)
+
+
+def test_a_whatsapp_message_id_is_accepted_as_event_id():
+    class Model:
+        def complete(self, prompt: TurnPrompt) -> ModelReply:
+            if not prompt.tool_payloads:
+                event_id = prompt.messages[-1].provider_message_id
+                return ModelReply(
+                    text="",
+                    tool_calls=(
+                        ToolCall(
+                            name="update_case",
+                            arguments={
+                                "conversation_id": str(CONVERSATION),
+                                "job_id": "tank",
+                                "job_type": "replacement",
+                                "facts": [
+                                    {
+                                        "key": "size_litres",
+                                        "value": "5000",
+                                        "source": "customer_text",
+                                        "event_id": event_id,
+                                    }
+                                ],
+                            },
+                        ),
+                    ),
+                )
+            assert prompt.tool_payloads[0].body.get("error") is None
+            return ModelReply(text="Noted.", tool_calls=())
+
+    model = Model()
+    conversations, cases, sender, _, turn = harness(model)
+    say(conversations, "5000l", 0, "wamid.SIM5000")
+    turn.execute(CONTEXT, CONVERSATION)
+    assert cases.case.current("tank", "size_litres") == "5000"
+    assert sender.sent == [(WA, "Noted.")]
 
 
 def test_unknown_tool_is_not_called():

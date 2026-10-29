@@ -63,6 +63,7 @@ def _log_model_reply(model, reply: ModelReply) -> None:
 AGENT_TASK = (
     "You are the owner, texting on WhatsApp. Read the conversation and answer what they just said.\n"
     "A hello gets a short polite reply. When a detail is missing, ask one question. Do not stay silent.\n"
+    "When they have not stated a tank size, offer the descriptions on the rate card and ask which one they want. Do not state a price.\n"
     "Record facts they stated with update_case. Use the latest message id as event_id and source customer_text.\n"
     "Do not write required_fields, agreement, measurement, media_usable, rate_card, unit_price, outcome, or clause_text.\n"
     "Call get_quote when the case can be priced. Call check_availability when they ask for a date. "
@@ -405,7 +406,7 @@ class RunAgentTurn:
             names.append(call.name)
             arguments = _on_conversation(call.name, call.arguments, conversation_id)
             if call.name == "update_case":
-                payloads.append(self._update(context, arguments))
+                payloads.append(self._update(context, _with_message_ids(arguments, batch)))
             elif call.name == "get_quote":
                 payloads.append(self._quote(context, arguments, batch, amounts, clauses))
                 price_kind, card_link = _quote_facts(payloads[-1], self._card_base, self._card_code, price_kind, card_link)
@@ -436,8 +437,10 @@ class RunAgentTurn:
     def _update(self, context: TenantContext, arguments: dict) -> ToolPayload:
         try:
             data = UpdateCaseInput(**_without_confidence(arguments))
-        except (ModelError, ValidationError):
-            return _refused("update_case")
+        except (ModelError, ValidationError) as error:
+            detail = _invalid(error)
+            _log.info("Tool update_case rejected %s", detail)
+            return ToolPayload(name="update_case", body={"error": detail})
         try:
             result = self._update_case.execute(context, data)
         except CaseNotFound as error:
@@ -691,6 +694,45 @@ def _item_codes(raw: str | None) -> tuple[str, ...]:
     if raw is None or raw.strip() == "":
         return ()
     return tuple(part.strip() for part in raw.split(",") if part.strip())
+
+
+def _with_message_ids(arguments: dict, batch: tuple[ConversationEvent, ...]) -> dict:
+    """A WhatsApp id such as wamid.SIM… is the event the prompt tells the model to send.
+
+    Fact records store a UUID. The same mapping the turn uses for its own facts
+    keeps that id attached to the message.
+    """
+    facts = arguments.get("facts")
+    if not isinstance(facts, (list, tuple)):
+        return arguments
+    fallback = str(_event_uuid(batch[-1].provider_message_id)) if batch else ""
+    prepared = []
+    for fact in facts:
+        if not isinstance(fact, dict):
+            prepared.append(fact)
+            continue
+        item = dict(fact)
+        raw = item.get("event_id")
+        if raw is None or str(raw).strip() == "":
+            if fallback:
+                item["event_id"] = fallback
+        else:
+            item["event_id"] = str(_event_uuid(str(raw)))
+        prepared.append(item)
+    copied = dict(arguments)
+    copied["facts"] = prepared
+    return copied
+
+
+def _invalid(error: Exception) -> str:
+    errors = getattr(error, "errors", None)
+    if not callable(errors):
+        return getattr(error, "sentence", str(error))
+    parts = []
+    for item in errors()[:3]:
+        loc = ".".join(str(part) for part in item.get("loc", ()))
+        parts.append(f"{loc}: {item.get('msg')}")
+    return "; ".join(parts) or "That call did not match the tool."
 
 
 def _event_uuid(provider_message_id: str) -> UUID:

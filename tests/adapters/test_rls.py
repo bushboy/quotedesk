@@ -43,7 +43,7 @@ def test_rls_hides_other_tenants():
     with database.begin() as connection:
         for tenant, conversation, quote_id, policy_id in (
             (TENANT_A, CONVERSATION_A, "QD-1042", "water-policy-v1.0"),
-            (TENANT_B, CONVERSATION_B, "QD-2042", "water-policy-v1.0"),
+            (TENANT_B, CONVERSATION_B, "QD-2042", "fab-policy-v1.0"),
         ):
             _set(connection, tenant)
             connection.execute(text("DELETE FROM policy_row WHERE tenant_id = :tenant_id"), {"tenant_id": tenant})

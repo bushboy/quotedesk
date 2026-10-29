@@ -49,6 +49,7 @@ def test_caption_stays_on_the_message_and_the_summary_is_separate():
     assert "Use each extraction with the message it names." in AGENT_TASK
     assert "When the photo and the customer disagree, ask one question." in AGENT_TASK
     assert "A size that appears only in an extraction is not customer_stated." in AGENT_TASK
+    assert "offer the descriptions on the rate card" in AGENT_TASK
 
 
 def test_two_images_are_two_rows():

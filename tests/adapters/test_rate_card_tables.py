@@ -39,7 +39,9 @@ def test_the_migration_seeds_each_business_card(database):
 
     assert aquasure.site_visit_fee == Money("750.00")
     assert [(i.item_code, i.description, i.unit_price) for i in aquasure.items] == [
+        ("TANK-2500", "2500 L tank", Money("2850.00")),
         ("TANK-5000", "5000 L tank", Money("4250.00")),
+        ("TANK-10000", "10000 L tank", Money("7900.00")),
     ]
     assert [i.item_code for i in frameworks.items] == ["SHEET-ECO", "SHEET-POLY"]
 
