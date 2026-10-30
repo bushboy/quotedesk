@@ -40,6 +40,10 @@ def test_a_down_store_refuses_the_webhook_and_writes_nothing(monkeypatch):
     assert refused.status_code == 503
     assert not hasattr(app.state, "conversations")
     assert client.get("/chat").status_code == 503
+    assert client.get("/console").status_code == 503
+    home = client.get("/", follow_redirects=False)
+    assert home.status_code == 307
+    assert home.headers["location"] == "/chat"
     assert client.post("/sim/reset").status_code == 503
     app.state.run_turn()
     assert json.loads(raw)["entry"][0]["changes"][0]["value"]["messages"]

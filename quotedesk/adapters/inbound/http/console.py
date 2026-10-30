@@ -13,7 +13,7 @@ from urllib.parse import parse_qs
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from quotedesk.application.dto.tenant import TenantContext
@@ -114,8 +114,10 @@ def _context(request: Request) -> TenantContext:
     return TenantContext(tenant_id=request.app.state.tenant_id)
 
 
-@router.get("/console", response_class=HTMLResponse)
-def console(request: Request, done: str = "", action: str = "", published: str = "") -> HTMLResponse:
+@router.get("/console", response_class=HTMLResponse, response_model=None)
+def console(request: Request, done: str = "", action: str = "", published: str = "") -> HTMLResponse | Response:
+    if getattr(request.app.state, "store_status", "postgres") == "down":
+        return Response(status_code=503)
     result = None
     if done and action in _ACTIONS:
         result = request.app.state.unit.find_operator_result(request.app.state.tenant_id, done)

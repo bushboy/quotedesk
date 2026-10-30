@@ -35,9 +35,10 @@ def open_thread(database_url: str, memory):
     try:
         thread = StoredThread(database_url, memory)
         if not thread.ready():
+            _log.info("Conversation store is missing assistant_reply")
             return None
-    except SQLAlchemyError:
-        _log.info("Conversation store is not reachable")
+    except SQLAlchemyError as exc:
+        _log.info("Conversation store is not reachable: %s", exc)
         return None
     _log.info("Conversation store source=postgres")
     return thread

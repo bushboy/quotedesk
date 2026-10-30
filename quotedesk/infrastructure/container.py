@@ -3,7 +3,7 @@ import threading
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy.exc import SQLAlchemyError
 
 from quotedesk.adapters.inbound.http.card import router as card_router
@@ -196,6 +196,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
         start()
         app.state.reset = lambda: start(clear=True)
+
+    @app.get("/")
+    def root():
+        return RedirectResponse("/chat", status_code=307)
 
     @app.get("/health")
     def health():

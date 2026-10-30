@@ -5,11 +5,14 @@ These rows are what startup uses when that table is missing, and what the
 migration inserts the first time.
 """
 
+import logging
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import create_engine, text
 from sqlalchemy.exc import SQLAlchemyError
+
+_log = logging.getLogger(__name__)
 
 
 class TenantProfile(BaseModel):
@@ -65,7 +68,8 @@ def open_tenant(database_url: str, slug: str) -> tuple[TenantProfile, str, bool]
     builtin = known_tenant(slug)
     try:
         loaded = _from_table(database_url, slug)
-    except SQLAlchemyError:
+    except SQLAlchemyError as exc:
+        _log.warning("Tenant store is not reachable: %s", exc)
         return builtin, "unavailable", False
     if loaded is None:
         return builtin, "built-in", True

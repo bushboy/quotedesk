@@ -26,9 +26,9 @@ class StoredRateCards:
         try:
             with self._engine.begin() as connection:
                 card = self._tables.get(connection, tenant_id)
-        except SQLAlchemyError:
+        except SQLAlchemyError as exc:
             self.reachable = False
-            _log.info("Rate card source=built-in (database not reachable)")
+            _log.info("Rate card source=built-in (database not reachable): %s", exc)
             return None
         self.reachable = True
         _log.info("Rate card source=%s", "built-in (no row)" if card is None else "rate_card table")
