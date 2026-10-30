@@ -28,8 +28,13 @@ class QuoteTables:
             connection.execute(
                 text(
                     """
-                    INSERT INTO quote_version (quote_id, number, state, expiry, at)
-                    VALUES (:quote_id, :number, :state, :expiry, :at)
+                    INSERT INTO quote_version (
+                        quote_id, number, state, expiry, at, price_type, range_min, range_max, deposit, site_visit_fee
+                    )
+                    VALUES (
+                        :quote_id, :number, :state, :expiry, :at, :price_type, :range_min, :range_max, :deposit,
+                        :site_visit_fee
+                    )
                     """
                 ),
                 {
@@ -38,6 +43,11 @@ class QuoteTables:
                     "state": version.state.value,
                     "expiry": version.expiry,
                     "at": version.at,
+                    "price_type": version.price_type,
+                    "range_min": None if version.range_min is None else version.range_min.amount,
+                    "range_max": None if version.range_max is None else version.range_max.amount,
+                    "deposit": None if version.deposit is None else version.deposit.amount,
+                    "site_visit_fee": None if version.site_visit_fee is None else version.site_visit_fee.amount,
                 },
             )
             for position, line in enumerate(version.lines):
@@ -171,7 +181,7 @@ class QuoteTables:
         version_rows = connection.execute(
             text(
                 """
-                SELECT number, state, expiry, at
+                SELECT number, state, expiry, at, price_type, range_min, range_max, deposit, site_visit_fee
                 FROM quote_version
                 WHERE quote_id = :quote_id
                 ORDER BY number
@@ -244,9 +254,48 @@ class QuoteTables:
                     clauses=clauses,
                     approvals=approvals,
                     at=version.at,
+                    price_type=version.price_type,
+                    range_min=_money(version.range_min),
+                    range_max=_money(version.range_max),
+                    deposit=_money(version.deposit),
+                    site_visit_fee=_money(version.site_visit_fee),
                 )
             )
         return Quote(quote_id=QuoteId(quote_id), versions=tuple(versions))
+
+    def find(self, connection: Connection, tenant_id: UUID, quote_id: str) -> Quote | None:
+        _tenant(connection, tenant_id)
+        row = connection.execute(
+            text(
+                """
+                SELECT conversation_id FROM quote
+                WHERE tenant_id = :tenant_id AND quote_id = :quote_id
+                """
+            ),
+            {"tenant_id": tenant_id, "quote_id": quote_id},
+        ).one_or_none()
+        if row is None:
+            return None
+        return self.get(connection, tenant_id, row.conversation_id)
+
+    def list_for(self, connection: Connection, tenant_id: UUID) -> tuple[Quote, ...]:
+        _tenant(connection, tenant_id)
+        rows = connection.execute(
+            text("SELECT conversation_id FROM quote WHERE tenant_id = :tenant_id"),
+            {"tenant_id": tenant_id},
+        )
+        loaded = []
+        for row in rows:
+            quote = self.get(connection, tenant_id, row.conversation_id)
+            if quote is not None:
+                loaded.append(quote)
+        return tuple(loaded)
+
+
+def _money(amount) -> Money | None:
+    if amount is None:
+        return None
+    return Money(Decimal(amount))
 
 
 def _tenant(connection: Connection, tenant_id: UUID) -> None:

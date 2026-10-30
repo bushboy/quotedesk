@@ -150,6 +150,31 @@
         </div>
       </section>
 
+      <section id="handovers" aria-labelledby="handovers-title">
+        <div class="section-head">
+          <h2 id="handovers-title">Handovers</h2>
+          <span class="count">{{ handovers|length }}</span>
+        </div>
+        <p class="hint">Escalations land here, with the job the customer described.</p>
+        {% if handovers %}
+        <ul class="queue">
+          {% for note in handovers %}
+          <li class="card row">
+            <div class="row-head">
+              <h3 class="quote-id">{{ note.brief }}</h3>
+              <span class="tag">{{ note.at|when }}</span>
+            </div>
+            <p class="said">{{ note.reason }}</p>
+          </li>
+          {% endfor %}
+        </ul>
+        {% else %}
+        <div class="card empty">
+          <p class="empty-title">No one is waiting for a person.</p>
+        </div>
+        {% endif %}
+      </section>
+
       <section id="approvals" aria-labelledby="approvals-title">
         <div class="section-head">
           <h2 id="approvals-title">Approvals</h2>

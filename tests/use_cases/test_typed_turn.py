@@ -2,7 +2,8 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from uuid import UUID, uuid4
 
-from quotedesk.application.dto.agent import ModelReply, PromptRateItem, ToolCall, TurnPrompt
+from quotedesk.application.dto.agent import BusinessView, ModelReply, PromptRateItem, ToolCall, TurnPrompt
+from quotedesk.application.dto.published import PublishedPolicy
 from quotedesk.application.dto.inbound import InboundMessage
 from quotedesk.application.dto.tenant import TenantContext
 from quotedesk.application.dto.tool_outputs import AvailabilityResult, RequestChangeResult
@@ -10,11 +11,14 @@ from quotedesk.application.use_cases.conversation.run_agent_turn import Handover
 from quotedesk.application.use_cases.tools.get_quote import GetQuote
 from quotedesk.application.use_cases.tools.update_case import UpdateCase
 from quotedesk.domain.case.case_file import CaseFile
+from quotedesk.domain.policy.clauses import ClausePolicy
+from quotedesk.domain.services.price import RateCard, RateCardItem
 from quotedesk.domain.conversation.events import Conversation
 from quotedesk.domain.quotes.quote import QuoteLine, QuoteState
 from quotedesk.domain.shared.ids import QuoteId
 from quotedesk.domain.shared.money import Money
 from quotedesk.infrastructure.demo import published_bundle
+from tests.unit.domain.fabricator_policy import fabricator_policy
 
 TENANT = UUID("11111111-1111-4111-8111-111111111111")
 CONVERSATION = UUID("33333333-3333-4333-8333-333333333333")
@@ -24,7 +28,7 @@ BASE = datetime(2026, 10, 24, 0, 0, tzinfo=timezone.utc)
 WA = "15550002222"
 QUOTE = "The total is R 4 250. Your card: /card/QD-1042?code=1042"
 REFUSAL = "I can only repeat what the quote says."
-THIN = "We don't have a standard price for this job. A site visit is the next step."
+THIN = "Your message is recorded for further consultation. Someone from the business will contact you."
 TANK = "The tank is leaking. Replace it with a 5000 litre tank on the existing level base."
 LEAK = "The tank is leaking."
 WINDOW = "The earliest window is 7 November 2026."
@@ -204,10 +208,10 @@ class PriceFake:
         self.calls += 1
 
 
-def harness(model, case: CaseFile | None = None):
+def harness(model, case: CaseFile | None = None, business: BusinessView | None = None, policies=None):
     conversations = Conversations()
     cases = Cases(case or CaseFile.open(CONVERSATION, TENANT))
-    policies = Policies()
+    policies = policies or Policies()
     ids = Ids()
     catalog = Catalog()
     clock = Clock(at(5))
@@ -230,6 +234,7 @@ def harness(model, case: CaseFile | None = None):
         ids=ids,
         card_base="/card",
         card_code="1042",
+        business=business,
     )
     return conversations, cases, sender, clock, turn
 
@@ -333,6 +338,108 @@ def test_typed_replacement_issues_water_f01():
     assert quote.body["total"]["amount"] == "4250.00"
     assert sender.sent == [(WA, QUOTE)]
     assert cases.case.current("tank", "agreement") == "true"
+
+
+def test_a_recorded_size_still_gives_the_indicative_range():
+    class RecordOnly:
+        def complete(self, prompt: TurnPrompt) -> ModelReply:
+            fact = {"source": "customer_text", "event_id": prompt.messages[-1].provider_message_id}
+            return ModelReply(
+                text="I'll record your 2500 L tank.",
+                tool_calls=(
+                    ToolCall(
+                        name="update_case",
+                        arguments={
+                            "conversation_id": str(CONVERSATION),
+                            "job_id": "tank",
+                            "job_type": "swap",
+                            "facts": [
+                                {"key": "tank_size", "value": "2500l", **fact},
+                                {"key": "job", "value": "swap", **fact},
+                            ],
+                        },
+                    ),
+                ),
+            )
+
+    conversations, _, sender, _, turn = harness(RecordOnly())
+    say(conversations, "I want a 2500 litre tank swap.", 0, str(EVENT))
+    turn.execute(CONTEXT, CONVERSATION)
+    assert sender.sent == [(WA, "The indicative range is R 2850.00. /card/QD-1042?code=1042")]
+
+
+def _sheet_policies():
+    card = RateCard(
+        vat_inclusive=True,
+        site_visit_fee=Money("750.00"),
+        items=(
+            RateCardItem(item_code="SHEET-ECO", description="Economy sheeting", unit_price=Money("8500.00")),
+            RateCardItem(item_code="SHEET-POLY", description="Polycarbonate sheeting", unit_price=Money("12400.00")),
+        ),
+    )
+    bundle = PublishedPolicy(
+        policy=fabricator_policy(),
+        rate_card=card,
+        clause_policy=ClausePolicy(
+            templates=(),
+            settings={"deposit_percent": 30, "validity_days": 14},
+            rate_card_codes=("SHEET-ECO", "SHEET-POLY"),
+        ),
+    )
+
+    class Sheets:
+        def published(self, tenant_id):
+            return bundle
+
+    return Sheets()
+
+
+def _record_sheet(facts: list[dict]) -> ModelReply:
+    return ModelReply(
+        text="I'll record your Economy sheeting choice for the carport.",
+        tool_calls=(
+            ToolCall(
+                name="update_case",
+                arguments={
+                    "conversation_id": str(CONVERSATION),
+                    "job_id": "carport",
+                    "job_type": "carport",
+                    "facts": facts,
+                },
+            ),
+        ),
+    )
+
+
+def test_a_sheet_on_a_known_carport_is_quoted():
+    class Record:
+        def complete(self, prompt: TurnPrompt) -> ModelReply:
+            fact = {"source": "customer_text", "event_id": prompt.messages[-1].provider_message_id}
+            return _record_sheet(
+                [
+                    {"key": "item", "value": "Economy sheeting", **fact},
+                    {"key": "size", "value": "5 x 7 meters", **fact},
+                ],
+            )
+
+    business = BusinessView(name="FrameWorks", trade="carports and sheeting")
+    conversations, _, sender, _, turn = harness(Record(), business=business, policies=_sheet_policies())
+    say(conversations, "Economy sheeting for the 5 by 7 carport.", 0, str(EVENT))
+    turn.execute(CONTEXT, CONVERSATION)
+    assert sender.sent == [(WA, "The indicative range is R 297500.00. /card/QD-1042?code=1042")]
+
+
+def test_a_sheet_choice_without_a_size_asks_for_one():
+    class Record:
+        def complete(self, prompt: TurnPrompt) -> ModelReply:
+            fact = {"source": "customer_text", "event_id": prompt.messages[-1].provider_message_id}
+            return _record_sheet([{"key": "item", "value": "Economy sheeting", **fact}])
+
+    business = BusinessView(name="FrameWorks", trade="carports and sheeting")
+    conversations, _, sender, _, turn = harness(Record(), business=business, policies=_sheet_policies())
+    say(conversations, "Economy sheeting.", 0, str(EVENT))
+    turn.execute(CONTEXT, CONVERSATION)
+    assert sender.sent == [(WA, "What is the width and length in metres?")]
 
 
 def test_missing_size_does_not_invent_a_price():
@@ -490,7 +597,7 @@ def test_a_whatsapp_message_id_is_accepted_as_event_id():
     say(conversations, "5000l", 0, "wamid.SIM5000")
     turn.execute(CONTEXT, CONVERSATION)
     assert cases.case.current("tank", "size_litres") == "5000"
-    assert sender.sent == [(WA, "Noted.")]
+    assert sender.sent == [(WA, "The indicative range is R 4250.00. /card/QD-1042?code=1042")]
 
 
 def test_unknown_tool_is_not_called():

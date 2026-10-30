@@ -2,6 +2,7 @@ from uuid import UUID
 
 from fastapi.testclient import TestClient
 
+from quotedesk.application.use_cases.conversation.run_agent_turn import task_for
 from quotedesk.infrastructure.config import Settings
 from quotedesk.infrastructure.main import create_app
 
@@ -24,3 +25,5 @@ def test_the_process_starts_as_one_business(monkeypatch):
     assert works.state.policies.published(_FRAMEWORKS).policy.version.value == "fab-policy-v1.0"
     assert aqua.state.turn._business.name == "AquaSure"
     assert works.state.turn._business.about.startswith("FrameWorks")
+    assert "tank size" in task_for(aqua.state.turn._business)
+    assert "tank" not in task_for(works.state.turn._business).casefold()

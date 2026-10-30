@@ -101,6 +101,14 @@ def test_check_availability_reserves_nothing():
         CheckAvailabilityInput(job_type="replacement", unit_price="1")
 
 
+def test_an_empty_calendar_answers_with_the_turnaround():
+    tool = CheckAvailability(Slots(Capacity()), settings(), Clock())
+    result = tool.execute(TenantContext(tenant_id=TENANT), CheckAvailabilityInput(job_type="replacement"))
+    assert result.status == "none"
+    assert result.earliest_window is None
+    assert result.sentence == "A replacement is usually about 5 working days after the deposit."
+
+
 def test_hold_slot_idempotent():
     slots = Slots(open_day())
     holds = Holds()

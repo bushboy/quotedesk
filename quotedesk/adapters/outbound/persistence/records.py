@@ -130,14 +130,11 @@ class ConversationTables:
             {"conversation_id": conversation.conversation_id},
         )
         connection.execute(
-            text("DELETE FROM conversation WHERE conversation_id = :conversation_id"),
-            {"conversation_id": conversation.conversation_id},
-        )
-        connection.execute(
             text(
                 """
                 INSERT INTO conversation (conversation_id, tenant_id)
                 VALUES (:conversation_id, :tenant_id)
+                ON CONFLICT (conversation_id) DO NOTHING
                 """
             ),
             {"conversation_id": conversation.conversation_id, "tenant_id": tenant_id},

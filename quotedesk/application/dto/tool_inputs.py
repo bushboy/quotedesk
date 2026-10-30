@@ -95,6 +95,13 @@ class HoldSlotInput(BaseModel):
     quote_id: QuoteId
     requested_date: date
     idempotency_key: str
+    job_type: str = "replacement"
+
+
+class AcceptQuoteInput(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    quote_id: QuoteId
 
 
 class GetQuoteStatusInput(BaseModel):

@@ -17,6 +17,7 @@ from quotedesk.adapters.outbound.models.spark import SdkTransport, SparkTurn
 from quotedesk.infrastructure.config import Settings, get_settings
 from quotedesk.infrastructure.demo import QuoteScript, bundle_for, install, with_rate_card
 from quotedesk.infrastructure.rate_cards import StoredRateCards
+from quotedesk.infrastructure.stored import open_thread
 from quotedesk.infrastructure.tenants import resolve_tenant
 
 _TICK_SECONDS = 0.25
@@ -127,24 +128,29 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
 
     rate_cards = StoredRateCards(settings.database_url)
+    stored = open_thread(settings.database_url)
+    if stored is not None:
+        stored.conversations.tenant_id = profile.tenant_id
 
-    def reset() -> None:
+    def start(*, clear: bool = False) -> None:
+        if clear and stored is not None:
+            stored.clear(profile.tenant_id)
         install(
             app,
             with_rate_card(bundle_for(profile.slug), rate_cards.load(profile.tenant_id)),
             model=_model(settings),
             card_base="/card",
-            card_code="1042",
             sender=_sender(settings),
             live=True,
             enricher=_enricher(settings, app.state.sim_media),
             tenant=profile,
             rate_cards=rate_cards,
+            **(stored.bind() if stored is not None else {}),
         )
         app.state.rate_cards = rate_cards
 
-    reset()
-    app.state.reset = reset
+    start()
+    app.state.reset = lambda: start(clear=True)
 
     @app.get("/health")
     def health() -> dict[str, str]:

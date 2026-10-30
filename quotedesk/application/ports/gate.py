@@ -5,7 +5,7 @@ from quotedesk.application.dto.inbound import InboundMessage, MediaCategory
 
 
 class ChannelSender(Protocol):
-    def send(self, wa_id: str, body: str) -> None: ...
+    def send(self, wa_id: str, body: str, *, buttons: tuple[str, ...] = (), image_url: str | None = None) -> None: ...
 
 
 class MediaStore(Protocol):

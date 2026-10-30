@@ -15,6 +15,7 @@ from quotedesk.domain.quotes.quote import Quote, QuoteState
 from quotedesk.domain.services.price import RateCard, RateCardItem
 from quotedesk.domain.shared.ids import PolicyVersionId, QuoteId
 from quotedesk.domain.shared.money import Money
+from tests.unit.domain.fabricator_policy import fabricator_policy
 from tests.unit.domain.water_policy import aquasure_policy
 
 TENANT_A = UUID("11111111-1111-4111-8111-111111111111")
@@ -199,28 +200,82 @@ def test_get_quote_low_confidence_has_no_price():
     values["required_fields"] = "false"
     values["media_usable"] = "false"
     result, _, _, _ = execute(values)
-    assert result.rule_id.value == "WATER-L01"
-    assert result.state is QuoteState.SITE_ASSESSMENT_OFFERED
+    assert result.rule_id.value == "WATER-R02"
+    assert result.outcome.value == "indicative_range"
+    assert result.state is QuoteState.ISSUED
     assert result.lines == ()
     assert result.total is None
-    assert result.range_min is None
-    assert result.range_max is None
-    assert result.deposit is None
-    assert result.site_visit_fee == Money("750.00")
+    assert result.range_min == Money("4250.00")
+    assert result.range_max == Money("4250.00")
+    assert result.deposit == Money("1275.00")
+    assert result.site_visit_fee is None
 
 
 def test_get_quote_hazard_has_no_price():
     values = dict(BASE)
     values["stand_condition"] = "leaning"
+    values["simple_swap"] = "false"
     result, _, _, _ = execute(values)
     assert result.rule_id.value == "WATER-E02"
-    assert result.state is QuoteState.ESCALATED
+    assert result.state is QuoteState.SITE_ASSESSMENT_OFFERED
     assert result.customer_template == (
-        "We can't price this while the stand looks unsafe. Please leave the tank unused until we've checked it."
+        "We'll book an inspection. The installation is damaged, and it is not clear this is a simple tank replacement."
     )
-    assert result.site_visit_fee is None
+    assert result.site_visit_fee == Money("750.00")
     assert result.deposit is None
     assert result.lines == ()
+    assert result.total is None
+
+
+def test_a_stated_carport_size_prices_the_chosen_sheet():
+    sheet = RateCard(
+        vat_inclusive=True,
+        site_visit_fee=Money("750.00"),
+        items=(
+            RateCardItem(item_code="SHEET-ECO", description="Economy sheeting", unit_price=Money("8500.00")),
+            RateCardItem(item_code="SHEET-POLY", description="Polycarbonate sheeting", unit_price=Money("12400.00")),
+        ),
+    )
+    bundle = PublishedPolicy(
+        policy=fabricator_policy(),
+        rate_card=sheet,
+        clause_policy=ClausePolicy(
+            templates=(),
+            settings={"deposit_percent": 30, "validity_days": 14},
+            rate_card_codes=("SHEET-ECO", "SHEET-POLY"),
+        ),
+    )
+    result, _, _, _ = execute(
+        {
+            "item": "Economy sheeting",
+            "size": "5 x 7 meters",
+            "required_fields": "true",
+            "agreement": "true",
+            "measurement": "true",
+            "media_usable": "true",
+            "rate_card": "true",
+        },
+        bundle=bundle,
+    )
+    assert result.rule_id.value == "FAB-R02"
+    assert result.range_min == Money("297500.00")
+    assert result.range_max == Money("297500.00")
+    assert result.deposit == Money("89250.00")
+
+
+def test_a_stated_size_without_item_codes_is_still_indicative():
+    result, _, _, _ = execute({"job": "swap", "tank_size": "5000l"})
+    assert result.rule_id.value == "WATER-R02"
+    assert result.range_min == Money("4250.00")
+    assert result.range_max == Money("4250.00")
+
+
+def test_a_confirmed_swap_is_quoted_even_when_the_stand_is_damaged():
+    values = dict(BASE)
+    values["stand_condition"] = "leaning"
+    result, _, _, _ = execute(values)
+    assert result.rule_id.value == "WATER-F01"
+    assert result.total == Money("4250.00")
 
 
 def test_get_quote_second_call_creates_version_two():

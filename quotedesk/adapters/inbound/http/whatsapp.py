@@ -72,6 +72,14 @@ async def webhook(request: Request, background: BackgroundTasks) -> Response:
     return Response(status_code=200)
 
 
+@router.get("/whatsapp/history")
+def history(request: Request, wa_id: str) -> list[dict[str, str]]:
+    transcript = getattr(request.app.state.conversations, "transcript", None)
+    if transcript is None:
+        return []
+    return transcript(request.app.state.tenant_id, wa_id)
+
+
 @router.get("/whatsapp/outbox")
 def read_outbox(request: Request, wa_id: str | None = None, after: int | None = None) -> list[dict[str, object]]:
     rows = request.app.state.outbox.pending()
@@ -114,6 +122,10 @@ def inbound_messages(payload: dict, conversation_id) -> list[InboundMessage]:
 
 def _inbound(message: dict, wa_id: str, conversation_id) -> InboundMessage:
     kind = message.get("type", "text")
+    if kind == "interactive":
+        return _text_message(message, wa_id, conversation_id, _interactive_body(message.get("interactive") or {}))
+    if kind == "location":
+        return _text_message(message, wa_id, conversation_id, _location_body(message.get("location") or {}))
     if kind not in ("text", *_MEDIA):
         kind = "text"
     media = message.get(kind) if kind in _MEDIA else None
@@ -133,6 +145,30 @@ def _inbound(message: dict, wa_id: str, conversation_id) -> InboundMessage:
         media_id=media_id,
         mime=mime.split(";", 1)[0].strip().lower() if mime else None,
     )
+
+
+def _text_message(message: dict, wa_id: str, conversation_id, body: str) -> InboundMessage:
+    return InboundMessage(
+        conversation_id=conversation_id,
+        provider_message_id=message["id"],
+        wa_id=wa_id,
+        at=datetime.fromtimestamp(int(message["timestamp"]), tz=timezone.utc),
+        kind="text",
+        body=body,
+    )
+
+
+def _interactive_body(interactive: dict) -> str:
+    reply = interactive.get("button_reply") or interactive.get("list_reply") or {}
+    return reply.get("title") or reply.get("id") or ""
+
+
+def _location_body(location: dict) -> str:
+    name = location.get("name") or location.get("address") or ""
+    latitude = location.get("latitude")
+    longitude = location.get("longitude")
+    pin = "" if latitude is None or longitude is None else f"{latitude}, {longitude}"
+    return " ".join(part for part in (name, pin) if part) or "location"
 
 
 def _measured(request: Request, message: InboundMessage) -> InboundMessage:

@@ -15,10 +15,10 @@ rules:
     or claims an approval.'
 - rule_id: WATER-E02
   priority: 0
-  outcome: escalation
-  customer_template: We can't price this while the stand looks unsafe. Please leave
-    the tank unused until we've checked it.
-  reason: The stand is unsafe, or an elevated structure is damaged.
+  outcome: site_assessment
+  customer_template: We'll book an inspection. The installation is damaged, and it
+    is not clear this is a simple tank replacement.
+  reason: The installation is damaged, and a simple tank replacement is not confirmed.
 - rule_id: WATER-E03
   priority: 0
   outcome: escalation
@@ -47,15 +47,21 @@ rules:
   customer_template: We can send a price range for a new tank and pump. It assumes
     the base still has to be confirmed.
   reason: New tank and pump with the base unconfirmed.
+- rule_id: WATER-R02
+  priority: 1
+  outcome: indicative_range
+  customer_template: The indicative range for that tank is in this result. It can
+    change once we confirm the base.
+  reason: The tank size is known for a new installation or a swap.
 - rule_id: WATER-L01
   priority: 1
-  outcome: site_assessment
-  customer_template: We need a clearer picture before we can price this. A site visit
-    is the sure way to do that.
-  reason: Confidence is low and no earlier rule matched.
+  outcome: escalation
+  customer_template: Your message is recorded for further consultation. Someone from
+    the business will contact you.
+  reason: Confidence is low and no earlier rule matched, so the conversation is recorded.
 - rule_id: WATER-L02
   priority: 1
-  outcome: site_assessment
-  customer_template: We don't have a standard price for this job. A site visit is
-    the next step.
-  reason: No priced rule matches at this confidence.
+  outcome: escalation
+  customer_template: Your message is recorded for further consultation. Someone from
+    the business will contact you.
+  reason: No priced rule matches, so the conversation is recorded for consultation.

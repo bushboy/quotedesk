@@ -13,6 +13,8 @@ class OutboxMessage(BaseModel):
     status: Literal["pending"]
     id: int = 0
     wa_id: str = ""
+    buttons: tuple[str, ...] = ()
+    image_url: str | None = None
 
 
 class Outbox:
@@ -20,9 +22,23 @@ class Outbox:
         self._rows: list[OutboxMessage] = []
         self._next = 0
 
-    def append(self, body: str, wa_id: str = "") -> OutboxMessage:
+    def append(
+        self,
+        body: str,
+        wa_id: str = "",
+        *,
+        buttons: tuple[str, ...] = (),
+        image_url: str | None = None,
+    ) -> OutboxMessage:
         self._next += 1
-        message = OutboxMessage(id=self._next, wa_id=wa_id, body=body, status="pending")
+        message = OutboxMessage(
+            id=self._next,
+            wa_id=wa_id,
+            body=body,
+            status="pending",
+            buttons=buttons,
+            image_url=image_url,
+        )
         self._rows.append(message)
         return message
 
@@ -34,6 +50,6 @@ class OutboxSender:
     def __init__(self, outbox: Outbox) -> None:
         self._outbox = outbox
 
-    def send(self, wa_id: str, body: str) -> None:
+    def send(self, wa_id: str, body: str, *, buttons: tuple[str, ...] = (), image_url: str | None = None) -> None:
         _log.info("Front end reply wa_id=%s body=%s", wa_id, body)
-        self._outbox.append(body, wa_id)
+        self._outbox.append(body, wa_id, buttons=buttons, image_url=image_url)

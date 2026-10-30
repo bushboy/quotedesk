@@ -28,6 +28,8 @@ class CaseFacts(BaseModel):
     size_litres: int | None = None
     size_source: SizeSource | None = None
     existing_level_base: bool = False
+    installation_damaged: bool = False
+    simple_swap: bool | None = None
     base_unconfirmed: bool = False
     new_tank_and_pump: bool = False
     sloped_ground: bool = False

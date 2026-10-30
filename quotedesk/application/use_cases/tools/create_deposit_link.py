@@ -27,9 +27,8 @@ class CreateDepositLink:
         if quote is None:
             raise QuoteNotFound()
         current = quote.current
-        accepted = (
-            current.state is QuoteState.ISSUED
-            and self._acceptances.has(context.tenant_id, data.quote_id, current.number)
+        accepted = current.state in (QuoteState.ISSUED, QuoteState.WAITING_FOR_DEPOSIT) and self._acceptances.has(
+            context.tenant_id, data.quote_id, current.number
         )
         if not accepted:
             raise PolicyViolation(code="policy.violation", sentence=_SENTENCE)

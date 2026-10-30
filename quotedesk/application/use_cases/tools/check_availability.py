@@ -8,6 +8,7 @@ from quotedesk.application.ports.repositories import CapacityRepository
 from quotedesk.application.ports.runtime import Clock
 from quotedesk.domain.quotes.schedule import DepositState, ScheduleRequest, ScheduleSettings
 from quotedesk.domain.services.schedule import civil_date, schedule
+from quotedesk.domain.shared.errors import PolicyViolation
 
 _ZONE = ZoneInfo("Africa/Johannesburg")
 
@@ -31,14 +32,18 @@ class CheckAvailability:
             requested_date=data.requested_date,
         )
         capacity = self._capacity.get(context.tenant_id)
-        result = schedule(
-            request,
-            capacity,
-            self._settings,
-            DepositState(paid=False),
-            today=today,
-            at=at,
-        )
+        deposit = DepositState(paid=False)
+        try:
+            result = schedule(request, capacity, self._settings, deposit, today=today, at=at)
+        except PolicyViolation:
+            result = schedule(
+                ScheduleRequest(kind="lead_time", quote_issued=False, job_type=data.job_type),
+                capacity,
+                self._settings,
+                deposit,
+                today=today,
+                at=at,
+            )
         return AvailabilityResult(
             status=result.commitment.status,
             earliest_window=result.commitment.earliest_window,

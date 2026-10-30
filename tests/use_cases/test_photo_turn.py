@@ -15,7 +15,6 @@ from tests.use_cases.test_typed_turn import (
     QUOTE,
     TANK,
     TENANT,
-    THIN,
     WA,
     AvailabilityFake,
     Cases,
@@ -193,8 +192,8 @@ def test_photo_inferred_size_does_not_issue_a_fixed_price():
     text(conversations, TANK, 0, str(EVENT))
     picture(conversations, CAPTION, 1, IMAGE)
     turn.execute(CONTEXT, CONVERSATION)
-    assert sender.sent == [(WA, THIN)]
-    assert "R" not in THIN
+    assert sender.sent == [(WA, "The indicative range is R 4250.00. /card/QD-1042?code=1042")]
+    assert "fixed" not in sender.sent[0][1]
 
 
 def test_blur_does_not_issue_a_fixed_price():
@@ -204,8 +203,8 @@ def test_blur_does_not_issue_a_fixed_price():
     picture(conversations, CAPTION, 1, IMAGE)
     turn.execute(CONTEXT, CONVERSATION)
     assert cases.case.current("tank", "media_usable") == "false"
-    assert sender.sent == [(WA, THIN)]
-    assert "R" not in sender.sent[0][1]
+    assert sender.sent == [(WA, "The indicative range is R 4250.00. /card/QD-1042?code=1042")]
+    assert "fixed" not in sender.sent[0][1]
 
 
 def test_sam_error_does_not_issue_a_fixed_price():
@@ -221,8 +220,8 @@ def test_sam_error_does_not_issue_a_fixed_price():
     picture(conversations, CAPTION, 1, IMAGE)
     turn.execute(CONTEXT, CONVERSATION)
     assert cases.case.current("tank", "agreement") == "false"
-    assert sender.sent == [(WA, THIN)]
-    assert "R" not in sender.sent[0][1]
+    assert sender.sent == [(WA, "The indicative range is R 4250.00. /card/QD-1042?code=1042")]
+    assert "fixed" not in sender.sent[0][1]
 
 
 def test_image_bytes_are_not_in_the_prompt():

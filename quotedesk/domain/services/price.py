@@ -73,6 +73,8 @@ def price(decision: Decision, facts: PriceFacts, rate_card: RateCard) -> PricedQ
     if decision.outcome == Outcome.SITE_ASSESSMENT:
         return _empty(site_visit_fee=rate_card.site_visit_fee)
     if decision.outcome == Outcome.INDICATIVE_RANGE:
+        if not facts.items:
+            return _empty()
         priced = tuple(_item(rate_card, requested.item_code).unit_price for requested in facts.items)
         return _empty(
             price_type="range",

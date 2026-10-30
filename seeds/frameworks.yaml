@@ -46,6 +46,12 @@ rules:
   customer_template: We can send a price range for this carport. It depends on the
     roof covering.
   reason: 6 m by 7 m with the finish not chosen.
+- rule_id: FAB-R02
+  priority: 1
+  outcome: indicative_range
+  customer_template: The indicative range for that size is in this result. It uses
+    the sheeting on the rate card.
+  reason: The width and length are known.
 - rule_id: FAB-B01
   priority: 1
   outcome: indicative_range

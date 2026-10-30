@@ -1,5 +1,5 @@
-from quotedesk.application.dto.agent import ExtractionResult, ModelReply
-from quotedesk.application.use_cases.conversation.run_agent_turn import AGENT_TASK
+from quotedesk.application.dto.agent import BusinessView, ExtractionResult, ModelReply
+from quotedesk.application.use_cases.conversation.run_agent_turn import AGENT_TASK, WATER_HINTS, task_for
 from tests.use_cases.test_photo_turn import (
     CAPTION,
     IMAGE,
@@ -13,7 +13,7 @@ from tests.use_cases.test_photo_turn import (
     tank_mask,
     text,
 )
-from tests.use_cases.test_typed_turn import CONTEXT, CONVERSATION, QUOTE, TENANT, THIN, WA, replacement_calls
+from tests.use_cases.test_typed_turn import CONTEXT, CONVERSATION, QUOTE, TENANT, WA, replacement_calls
 
 IMAGE_B = "66666666-6666-4666-8666-666666666667"
 LATER = "77777777-7777-4777-8777-777777777777"
@@ -50,6 +50,23 @@ def test_caption_stays_on_the_message_and_the_summary_is_separate():
     assert "When the photo and the customer disagree, ask one question." in AGENT_TASK
     assert "A size that appears only in an extraction is not customer_stated." in AGENT_TASK
     assert "offer the descriptions on the rate card" in AGENT_TASK
+    assert "A new job on update_case sets job_type." in AGENT_TASK
+    assert "Lead the conversation to one outcome." in AGENT_TASK
+    assert "answer with its turnaround" in AGENT_TASK
+    assert "call get_quote in that same turn" in AGENT_TASK
+    assert "tank" not in AGENT_TASK.casefold()
+
+
+def test_water_hints_follow_the_trade():
+    water = BusinessView(name="AquaSure", trade="water tanks and pumps")
+    frames = BusinessView(name="FrameWorks", trade="carports and sheeting")
+    hinted = task_for(water)
+    assert hinted.startswith(AGENT_TASK)
+    assert WATER_HINTS in hinted
+    assert "tank size" in hinted
+    assert "width_m" in task_for(frames)
+    assert "tank" not in task_for(frames).casefold()
+    assert task_for(BusinessView()) == AGENT_TASK
 
 
 def test_two_images_are_two_rows():
@@ -68,8 +85,7 @@ def test_two_images_are_two_rows():
     assert [row.provider_message_id for row in rows] == [IMAGE, IMAGE_B]
     assert rows[0].objects == ("tank",)
     assert rows[1].objects == ("pump",)
-    assert sender.sent == [(WA, THIN)]
-    assert "R" not in sender.sent[0][1]
+    assert sender.sent == [(WA, "The indicative range is R 4250.00. /card/QD-1042?code=1042")]
 
 
 def test_a_later_text_still_sees_the_photo():
@@ -131,8 +147,7 @@ def test_a_size_only_in_the_summary_does_not_issue():
     picture(conversations, CAPTION, 0, IMAGE)
     turn.execute(CONTEXT, CONVERSATION)
     assert model.prompts[0].extractions[0].summary == "A 5000 L tank on a level base."
-    assert sender.sent == [(WA, THIN)]
-    assert "R" not in sender.sent[0][1]
+    assert sender.sent == [(WA, "The indicative range is R 4250.00. /card/QD-1042?code=1042")]
 
 
 def test_blur_or_sam_error_does_not_issue():
@@ -149,5 +164,4 @@ def test_blur_or_sam_error_does_not_issue():
         picture(conversations, CAPTION_SIZE, 0, IMAGE)
         turn.execute(CONTEXT, CONVERSATION)
         assert model.prompts[0].extractions[0].summary == SUMMARY
-        assert sender.sent == [(WA, THIN)]
-        assert "R" not in sender.sent[0][1]
+        assert sender.sent == [(WA, "The indicative range is R 4250.00. /card/QD-1042?code=1042")]

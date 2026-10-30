@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from decimal import Decimal
 from enum import Enum
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict
 
@@ -112,6 +112,11 @@ class QuoteVersion(BaseModel):
     clauses: tuple[Condition, ...]
     approvals: tuple[Approval, ...]
     at: datetime | None = None
+    price_type: Literal["fixed", "range", "none"] | None = None
+    range_min: Money | None = None
+    range_max: Money | None = None
+    deposit: Money | None = None
+    site_visit_fee: Money | None = None
 
 
 def _expiry(value: Any) -> date:
@@ -173,6 +178,30 @@ class Quote(BaseModel):
         self._require_draft()
         return self._replace(self.current.model_copy(update={"expiry": civil}))
 
+    def set_terms(
+        self,
+        version: int,
+        *,
+        price_type: Literal["fixed", "range", "none"],
+        range_min: Money | None,
+        range_max: Money | None,
+        deposit: Money | None,
+        site_visit_fee: Money | None,
+    ) -> "Quote":
+        self._require_current(version)
+        self._require_draft()
+        return self._replace(
+            self.current.model_copy(
+                update={
+                    "price_type": price_type,
+                    "range_min": range_min,
+                    "range_max": range_max,
+                    "deposit": deposit,
+                    "site_visit_fee": site_visit_fee,
+                }
+            )
+        )
+
     def revise(
         self,
         outcome: Outcome,
@@ -181,6 +210,11 @@ class Quote(BaseModel):
         clauses: tuple[Condition, ...],
         expiry: date,
         at: datetime,
+        price_type: Literal["fixed", "range", "none"] | None = None,
+        range_min: Money | None = None,
+        range_max: Money | None = None,
+        deposit: Money | None = None,
+        site_visit_fee: Money | None = None,
     ) -> "Quote":
         current = self.current
         if QuoteState.REVISED not in _LEGAL.get(current.state, frozenset()):
@@ -194,6 +228,11 @@ class Quote(BaseModel):
             clauses=tuple(clauses),
             approvals=(),
             at=at,
+            price_type=price_type,
+            range_min=range_min,
+            range_max=range_max,
+            deposit=deposit,
+            site_visit_fee=site_visit_fee,
         )
         kept = tuple(revised if item.number == current.number else item for item in self.versions)
         return self.model_copy(update={"versions": kept + (successor,)})

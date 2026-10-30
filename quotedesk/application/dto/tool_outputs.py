@@ -31,6 +31,7 @@ class GetQuoteResult(BaseModel):
     deposit: Money | None
     schedule_status: Literal["none"]
     expiry: date
+    verification_code: str | None = None
 
 
 class RequestChangeResult(BaseModel):
@@ -78,6 +79,14 @@ class QuoteStatusResult(BaseModel):
     expiry: date | None
     version: int | None
     schedule_status: str | None
+
+
+class AcceptQuoteResult(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    quote_id: QuoteId
+    version: int
+    state: QuoteState
 
 
 class DepositLinkResult(BaseModel):

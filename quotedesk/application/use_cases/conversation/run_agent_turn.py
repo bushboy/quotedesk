@@ -1,5 +1,6 @@
 import logging
-from datetime import datetime, timedelta
+import re
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from uuid import NAMESPACE_OID, UUID, uuid5
 
@@ -11,6 +12,7 @@ from quotedesk.application.dto.agent import (
     BusinessView,
     CaseView,
     Handover,
+    HandoverNote,
     ModelReply,
     ExtractionResult,
     PromptExtraction,
@@ -22,13 +24,16 @@ from quotedesk.application.dto.agent import (
 )
 from quotedesk.application.dto.tenant import TenantContext
 from quotedesk.application.dto.tool_inputs import (
+    AcceptQuoteInput,
     CheckAvailabilityInput,
+    CreateDepositLinkInput,
     FactInput,
     GetQuoteInput,
+    HoldSlotInput,
     RequestChangeInput,
     UpdateCaseInput,
 )
-from quotedesk.application.errors import CaseNotFound, ModelTimeout, TenantRequired
+from quotedesk.application.errors import CaseNotFound, ModelTimeout, QuoteNotFound, TenantRequired
 from quotedesk.application.ports.agent import AgentModel, ConversationLock
 from quotedesk.application.ports.gate import ChannelSender
 from quotedesk.application.ports.repositories import CaseFileRepository, ConversationRepository
@@ -46,7 +51,7 @@ from quotedesk.domain.services.confidence import (
     rate_card_match,
     required_fields_complete,
 )
-from quotedesk.domain.shared.errors import ValidationError
+from quotedesk.domain.shared.errors import PolicyViolation, ValidationError
 from quotedesk.domain.shared.money import Money
 
 _REFUSAL = "I can only repeat what the quote says."
@@ -63,10 +68,18 @@ def _log_model_reply(model, reply: ModelReply) -> None:
 AGENT_TASK = (
     "You are the owner, texting on WhatsApp. Read the conversation and answer what they just said.\n"
     "A hello gets a short polite reply. When a detail is missing, ask one question. Do not stay silent.\n"
-    "When they have not stated a tank size, offer the descriptions on the rate card and ask which one they want. Do not state a price.\n"
+    "When they have not chosen an item, offer the descriptions on the rate card and ask which one they want. Do not state a price.\n"
+    "Lead the conversation to one outcome. Ask the one question that decides it.\n"
+    "When the facts for a priced job are known, call get_quote in that same turn. Say the result from that call. "
+    "Do not stop after only recording the conversation.\n"
+    "If it cannot be quoted, call get_quote and use its customer_template.\n"
     "Record facts they stated with update_case. Use the latest message id as event_id and source customer_text.\n"
+    "A new job on update_case sets job_type.\n"
     "Do not write required_fields, agreement, measurement, media_usable, rate_card, unit_price, outcome, or clause_text.\n"
-    "Call get_quote when the case can be priced. Call check_availability when they ask for a date. "
+    "Call get_quote when the case can be priced. When they ask how soon, call check_availability and answer with its turnaround. "
+    "That is working days after the deposit, not a reserved day. "
+    "When they accept or ask how to pay the deposit, call accept_quote and then create_deposit_link. Say the link.\n"
+    "When they ask to book a day and a quote exists, call hold_slot with that quote id and the job type. Say its sentence.\n"
     "Call request_change when they ask to change a quote, using the quote id from an earlier payload.\n"
     "When the reply depends on a tool, return the tool calls and no text.\n"
     "When you can greet them or ask a question, return the text and no tool call.\n"
@@ -76,6 +89,39 @@ AGENT_TASK = (
     "A size that appears only in an extraction is not customer_stated.\n"
     "The business in the prompt is who you speak for. Use its name, and do not mention another business."
 )
+WATER_HINTS = (
+    "This business installs and replaces water tanks.\n"
+    "When they have not stated a tank size, offer the tank descriptions on the rate card and ask which one they want. Do not state a price.\n"
+    "When the tank size is known and the job is a new installation or a swap, call get_quote in that same turn. "
+    "Record size_litres and job as replacement or new_system. The result is an indicative range. Say range_min and range_max, and use the word range. "
+    "Do not stop after only recording the conversation.\n"
+    "A fixed quote still needs a simple replacement: size_litres, size_source customer_stated, existing_level_base true, job replacement, and item_codes for that size.\n"
+    "If the installation is damaged and they have not confirmed a simple tank swap, record installation_damaged true and simple_swap false, then call get_quote. That books an inspection.\n"
+    "If it cannot be quoted and it is not that inspection, call get_quote. Tell them their message is recorded for further consultation and they will be contacted.\n"
+    "A tank replacement sets job_type to replacement."
+)
+FRAME_HINTS = (
+    "This business builds carports and replaces sheeting.\n"
+    "When they have not chosen a sheet, offer the descriptions on the rate card and ask which one they want. Do not state a price.\n"
+    "When they give a size, record width_m and length_m in metres, and record the chosen sheet as item_codes.\n"
+    "When the width and length are known, including from an earlier message, call get_quote in that same turn. "
+    "The result is an indicative range. Say range_min and range_max, and use the word range.\n"
+    "Do not reply that you will record the choice. If the size is still missing, ask for the width and length.\n"
+    "A fixed quote still needs an existing opening, a stated size, a standard size, and a chosen finish.\n"
+    "A new or widened opening, work above the ground floor, or more than one opening is a site measure. Use the customer_template.\n"
+    "A carport job sets job_type to carport."
+)
+
+
+def task_for(business: BusinessView) -> str:
+    trade = business.trade.casefold()
+    if "water tank" in trade:
+        return f"{AGENT_TASK}\n{WATER_HINTS}"
+    if "carport" in trade or "sheeting" in trade:
+        return f"{AGENT_TASK}\n{FRAME_HINTS}"
+    return AGENT_TASK
+
+
 _VIDEO = "Got your video, having a look."
 _HANDOVER = "I'll ask someone from the business to pick this up. You can keep sending details here."
 _PHRASE = "can i speak to a person?"
@@ -103,8 +149,10 @@ def close_batch(
 
 
 class HandoverToHuman:
-    def __init__(self, cases: CaseFileRepository) -> None:
+    def __init__(self, cases: CaseFileRepository, handovers=None, clock: Clock | None = None) -> None:
         self._cases = cases
+        self._handovers = handovers
+        self._clock = clock
         self.records: list[Handover] = []
 
     def execute(self, context: TenantContext | None, conversation_id: UUID, *, reason: str) -> Handover:
@@ -117,6 +165,13 @@ class HandoverToHuman:
             raise CaseNotFound()
         record = Handover(conversation_id=conversation_id, case=case, reason=reason)
         self.records.append(record)
+        if self._handovers is not None:
+            brief = ", ".join(job.job_type or job.job_id for job in case.jobs) or reason
+            at = self._clock.now() if self._clock is not None else datetime.now(timezone.utc)
+            self._handovers.append(
+                context.tenant_id,
+                HandoverNote(conversation_id=conversation_id, reason=reason, brief=brief, at=at),
+            )
         return record
 
 
@@ -134,6 +189,9 @@ class RunAgentTurn:
         *,
         request_change=None,
         check_availability=None,
+        accept_quote=None,
+        create_deposit_link=None,
+        hold_slot=None,
         catalog=None,
         policies=None,
         ids=None,
@@ -153,6 +211,9 @@ class RunAgentTurn:
         self._clock = clock
         self._request_change = request_change
         self._check_availability = check_availability
+        self._accept_quote = accept_quote
+        self._create_deposit_link = create_deposit_link
+        self._hold_slot = hold_slot
         self._catalog = catalog
         self._policies = policies
         self._ids = ids
@@ -164,6 +225,10 @@ class RunAgentTurn:
         self._change_key: str | None = None
         self._seen: dict[str, ExtractionResult] = {}
         self._business = business or BusinessView()
+
+    def acknowledge(self, provider_message_ids) -> None:
+        """Messages already stored before this process started are not answered again."""
+        self._closed.update(provider_message_ids)
 
     def execute(self, context: TenantContext | None, conversation_id: UUID) -> None:
         if context is None:
@@ -207,18 +272,51 @@ class RunAgentTurn:
                 return
             facts, answered = self._run_tools(context, reply, prompt, batch, conversation_id)
             text = reply.text
-            if reply.tool_calls and not text.strip():
+            needs_follow_up = bool(reply.tool_calls) and (not text.strip() or _payload_failed(answered))
+            if needs_follow_up:
                 spoken = self._complete(answered)
                 if spoken is None:
                     self._handover.execute(context, conversation_id, reason=_TIMEOUT_REASON)
                     self._speak(context, conversation_id, wa_id, _HANDOVER)
                     self._close(batch)
                     return
-                if not spoken.text.strip():
-                    _log.info("Turn produced no front-end reply")
-                    self._close(batch)
-                    return
+                if spoken.tool_calls and _payload_failed(answered):
+                    facts, answered = self._run_tools(context, spoken, answered, batch, conversation_id)
                 text = spoken.text
+                if not text.strip():
+                    if not spoken.tool_calls:
+                        _log.info("Turn produced no front-end reply")
+                        self._close(batch)
+                        return
+                    follow = self._complete(answered)
+                    if follow is None:
+                        self._handover.execute(context, conversation_id, reason=_TIMEOUT_REASON)
+                        self._speak(context, conversation_id, wa_id, _HANDOVER)
+                        self._close(batch)
+                        return
+                    if not follow.text.strip():
+                        _log.info("Turn produced no front-end reply")
+                        self._close(batch)
+                        return
+                    text = follow.text
+            elif reply.text.strip():
+                heard = _availability_sentence(answered) or _named_sentence(answered, "hold_slot")
+                if heard and heard not in text:
+                    text = heard
+            deposit_url = _named_sentence(answered, "create_deposit_link")
+            if deposit_url and deposit_url not in text:
+                text = f"{text.rstrip()} {deposit_url}".strip()
+            priced = _indicative_reply(answered)
+            if priced and not _states_indicative(text, priced):
+                text = priced
+            elif _fabrication(self._business) and "?" not in text:
+                question = _carport_question(answered)
+                heard = _customer_template(answered)
+                if question:
+                    text = question
+                elif heard and _recording(text):
+                    text = heard
+            text = _with_card(text, facts.card_link)
             if reply.tool_calls and not check_reply(text, facts).ok:
                 second = self._model.complete(answered)
                 _log_model_reply(self._model, second)
@@ -258,7 +356,7 @@ class RunAgentTurn:
             rate_card=self._rate_card(context),
             extractions=self._extractions(context, conversation.conversation_id, ordered[-20:], kinds),
             business=self._business,
-            task=AGENT_TASK,
+            task=task_for(self._business),
         )
 
     def _trail(self, context: TenantContext, conversation, kinds: dict[str, str]) -> tuple[PromptMessage, ...]:
@@ -295,7 +393,12 @@ class RunAgentTurn:
         return tuple(item[2] for item in rows[-20:])
 
     def _speak(self, context: TenantContext, conversation_id: UUID, wa_id: str, body: str) -> None:
-        self._sender.send(wa_id, body)
+        buttons = ("Accept quote",) if "/card/" in body and "deposit/" not in body else ()
+        image_url = None
+        try:
+            self._sender.send(wa_id, body, buttons=buttons, image_url=image_url)
+        except TypeError:
+            self._sender.send(wa_id, body)
         record = getattr(self._conversations, "record_reply", None)
         if record is not None:
             record(context.tenant_id, conversation_id, self._clock.now(), body)
@@ -410,14 +513,31 @@ class RunAgentTurn:
             elif call.name == "get_quote":
                 payloads.append(self._quote(context, arguments, batch, amounts, clauses))
                 price_kind, card_link = _quote_facts(payloads[-1], self._card_base, self._card_code, price_kind, card_link)
+                self._handover_escalation(context, conversation_id, payloads[-1])
             elif call.name == "request_change":
                 payloads.append(self._change(context, call.arguments, amounts, clauses))
             elif call.name == "check_availability":
                 payloads.append(self._availability(context, call.arguments, civil_dates))
                 if payloads[-1].body.get("earliest_window"):
                     schedule_status = "indicative"
+            elif call.name == "accept_quote":
+                payloads.append(self._accept(context, call.arguments))
+            elif call.name == "create_deposit_link":
+                payloads.append(self._deposit_link(context, call.arguments))
+            elif call.name == "hold_slot":
+                payloads.append(self._hold(context, call.arguments))
             else:
                 payloads.append(_refused(call.name))
+            _log_tool(payloads[-1])
+        if "get_quote" not in names and "check_availability" not in names and self._should_quote(reply, payloads):
+            payloads.append(
+                self._quote(context, {"conversation_id": str(conversation_id)}, batch, amounts, clauses)
+            )
+            names.append("get_quote")
+            price_kind, card_link = _quote_facts(
+                payloads[-1], self._card_base, self._card_code, price_kind, card_link
+            )
+            self._handover_escalation(context, conversation_id, payloads[-1])
             _log_tool(payloads[-1])
         answered = prompt.model_copy(
             update={"tool_results": tuple(names), "tool_payloads": tuple(payloads)}
@@ -434,6 +554,11 @@ class RunAgentTurn:
             answered,
         )
 
+    def _should_quote(self, reply: ModelReply, payloads: list[ToolPayload]) -> bool:
+        if _recorded_sized_install(reply, payloads):
+            return True
+        return _fabrication(self._business) and _carport_measured(payloads)
+
     def _update(self, context: TenantContext, arguments: dict) -> ToolPayload:
         try:
             data = UpdateCaseInput(**_without_confidence(arguments))
@@ -441,9 +566,15 @@ class RunAgentTurn:
             detail = _invalid(error)
             _log.info("Tool update_case rejected %s", detail)
             return ToolPayload(name="update_case", body={"error": detail})
+        _log.info(
+            "Tool update_case request job_id=%s job_type=%s facts=%s",
+            data.job_id,
+            data.job_type or "none",
+            ",".join(fact.key for fact in data.facts) or "none",
+        )
         try:
             result = self._update_case.execute(context, data)
-        except CaseNotFound as error:
+        except (CaseNotFound, ValidationError) as error:
             return ToolPayload(name="update_case", body={"error": error.sentence})
         return ToolPayload(name="update_case", body=_body(result))
 
@@ -459,6 +590,12 @@ class RunAgentTurn:
             return ToolPayload(name="get_quote", body={"error": error.sentence})
         if result.total is not None:
             amounts.append(result.total)
+        low = getattr(result, "range_min", None)
+        high = getattr(result, "range_max", None)
+        if low is not None:
+            amounts.append(low)
+        if high is not None and high != low:
+            amounts.append(high)
         clauses.extend(result.clauses)
         return ToolPayload(name="get_quote", body=_body(result))
 
@@ -482,10 +619,63 @@ class RunAgentTurn:
             data = CheckAvailabilityInput(**arguments)
         except (ModelError, ValidationError):
             return _refused("check_availability")
-        result = self._check_availability.execute(context, data)
+        try:
+            result = self._check_availability.execute(context, data)
+        except (PolicyViolation, ValidationError) as error:
+            _log.info("Tool check_availability failed %s", error.sentence)
+            return ToolPayload(
+                name="check_availability",
+                body={"status": "none", "sentence": error.sentence},
+            )
         if result.earliest_window is not None:
             civil_dates.append(result.earliest_window)
         return ToolPayload(name="check_availability", body=_body(result))
+
+    def _accept(self, context, arguments: dict) -> ToolPayload:
+        if self._accept_quote is None:
+            return _refused("accept_quote")
+        try:
+            data = AcceptQuoteInput(**_quote_arg(arguments))
+        except (ModelError, ValidationError):
+            return _refused("accept_quote")
+        try:
+            result = self._accept_quote.execute(context, data)
+        except (PolicyViolation, ValidationError, QuoteNotFound) as error:
+            return ToolPayload(name="accept_quote", body={"error": error.sentence})
+        return ToolPayload(name="accept_quote", body=_body(result))
+
+    def _deposit_link(self, context, arguments: dict) -> ToolPayload:
+        if self._create_deposit_link is None:
+            return _refused("create_deposit_link")
+        try:
+            data = CreateDepositLinkInput(**self._with_key(_quote_arg(arguments)))
+        except (ModelError, ValidationError):
+            return _refused("create_deposit_link")
+        try:
+            result = self._create_deposit_link.execute(context, data)
+        except (PolicyViolation, ValidationError, QuoteNotFound) as error:
+            return ToolPayload(name="create_deposit_link", body={"error": error.sentence, "sentence": error.sentence})
+        return ToolPayload(name="create_deposit_link", body=_body(result))
+
+    def _hold(self, context, arguments: dict) -> ToolPayload:
+        if self._hold_slot is None:
+            return _refused("hold_slot")
+        try:
+            data = HoldSlotInput(**self._with_key(_quote_arg(arguments)))
+        except (ModelError, ValidationError):
+            return _refused("hold_slot")
+        try:
+            result = self._hold_slot.execute(context, data)
+        except (PolicyViolation, ValidationError) as error:
+            return ToolPayload(name="hold_slot", body={"error": error.sentence, "sentence": error.sentence})
+        body = _body(result)
+        body["sentence"] = "That window is held until the deposit hold expires."
+        return ToolPayload(name="hold_slot", body=body)
+
+    def _handover_escalation(self, context, conversation_id: UUID, payload: ToolPayload) -> None:
+        outcome = payload.body.get("outcome")
+        if outcome in (Outcome.ESCALATION, "escalation"):
+            self._handover.execute(context, conversation_id, reason="The quote needs a person.")
 
     def _with_key(self, arguments: dict) -> dict:
         raw = dict(arguments)
@@ -617,9 +807,36 @@ def _quote_facts(payload, card_base, card_code, price_kind, card_link):
         and quote_id.get("value")
     ):
         card_link = f"{card_base}/{quote_id['value']}"
-        if card_code:
-            card_link = f"{card_link}?code={card_code}"
+        code = payload.body.get("verification_code") or card_code
+        if code:
+            card_link = f"{card_link}?code={code}"
     return price_kind, card_link
+
+
+def _with_card(text: str, card_link: str | None) -> str:
+    if not card_link or card_link in text:
+        return text
+    replaced = re.sub(r"/card/QD-\d+(?:\?code=[^ \n]+)?", card_link, text)
+    if card_link in replaced:
+        return replaced
+    return f"{text.rstrip()} {card_link}"
+
+
+def _quote_arg(arguments: dict) -> dict:
+    raw = dict(arguments)
+    if isinstance(raw.get("quote_id"), str):
+        raw["quote_id"] = {"value": raw["quote_id"]}
+    return raw
+
+
+def _named_sentence(prompt: TurnPrompt, name: str) -> str | None:
+    for item in prompt.tool_payloads:
+        if item.name != name:
+            continue
+        sentence = item.body.get("url") if name == "create_deposit_link" else item.body.get("sentence")
+        if isinstance(sentence, str) and sentence.strip():
+            return sentence
+    return None
 
 
 def _log_tool(payload: ToolPayload) -> None:
@@ -649,6 +866,139 @@ def _tool_outcome(payload: ToolPayload) -> str:
     if payload.name == "check_availability":
         return f"status={body.get('status')} earliest={body.get('earliest_window')} sentence={body.get('sentence')}"
     return str(body)
+
+
+_SPAN = re.compile(r"(\d+(?:\.\d+)?)\s*(?:x|×|by)\s*(\d+(?:\.\d+)?)", re.IGNORECASE)
+_SIZE_QUESTION = "What is the width and length in metres?"
+
+
+def _fabrication(business: BusinessView) -> bool:
+    trade = business.trade.casefold()
+    return "carport" in trade or "sheeting" in trade
+
+
+def _case_values(payloads: list[ToolPayload]) -> dict | None:
+    for item in payloads:
+        if item.name != "update_case" or item.body.get("error"):
+            continue
+        current = item.body.get("current")
+        if isinstance(current, dict):
+            return current
+    return None
+
+
+def _has_span(values: dict) -> bool:
+    if values.get("width_m") and values.get("length_m"):
+        return True
+    raw = values.get("size") or values.get("dimensions") or ""
+    return _SPAN.search(str(raw)) is not None
+
+
+def _has_sheet(values: dict) -> bool:
+    return bool(values.get("item") or values.get("item_codes") or values.get("finish"))
+
+
+def _carport_measured(payloads: list[ToolPayload]) -> bool:
+    values = _case_values(payloads)
+    return values is not None and _has_span(values)
+
+
+def _carport_question(prompt: TurnPrompt) -> str | None:
+    values = _case_values(list(prompt.tool_payloads))
+    if values is None or _has_span(values) or not _has_sheet(values):
+        return None
+    return _SIZE_QUESTION
+
+
+def _customer_template(prompt: TurnPrompt) -> str | None:
+    for item in prompt.tool_payloads:
+        if item.name == "get_quote":
+            template = item.body.get("customer_template")
+            if isinstance(template, str) and template.strip():
+                return template
+    return None
+
+
+def _recording(text: str) -> bool:
+    folded = text.casefold()
+    return folded.startswith("i'll record") or folded.startswith("i will record")
+
+
+_INSTALL_JOBS = frozenset(
+    {
+        "replacement",
+        "swap",
+        "tank_swap",
+        "new_system",
+        "new",
+        "installation",
+        "new_installation",
+        "new_install",
+    }
+)
+
+
+def _recorded_sized_install(reply: ModelReply, payloads: list[ToolPayload]) -> bool:
+    updates = [call for call in reply.tool_calls if call.name == "update_case"]
+    recorded = [item for item in payloads if item.name == "update_case"]
+    for call, payload in zip(updates, recorded):
+        if payload.body.get("error"):
+            continue
+        facts = call.arguments.get("facts") or []
+        values = {
+            fact.get("key"): fact.get("value")
+            for fact in facts
+            if isinstance(fact, dict)
+        }
+        if str(values.get("simple_swap", "")).casefold() == "false":
+            continue
+        job = values.get("job") or values.get("job_type") or call.arguments.get("job_type")
+        size = values.get("size_litres") or values.get("tank_size")
+        folded = str(job or "").casefold().replace("-", "_").replace(" ", "_")
+        if size and folded in _INSTALL_JOBS:
+            return True
+    return False
+
+
+def _indicative_reply(prompt: TurnPrompt) -> str | None:
+    for item in prompt.tool_payloads:
+        if item.name != "get_quote" or item.body.get("outcome") != "indicative_range":
+            continue
+        low = _amount(item.body.get("range_min"))
+        high = _amount(item.body.get("range_max"))
+        if low is None or high is None:
+            return None
+        if low == high:
+            return f"The indicative range is R {low}."
+        return f"The indicative range is R {low} to R {high}."
+    return None
+
+
+def _states_indicative(text: str, priced: str) -> bool:
+    if "range" not in text.casefold():
+        return False
+    amounts = [token.rstrip(".") for token in priced.split() if token.startswith("R")]
+    return all(amount in text for amount in amounts)
+
+
+def _amount(raw) -> str | None:
+    if isinstance(raw, dict) and raw.get("amount"):
+        return str(raw["amount"])
+    return None
+
+
+def _availability_sentence(prompt: TurnPrompt) -> str | None:
+    for item in prompt.tool_payloads:
+        if item.name != "check_availability":
+            continue
+        sentence = item.body.get("sentence")
+        if isinstance(sentence, str) and sentence.strip():
+            return sentence
+    return None
+
+
+def _payload_failed(prompt: TurnPrompt) -> bool:
+    return any(bool(item.body.get("error")) for item in prompt.tool_payloads)
 
 
 def _refused(name: str) -> ToolPayload:

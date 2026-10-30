@@ -65,17 +65,35 @@ def _text_mentions_stand_hazard(case: CaseFacts) -> bool:
     return False
 
 
+def _installation_damaged(case: CaseFacts, extraction: ExtractionFacts) -> bool:
+    if case.installation_damaged:
+        return True
+    if extraction.stand_condition in _BAD_STAND:
+        return True
+    if extraction.structure_damage:
+        return True
+    return _text_mentions_stand_hazard(case)
+
+
+def _sized_install(case: CaseFacts) -> bool:
+    return (
+        case.size_litres is not None
+        and case.job in (JobKind.REPLACEMENT, JobKind.NEW_SYSTEM)
+        and case.simple_swap is not False
+    )
+
+
 def _e02(
     case: CaseFacts,
     extraction: ExtractionFacts,
-    _segmentation: SegmentationFacts,
-    _policy: Policy,
+    segmentation: SegmentationFacts,
+    policy: Policy,
 ) -> bool:
-    if extraction.stand_condition in _BAD_STAND:
-        return True
-    if extraction.elevated and extraction.structure_damage:
-        return True
-    return _text_mentions_stand_hazard(case)
+    if not _installation_damaged(case, extraction):
+        return False
+    if _f01(case, extraction, segmentation, policy) or _sized_install(case):
+        return False
+    return True
 
 
 def _e03(
@@ -112,6 +130,8 @@ def _f01(
     _segmentation: SegmentationFacts,
     policy: Policy,
 ) -> bool:
+    if case.simple_swap is False:
+        return False
     if derive_confidence(case.checks) is not ConfidenceBand.HIGH:
         return False
     if case.job is not JobKind.REPLACEMENT:
@@ -133,6 +153,15 @@ def _r01(
     if band not in (ConfidenceBand.MEDIUM, ConfidenceBand.HIGH):
         return False
     return case.new_tank_and_pump and case.base_unconfirmed
+
+
+def _r02(
+    case: CaseFacts,
+    _extraction: ExtractionFacts,
+    _segmentation: SegmentationFacts,
+    _policy: Policy,
+) -> bool:
+    return _sized_install(case)
 
 
 def _l01(
@@ -220,6 +249,18 @@ def _fab_r01(
     return case.width_m == Decimal("6.0") and case.length_m == Decimal("7.0") and case.finish is None
 
 
+def _fab_r02(
+    case: CaseFacts,
+    _extraction: ExtractionFacts,
+    _segmentation: SegmentationFacts,
+    _policy: Policy,
+) -> bool:
+    band = derive_confidence(case.checks)
+    if band not in (ConfidenceBand.MEDIUM, ConfidenceBand.HIGH):
+        return False
+    return case.width_m is not None and case.length_m is not None
+
+
 def _fab_b01(
     case: CaseFacts,
     _extraction: ExtractionFacts,
@@ -239,6 +280,7 @@ _PREDICATES = {
     "WATER-S02": _s02,
     "WATER-F01": _f01,
     "WATER-R01": _r01,
+    "WATER-R02": _r02,
     "WATER-L01": _l01,
     "WATER-L02": _l02,
     "FAB-E01": _e01,
@@ -248,6 +290,7 @@ _PREDICATES = {
     "FAB-S02": _fab_s02,
     "FAB-F01": _fab_f01,
     "FAB-R01": _fab_r01,
+    "FAB-R02": _fab_r02,
     "FAB-B01": _fab_b01,
     "FAB-L01": _l01,
     "FAB-L02": _l02,

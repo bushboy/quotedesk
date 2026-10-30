@@ -31,7 +31,7 @@ from quotedesk.domain.case.case_file import CaseFile
 from quotedesk.domain.conversation.events import Conversation
 from quotedesk.domain.policy.draft import DraftClause, DraftRateRow, DraftRule, PolicyDraft
 from quotedesk.domain.quotes.quote import Quote
-from quotedesk.domain.quotes.schedule import Capacity, ScheduleSettings
+from quotedesk.domain.quotes.schedule import ScheduleSettings
 from quotedesk.domain.services.price import RateCard
 from quotedesk.domain.shared.ids import PolicyVersionId, QuoteId
 from quotedesk.infrastructure.tenants import TenantProfile, known_tenant
@@ -70,6 +70,20 @@ class Conversations:
 
     def record_reply(self, tenant_id: UUID, conversation_id: UUID, at: datetime, body: str) -> None:
         self._replies.append((tenant_id, conversation_id, at, body))
+
+    def transcript(self, tenant_id: UUID, wa_id: str) -> list[dict[str, str]]:
+        conversation_id = self.find(tenant_id, wa_id)
+        if conversation_id is None:
+            return []
+        rows: list[dict[str, str]] = []
+        conversation = self.get(tenant_id, conversation_id)
+        if conversation is not None:
+            for event in conversation.events:
+                rows.append({"side": "out", "body": event.body, "at": event.at.isoformat(), "kind": "text"})
+        for at, body in self.replies(tenant_id, conversation_id):
+            rows.append({"side": "in", "body": body, "at": at.isoformat(), "kind": "text"})
+        rows.sort(key=lambda item: item["at"])
+        return rows
 
     def replies(self, tenant_id: UUID, conversation_id: UUID) -> tuple[tuple[datetime, str], ...]:
         return tuple(
@@ -398,9 +412,15 @@ class QuoteLookup:
         for (stored, _), quote in self._unit.committed.items():
             if stored == tenant_id and quote.quote_id == quote_id:
                 return quote
-        return None
+        reader = getattr(self._unit, "read_quote", None)
+        if reader is None:
+            return None
+        return reader(tenant_id, quote_id)
 
     def list_for(self, tenant_id: UUID) -> tuple[Quote, ...]:
+        listed = getattr(self._unit, "list_quotes", None)
+        if listed is not None:
+            return listed(tenant_id)
         return tuple(quote for (stored, _), quote in list(self._unit.committed.items()) if stored == tenant_id)
 
     def save(self, tenant_id: UUID, conversation_id: UUID, quote) -> None:
@@ -412,7 +432,7 @@ class Codes:
         raise AssertionError("GetQuoteStatus does not mint a code.")
 
     def matches(self, tenant_id: UUID, quote_id: QuoteId, code: str) -> bool:
-        return quote_id.value == "QD-1042" and code == "1042"
+        return code == "1042"
 
 
 def with_rate_card(bundle: PublishedPolicy, card: RateCard | None) -> PublishedPolicy:
@@ -453,8 +473,8 @@ def _frameworks_bundle() -> PublishedPolicy:
             vat_inclusive=True,
             site_visit_fee=Money("750.00"),
             items=(
-                RateCardItem(item_code="SHEET-ECO", description="Economy sheeting", unit_price=Money("8500.00")),
-                RateCardItem(item_code="SHEET-POLY", description="Polycarbonate sheeting", unit_price=Money("12400.00")),
+                RateCardItem(item_code="SHEET-ECO", description="Economy sheeting", unit_price=Money("180.00")),
+                RateCardItem(item_code="SHEET-POLY", description="Polycarbonate sheeting", unit_price=Money("260.00")),
             ),
         ),
         clause_policy=ClausePolicy(
@@ -528,25 +548,24 @@ class _Caps:
         return CommercialSettings(discount_cap_percent=Decimal("5"))
 
 
-class _Capacity:
-    def get(self, tenant_id: UUID) -> Capacity:
-        return Capacity()
-
-    def save(self, tenant_id: UUID, capacity: Capacity) -> None:
-        return None
-
-
 def _caps() -> _Caps:
     return _Caps()
 
 
-def _capacity() -> _Capacity:
-    return _Capacity()
-
-
 def _schedule_settings() -> ScheduleSettings:
     return ScheduleSettings(
-        lead_time_working_days={"replacement": 5},
+        lead_time_working_days={
+            "replacement": 5,
+            "new_system": 7,
+            "new_installation": 7,
+            "borehole": 10,
+            "carport": 8,
+            "window": 8,
+            "door": 8,
+            "shutter": 8,
+            "inspection": 5,
+            "site_assessment": 5,
+        },
         minimum_notice_working_days=2,
         hold_period_hours=48,
         working_days=(0, 1, 2, 3, 4),
@@ -579,6 +598,15 @@ def install(
     enricher=None,
     tenant: TenantProfile | None = None,
     rate_cards=None,
+    conversations=None,
+    cases=None,
+    unit=None,
+    ids=None,
+    codes=None,
+    acceptances=None,
+    links=None,
+    capacity=None,
+    handovers=None,
 ) -> None:
     """`live` runs on wall-clock time with a short quiet window, for a person at the chat page.
 
@@ -587,9 +615,31 @@ def install(
     """
     published = bundle
     profile = tenant or known_tenant("aquasure")
-    conversations = Conversations()
-    cases = Cases(CaseFile.open(CONVERSATION, profile.tenant_id))
-    unit = Unit()
+    conversations = conversations or Conversations()
+    cases = cases or Cases(CaseFile.open(CONVERSATION, profile.tenant_id))
+    from quotedesk.application.use_cases.tools.accept_quote import AcceptQuote
+    from quotedesk.application.use_cases.tools.create_deposit_link import CreateDepositLink
+    from quotedesk.application.use_cases.tools.hold_slot import HoldSlot
+    from quotedesk.infrastructure.commercial import (
+        IssuedCodes,
+        MemoryAcceptances,
+        MemoryCapacity,
+        MemoryDeposits,
+        MemoryHandovers,
+        MemoryHolds,
+        MemoryLinks,
+        SequencingIds,
+    )
+
+    unit = unit or Unit()
+    ids = ids or SequencingIds()
+    if codes is None and live:
+        codes = IssuedCodes()
+    acceptances = acceptances or MemoryAcceptances()
+    links = links or MemoryLinks()
+    capacity = capacity or MemoryCapacity()
+    handovers = handovers or MemoryHandovers()
+    holds = MemoryHolds()
     outbox = Outbox()
     if sender is None:
         sender = OutboxSender(outbox)
@@ -598,7 +648,6 @@ def install(
         slot.model = model
     clock = SystemClock() if live else TurnClock()
     receive = ReceiveInboundEvent(conversations, sender, Media(), Ordinary(), clock)
-    ids = Ids()
     catalog = Catalog()
     policies = Policies(published, rate_cards)
     policies.save_draft(
@@ -606,8 +655,9 @@ def install(
         policy_draft(published, _caps().for_tenant(profile.tenant_id).discount_cap_percent),
     )
     update = UpdateCase(cases, catalog, ids)
-    quoted = Remembering(GetQuote(cases, policies, unit, QuoteClock(), ids))
-    handover = HandoverToHuman(cases)
+    lookup = QuoteLookup(unit)
+    quoted = Remembering(GetQuote(cases, policies, unit, clock, ids, codes))
+    handover = HandoverToHuman(cases, handovers, clock)
     turn = RunAgentTurn(
         conversations,
         sender,
@@ -617,8 +667,11 @@ def install(
         quoted,
         handover,
         clock,
-        request_change=RequestChange(QuoteLookup(unit), _caps(), unit, clock),
-        check_availability=CheckAvailability(_capacity(), _schedule_settings(), clock),
+        request_change=RequestChange(lookup, _caps(), unit, clock),
+        check_availability=CheckAvailability(capacity, _schedule_settings(), clock),
+        accept_quote=AcceptQuote(lookup, acceptances, unit, clock),
+        create_deposit_link=CreateDepositLink(lookup, acceptances, links),
+        hold_slot=HoldSlot(capacity, MemoryDeposits(), holds, _schedule_settings(), clock),
         catalog=catalog,
         policies=policies,
         ids=ids,
@@ -645,12 +698,14 @@ def install(
     app.state.receive = receive
     app.state.turn = turn
     app.state.quoted = quoted
-    app.state.status = GetQuoteStatus(QuoteLookup(unit), Codes())
-    app.state.quotes = QuoteLookup(unit)
+    app.state.status = GetQuoteStatus(lookup, codes if codes is not None else Codes())
+    app.state.quotes = lookup
+    app.state.handovers = handovers
+    app.state.codes = codes
     app.state.policies = policies
-    app.state.list_pending = ListPending(QuoteLookup(unit), unit, _caps())
-    app.state.approve = ApproveException(QuoteLookup(unit), unit, clock)
-    app.state.reject = RejectException(QuoteLookup(unit), unit, clock)
+    app.state.list_pending = ListPending(lookup, unit, _caps())
+    app.state.approve = ApproveException(lookup, unit, clock)
+    app.state.reject = RejectException(lookup, unit, clock)
     app.state.publish = PublishPolicy(policies, unit, clock)
     app.state.flags = GateFlags(afrikaans_text=False, afrikaans_voice=False)
     allowed = ("image/jpeg", "image/png", "audio/ogg", "video/mp4")
@@ -660,6 +715,11 @@ def install(
         messages_per_minute=10 if live else 3,
         allowed_types=allowed + ("audio/webm", "audio/mp4") if live else allowed,
     )
+
+    for conversation_id in conversations.ids(profile.tenant_id):
+        stored = conversations.get(profile.tenant_id, conversation_id)
+        if stored is not None:
+            turn.acknowledge(event.provider_message_id for event in stored.events)
 
     def run_turn() -> None:
         context = TenantContext(tenant_id=app.state.tenant_id)

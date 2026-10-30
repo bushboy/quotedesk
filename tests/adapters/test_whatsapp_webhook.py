@@ -1,6 +1,7 @@
 import hashlib
 import hmac
 import json
+import re
 import time
 from pathlib import Path
 from uuid import UUID
@@ -65,6 +66,28 @@ def test_status_updates_are_accepted_and_store_nothing(monkeypatch):
     assert app.state.conversations.get(TENANT_A, CONVERSATION) is None
 
 
+def test_interactive_and_location_keep_a_body():
+    interactive = {
+        "from": "15550002222",
+        "id": "wamid.BTN1",
+        "timestamp": "1761710000",
+        "type": "interactive",
+        "interactive": {"type": "button_reply", "button_reply": {"id": "accept_quote", "title": "Accept quote"}},
+    }
+    location = {
+        "from": "15550002222",
+        "id": "wamid.PIN1",
+        "timestamp": "1761710001",
+        "type": "location",
+        "location": {"latitude": -26.2041, "longitude": 28.0473, "name": "The yard"},
+    }
+    body = _payload(interactive)
+    body["entry"][0]["changes"][0]["value"]["messages"].append(location)
+    button, pin = inbound_messages(body, CONVERSATION_ID)
+    assert (button.kind, button.body) == ("text", "Accept quote")
+    assert pin.body == "The yard -26.2041, 28.0473"
+
+
 def test_media_messages_carry_the_caption_and_a_bare_mime_type():
     image = {
         "from": "15550002222",
@@ -114,4 +137,9 @@ def test_running_app_replies_after_the_quiet_window(monkeypatch):
             rows = client.get("/whatsapp/outbox", params={"wa_id": "15550002222", "after": 0}).json()
     assert len(rows) == 1
     assert "R 4 250" in rows[0]["body"]
-    assert "/card/QD-1042?code=1042" in rows[0]["body"]
+    found = re.search(r"/card/(QD-\d+)\?code=(\d+)", rows[0]["body"])
+    assert found is not None
+    page = TestClient(app).get(f"/card/{found.group(1)}", params={"code": found.group(2)})
+    assert page.status_code == 200
+    assert "R 4 250.00" in page.text
+    assert TestClient(app).get(f"/card/{found.group(1)}", params={"code": "0000"}).status_code == 404

@@ -77,6 +77,13 @@ def fabricator_policy() -> Policy:
                 "6 m by 7 m with the finish not chosen.",
             ),
             _rule(
+                "FAB-R02",
+                1,
+                Outcome.INDICATIVE_RANGE,
+                "The indicative range for that size is in this result. It uses the sheeting on the rate card.",
+                "The width and length are known.",
+            ),
+            _rule(
                 "FAB-B01",
                 1,
                 Outcome.INDICATIVE_RANGE,

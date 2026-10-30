@@ -263,10 +263,13 @@ def owner_page(
 ) -> HTMLResponse:
     state = request.app.state
     rows = state.list_pending.execute(_context(request))
+    log = getattr(state, "handovers", None)
+    handovers = () if log is None else log.list(state.tenant_id)
     html = owner_templates().get_template("console.html").render(
         contacts=contacts(state),
         quotes=sent_quotes(state),
         rows=rows,
+        handovers=handovers,
         result=result,
         result_total=total(result.lines) if result is not None else None,
         action=action,

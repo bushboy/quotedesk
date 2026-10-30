@@ -6,7 +6,7 @@ from quotedesk.application.dto.tool_outputs import HoldResult
 from quotedesk.application.errors import TenantRequired
 from quotedesk.application.ports.repositories import CapacityRepository, Deposits, SlotHolds
 from quotedesk.application.ports.runtime import Clock
-from quotedesk.domain.quotes.schedule import DepositState, ScheduleRequest, ScheduleSettings
+from quotedesk.domain.quotes.schedule import CapacitySlot, DepositState, ScheduleRequest, ScheduleSettings
 from quotedesk.domain.services.schedule import civil_date, schedule
 
 _ZONE = ZoneInfo("Africa/Johannesburg")
@@ -37,10 +37,14 @@ class HoldSlot:
         at = self._clock.now()
         today = civil_date(at, _ZONE)
         capacity = self._capacity.get(context.tenant_id)
+        if not any(slot.day == data.requested_date for slot in capacity.slots):
+            capacity = capacity.model_copy(
+                update={"slots": capacity.slots + (CapacitySlot(day=data.requested_date, places=4),)}
+            )
         request = ScheduleRequest(
             kind="hold",
             quote_issued=True,
-            job_type="replacement",
+            job_type=data.job_type,
             requested_date=data.requested_date,
         )
         result = schedule(

@@ -238,6 +238,8 @@
         overflow-wrap: anywhere;
       }
       @media (max-width: 600px) { .bubble { max-width: 85%; } }
+      .choices { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 2px; }
+      .choices button { border: 1px solid var(--accent); color: var(--accent-strong); border-radius: 999px; padding: 4px 10px; background: transparent; }
       .out .bubble { background: var(--out); }
       .in .bubble { background: var(--in); }
       .msg.first.out .bubble { border-top-right-radius: 0; }
@@ -659,6 +661,8 @@
       <div class="pop attach-menu" id="attach" role="menu">
         <button type="button" id="open-gallery"><span class="disc gallery"><svg><use href="#i-photo"/></svg></span>Gallery</button>
         <button type="button" id="open-camera"><span class="disc camera"><svg><use href="#i-camera"/></svg></span>Camera</button>
+        <button type="button" id="send-accept"><span class="disc gallery"><svg><use href="#i-send"/></svg></span>Accept quote</button>
+        <button type="button" id="send-location"><span class="disc camera"><svg><use href="#i-clip"/></svg></span>Share location</button>
       </div>
 
       <div class="sheet" id="sheet" role="dialog" aria-label="Recent photos">
@@ -960,6 +964,16 @@
             bubble.append(previewFor(item.card));
           }
           bubble.append(el("span", "text", richText(item.text || "", item.card)), el("span", "spacer"));
+          if (item.buttons && item.buttons.length) {
+            const choices = el("div", "choices");
+            item.buttons.forEach((label) => {
+              const button = el("button", null, escapeHtml(label));
+              button.type = "button";
+              button.addEventListener("click", () => push({ mid: messageId(), type: "interactive", text: label, buttonId: "accept_quote" }));
+              choices.append(button);
+            });
+            bubble.append(choices);
+          }
         }
         bubble.append(metaFor(item));
         if (item.side === "out") {
@@ -1038,6 +1052,10 @@
         const message = { from: WA, id: item.mid, timestamp: String(Math.floor(item.at / 1000)), type: item.type };
         if (item.type === "text") {
           message.text = { body: item.text };
+        } else if (item.type === "interactive") {
+          message.interactive = { type: "button_reply", button_reply: { id: item.buttonId || "accept_quote", title: item.text } };
+        } else if (item.type === "location") {
+          message.location = { latitude: item.latitude, longitude: item.longitude, name: item.place || "Shared location" };
         } else {
           const media = { id: item.mediaId, mime_type: item.mime };
           if (item.type === "audio") media.voice = true;
@@ -1067,7 +1085,7 @@
         if (manual) item.attempts = 0;
         setStatus(item, "pending");
         try {
-          if (item.type !== "text" && !item.mediaId) {
+          if (item.type !== "text" && item.type !== "interactive" && item.type !== "location" && !item.mediaId) {
             const blob = blobs.get(item.mid);
             if (!blob) throw new Error("media gone");
             const up = await fetch("/sim/media", { method: "POST", headers: { "content-type": item.mime }, body: blob });
@@ -1137,20 +1155,46 @@
       }
 
       // ---------- receiving ----------
+      async function outbox(after) {
+        const query = after == null ? "" : `&after=${after}`;
+        const response = await fetch(`/whatsapp/outbox?wa_id=${encodeURIComponent(WA)}${query}`, { cache: "no-store" });
+        if (!response.ok) return [];
+        return response.json();
+      }
+
+      function alreadyShown(row) {
+        return state.items.some((item) => item.side === "in" && item.text === row.body);
+      }
+
       async function poll() {
         clearTimeout(pollTimer);
         if (document.hidden) return;
         try {
-          const response = await fetch(`/whatsapp/outbox?wa_id=${encodeURIComponent(WA)}&after=${state.last}`, { cache: "no-store" });
-          if (response.ok) {
-            const rows = await response.json();
-            for (const row of rows) {
-              if (row.id <= state.last) continue;
-              state.last = row.id;
-              queue.push(row);
+          let rows = await outbox(state.last);
+          let restarted = false;
+          if (!rows.length && state.last > 0) {
+            const all = await outbox(null);
+            const anchor = all.find((row) => row.id === state.last);
+            const lastIn = [...state.items].reverse().find((item) => item.side === "in");
+            const newest = all.reduce((max, row) => Math.max(max, row.id || 0), 0);
+            if (!anchor || newest < state.last || (lastIn && anchor.body !== lastIn.text)) {
+              if (!all.length) {
+                resetThread();
+                rows = [];
+              } else {
+                restarted = true;
+                rows = all.filter((row) => !alreadyShown(row));
+                state.last = newest;
+                save();
+              }
             }
-            if (rows.length) { save(); drain(); }
           }
+          for (const row of rows) {
+            if ((!restarted && row.id <= state.last) || alreadyShown(row)) continue;
+            state.last = Math.max(state.last, row.id);
+            queue.push(row);
+          }
+          if (queue.length) { save(); drain(); }
         } catch (_) {}
         if (!document.hidden) pollTimer = setTimeout(poll, POLL_MS);
       }
@@ -1160,7 +1204,9 @@
         draining = true;
         while (queue.length) {
           const row = queue.shift();
-          const item = { key: "out-" + row.id, row: row.id, side: "in", type: "text", text: row.body, at: Date.now() };
+          let key = "out-" + row.id;
+          if (nodes.has(key) || state.items.some((item) => item.key === key)) key = key + "-" + Date.now();
+          const item = { key, row: row.id, side: "in", type: "text", text: row.body, buttons: row.buttons || [], at: Date.now() };
           const found = row.body.match(CARD);
           if (found) {
             const preview = await fetchPreview(found[1]);
@@ -1234,6 +1280,30 @@
       $("more").addEventListener("click", (e) => { e.stopPropagation(); toggle("menu"); });
       $("open-gallery").addEventListener("click", (e) => { e.stopPropagation(); toggle("sheet", true); });
       $("open-camera").addEventListener("click", () => { toggle(null); $("shoot").click(); });
+      $("send-accept").addEventListener("click", () => {
+        toggle(null);
+        push({ mid: messageId(), type: "interactive", text: "Accept quote", buttonId: "accept_quote" });
+      });
+      $("send-location").addEventListener("click", () => {
+        toggle(null);
+        const sendPin = (latitude, longitude) => push({
+          mid: messageId(),
+          type: "location",
+          text: "Shared location",
+          place: "Shared location",
+          latitude,
+          longitude,
+        });
+        if (navigator.geolocation) {
+          navigator.geolocation.getCurrentPosition(
+            (position) => sendPin(position.coords.latitude, position.coords.longitude),
+            () => sendPin(-26.2041, 28.0473),
+            { timeout: 4000 }
+          );
+        } else {
+          sendPin(-26.2041, 28.0473);
+        }
+      });
       $("camera-btn").addEventListener("click", () => $("shoot").click());
       $("browse").addEventListener("click", () => { toggle(null); $("file").click(); });
       document.addEventListener("click", (e) => {
@@ -1444,15 +1514,55 @@
       }
 
       // ---------- boot ----------
-      async function boot() {
-        if (state.last > 0) {
-          try {
-            const rows = await (await fetch(`/whatsapp/outbox?wa_id=${encodeURIComponent(WA)}`, { cache: "no-store" })).json();
-            const lastIn = [...state.items].reverse().find((i) => i.side === "in");
-            const anchor = rows.find((r) => r.id === state.last);
-            if (!anchor || (lastIn && anchor.body !== lastIn.text)) state = { last: 0, items: [] };
-          } catch (_) {}
+      async function showHistory(history) {
+        resetThread();
+        for (let index = 0; index < history.length; index += 1) {
+          const row = history[index];
+          const item = {
+            key: "hist-" + index,
+            side: row.side,
+            type: "text",
+            text: row.body || "",
+            at: Date.parse(row.at) || Date.now(),
+            status: "read"
+          };
+          const found = (row.body || "").match(CARD);
+          if (found) {
+            const preview = await fetchPreview(found[1]);
+            item.card = { match: found[0], path: found[1], label: (preview && preview.headline) || "Your quote", preview };
+          }
+          state.items.push(item);
+          render(item, { animate: false, follow: false });
         }
+        save();
+        toBottom(false);
+      }
+
+      async function boot() {
+        let history = [];
+        try {
+          const response = await fetch(`/whatsapp/history?wa_id=${encodeURIComponent(WA)}`, { cache: "no-store" });
+          if (response.ok) history = await response.json();
+        } catch (_) {}
+        if (history.length) {
+          await showHistory(history);
+          try {
+            const rows = await outbox(null);
+            state.last = rows.reduce((max, row) => Math.max(max, row.id || 0), 0);
+            save();
+          } catch (_) {}
+          if (matchMedia("(pointer: fine)").matches) text.focus();
+          poll();
+          return;
+        }
+        try {
+          const rows = await outbox(null);
+          const lastIn = [...state.items].reverse().find((i) => i.side === "in");
+          const anchor = rows.find((r) => r.id === state.last);
+          if ((state.last > 0 && (!anchor || (lastIn && anchor.body !== lastIn.text))) || (lastIn && !rows.length)) {
+            state = { last: 0, items: [] };
+          }
+        } catch (_) {}
         for (const item of state.items) {
           if (item.side === "out" && (item.status === "pending" || item.inflight)) item.status = "failed";
           delete item.local;

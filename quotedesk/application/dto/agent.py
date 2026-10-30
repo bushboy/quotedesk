@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Any, Literal
 from uuid import UUID
 
@@ -29,6 +30,15 @@ class Handover(BaseModel):
     conversation_id: UUID
     case: CaseFile
     reason: str
+
+
+class HandoverNote(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    conversation_id: UUID
+    reason: str
+    brief: str
+    at: datetime
 
 
 class PromptMessage(BaseModel):

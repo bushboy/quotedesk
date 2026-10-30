@@ -12,6 +12,7 @@ from quotedesk.application.use_cases.conversation.run_agent_turn import (
 )
 from quotedesk.domain.case.case_file import CaseFile
 from quotedesk.domain.conversation.events import Conversation, ConversationEvent
+from quotedesk.domain.shared.errors import PolicyViolation, ValidationError
 from quotedesk.domain.shared.money import Money
 
 TENANT = UUID("11111111-1111-4111-8111-111111111111")
@@ -157,9 +158,9 @@ def tools():
     )
 
 
-def turn(model, conversations, sender, clock, cases=None):
+def turn(model, conversations, sender, clock, cases=None, update=None, availability=None):
     lock = Lock()
-    update = Update()
+    update = update or Update()
     quote = Quote()
     handover = HandoverToHuman(cases or Cases(CaseFile.open(CONVERSATION, TENANT)))
     use_case = RunAgentTurn(
@@ -171,6 +172,7 @@ def turn(model, conversations, sender, clock, cases=None):
         quote,
         handover,
         clock,
+        check_availability=availability,
     )
     return use_case, lock, update, quote, handover
 
@@ -358,3 +360,67 @@ def test_speak_to_a_person():
     assert handover.records[0].reason == "Can I speak to a person?"
     assert handover.records[0].case.jobs[0].job_id == "tank"
     assert sender.sent == [("", HANDOVER)]
+
+
+def test_a_new_job_without_a_type_is_sent_back_to_the_model():
+    class TypedUpdate(Update):
+        def execute(self, context, data):
+            self.calls += 1
+            if data.job_type is None:
+                raise ValidationError(code="job.type_required", sentence="A new job names its type.")
+
+    size = {
+        "key": "size_litres",
+        "value": "2500",
+        "source": "customer_text",
+        "event_id": str(EVENT),
+    }
+    missing = ToolCall(name="update_case", arguments={"job_id": "tank", "facts": [size]})
+    named = ToolCall(
+        name="update_case",
+        arguments={"job_id": "tank", "job_type": "replacement", "facts": [size]},
+    )
+    conversations = Conversations()
+    sender = Sender()
+    conversations.save(
+        TENANT,
+        Conversation.open(CONVERSATION).append("wamid.A", at(0), "The 2500 L tank.").conversation,
+    )
+    update = TypedUpdate()
+    script = Script(
+        (
+            ModelReply(text="I'll record that 2500L tank choice.", tool_calls=(missing,)),
+            ModelReply(text="", tool_calls=(named,)),
+            ModelReply(text="Is that tank on the existing level base?", tool_calls=()),
+        )
+    )
+    use_case, _, _, quote, _ = turn(script, conversations, sender, Clock(at(5)), update=update)
+    use_case.execute(TenantContext(tenant_id=TENANT), CONVERSATION)
+    assert update.calls == 2
+    assert quote.calls == 1
+    assert sender.sent == [("", "Is that tank on the existing level base?")]
+    assert script.prompts[1].tool_payloads[0].body["error"] == "A new job names its type."
+
+
+def test_a_closed_calendar_still_replies_with_the_turnaround():
+    class Closed:
+        def execute(self, context, data):
+            raise PolicyViolation(code="policy.violation", sentence="That calendar has no open day.")
+
+    conversations = Conversations()
+    sender = Sender()
+    conversations.save(
+        TENANT,
+        Conversation.open(CONVERSATION).append("wamid.A", at(0), "How soon can you fit it?").conversation,
+    )
+    script = Script(
+        (
+            ModelReply(
+                text="I'll check the earliest availability for your replacement.",
+                tool_calls=(ToolCall(name="check_availability", arguments={"job_type": "replacement"}),),
+            ),
+        )
+    )
+    use_case, _, _, _, _ = turn(script, conversations, sender, Clock(at(5)), availability=Closed())
+    use_case.execute(TenantContext(tenant_id=TENANT), CONVERSATION)
+    assert sender.sent == [("", "That calendar has no open day.")]
