@@ -65,6 +65,9 @@ class Conversations:
     def taken(self, conversation_id: UUID) -> bool:
         return conversation_id in self._by_sender.values()
 
+    def place(self, tenant_id: UUID, conversation_id: UUID) -> UUID:
+        return conversation_id
+
     def ids(self, tenant_id: UUID) -> tuple[UUID, ...]:
         return tuple(conversation_id for (tenant, conversation_id) in self.rows if tenant == tenant_id)
 

@@ -97,14 +97,27 @@ def _resume(request: Request, wa_id: str):
     tenant_id = request.app.state.tenant_id
     found = conversations.find(tenant_id, wa_id)
     if found is not None:
-        request.app.state.conversation_id = found
-        return found
+        conversation_id = _for_tenant(conversations, tenant_id, found)
+        if conversation_id != found:
+            conversations.bind(tenant_id, wa_id, conversation_id)
+            cases.ensure(tenant_id, conversation_id)
+        request.app.state.conversation_id = conversation_id
+        return conversation_id
     seeded = request.app.state.conversation_id
-    conversation_id = uuid4() if conversations.taken(seeded) else seeded
+    candidate = uuid4() if conversations.taken(seeded) else seeded
+    conversation_id = _for_tenant(conversations, tenant_id, candidate)
     conversations.bind(tenant_id, wa_id, conversation_id)
     cases.ensure(tenant_id, conversation_id)
     request.app.state.conversation_id = conversation_id
     return conversation_id
+
+
+def _for_tenant(conversations, tenant_id, conversation_id):
+    """The id when this tenant owns it. A row held by another tenant gets a new id."""
+    place = getattr(conversations, "place", None)
+    if place is None:
+        return conversation_id
+    return place(tenant_id, conversation_id)
 
 
 def inbound_messages(payload: dict, conversation_id) -> list[InboundMessage]:

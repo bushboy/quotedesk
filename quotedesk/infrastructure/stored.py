@@ -14,7 +14,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.exc import SQLAlchemyError
 
 from quotedesk.adapters.outbound.persistence.quotes import QuoteTables
-from quotedesk.adapters.outbound.persistence.records import CaseTables, ConversationTables, bind_tenant
+from quotedesk.adapters.outbound.persistence.records import CaseTables, ConversationTables, bind_tenant, hold_conversation
 from quotedesk.infrastructure.commercial import StoredAcceptances, StoredCapacity, StoredCodes, StoredHandovers, StoredLinks
 from quotedesk.domain.case.case_file import CaseFile
 from quotedesk.domain.conversation.events import Conversation
@@ -265,6 +265,30 @@ class StoredConversations:
             ).first()
         return row is not None
 
+    def place(self, tenant_id: UUID, conversation_id: UUID) -> UUID:
+        """A conversation id this tenant owns.
+
+        The same id can already be stored for another business. Row-level
+        security hides that row, so messages written here would not come back
+        on this tenant's turn. Those messages move onto a new conversation.
+        """
+        with self._engine.begin() as connection:
+            bind_tenant(connection, tenant_id)
+            if hold_conversation(connection, tenant_id, conversation_id):
+                return conversation_id
+            fresh = uuid4()
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO conversation (conversation_id, tenant_id)
+                    VALUES (:conversation_id, :tenant_id)
+                    """
+                ),
+                {"conversation_id": fresh, "tenant_id": tenant_id},
+            )
+            _rehome(connection, conversation_id, fresh)
+            return fresh
+
     def ids(self, tenant_id: UUID) -> tuple[UUID, ...]:
         with self._engine.begin() as connection:
             bind_tenant(connection, tenant_id)
@@ -277,16 +301,8 @@ class StoredConversations:
     def record_reply(self, tenant_id: UUID, conversation_id: UUID, at: datetime, body: str) -> None:
         with self._engine.begin() as connection:
             bind_tenant(connection, tenant_id)
-            connection.execute(
-                text(
-                    """
-                    INSERT INTO conversation (conversation_id, tenant_id)
-                    VALUES (:conversation_id, :tenant_id)
-                    ON CONFLICT (conversation_id) DO NOTHING
-                    """
-                ),
-                {"conversation_id": conversation_id, "tenant_id": tenant_id},
-            )
+            if not hold_conversation(connection, tenant_id, conversation_id):
+                raise RuntimeError("That conversation belongs to another tenant.")
             connection.execute(
                 text(
                     """
@@ -427,6 +443,32 @@ class StoredIds:
 
     def next_idempotency_key(self) -> str:
         return str(uuid4())
+
+
+def _rehome(connection, previous: UUID, fresh: UUID) -> None:
+    """Move this tenant's rows off a conversation id owned by someone else."""
+    connection.execute(
+        text(
+            """
+            INSERT INTO case_file (conversation_id, tenant_id)
+            SELECT :fresh, tenant_id FROM case_file WHERE conversation_id = :previous
+            """
+        ),
+        {"fresh": fresh, "previous": previous},
+    )
+    connection.execute(
+        text("UPDATE case_fact SET conversation_id = :fresh WHERE conversation_id = :previous"),
+        {"fresh": fresh, "previous": previous},
+    )
+    connection.execute(
+        text("DELETE FROM case_file WHERE conversation_id = :previous"),
+        {"previous": previous},
+    )
+    for table in ("conversation_event", "inbound_message", "assistant_reply", "quote", "handover"):
+        connection.execute(
+            text(f"UPDATE {table} SET conversation_id = :fresh WHERE conversation_id = :previous"),
+            {"fresh": fresh, "previous": previous},
+        )
 
 
 def _conversation_id(connection, tenant_id: UUID, quote_id: str) -> UUID | None:

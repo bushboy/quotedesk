@@ -120,3 +120,75 @@ def test_a_restart_reads_the_thread_the_case_and_the_quote():
         assert restarted.ids.next_quote_id().value.startswith("QD-")
     finally:
         _erase(database, conversation_id)
+
+
+OTHER = UUID("22222222-2222-4222-8222-222222222222")
+
+
+def test_a_message_is_stored_for_the_tenant_that_sends_it():
+    try:
+        with engine(URL).connect():
+            pass
+    except OperationalError:
+        pytest.skip("PostgreSQL is not listening on 127.0.0.1:5432.")
+    command.upgrade(Config("alembic.ini"), "head")
+    opened = open_thread(URL)
+    assert opened is not None
+    conversation_id = uuid4()
+    database = opened.engine
+    placed = None
+    try:
+        opened.conversations.save(TENANT, Conversation.open(conversation_id).append("a1", WHEN, "aqua").conversation)
+        with database.begin() as connection:
+            bind_tenant(connection, OTHER)
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO conversation_event (
+                        conversation_id, tenant_id, provider_message_id, at, body, arrival
+                    )
+                    VALUES (:conversation_id, :tenant_id, 'b1', :at, 'Good morning', 0)
+                    """
+                ),
+                {"conversation_id": conversation_id, "tenant_id": OTHER, "at": WHEN},
+            )
+        placed = opened.conversations.place(OTHER, conversation_id)
+        assert placed != conversation_id
+        assert opened.conversations.place(OTHER, placed) == placed
+        owned = opened.conversations.get(OTHER, placed)
+        assert owned is not None
+        assert owned.events[0].body == "Good morning"
+        assert placed in opened.conversations.ids(OTHER)
+        assert conversation_id not in opened.conversations.ids(OTHER)
+        kept = opened.conversations.get(TENANT, conversation_id)
+        assert kept is not None
+        assert kept.events[0].body == "aqua"
+        opened.conversations.save(
+            OTHER,
+            owned.append("b2", WHEN, "A 6 by 4 metre carport.").conversation,
+        )
+        reread = opened.conversations.get(OTHER, placed)
+        assert reread is not None
+        assert [event.body for event in reread.events] == ["Good morning", "A 6 by 4 metre carport."]
+    finally:
+        _erase(database, conversation_id)
+        if placed is not None:
+            _erase_as(database, OTHER, placed)
+
+
+def _erase_as(database, tenant_id: UUID, conversation_id: UUID) -> None:
+    with database.begin() as connection:
+        bind_tenant(connection, tenant_id)
+        connection.execute(
+            text("DELETE FROM sender_bind WHERE conversation_id = :conversation_id"),
+            {"conversation_id": conversation_id},
+        )
+        connection.execute(
+            text("DELETE FROM case_file WHERE conversation_id = :conversation_id"),
+            {"conversation_id": conversation_id},
+        )
+        connection.execute(
+            text("DELETE FROM conversation WHERE conversation_id = :conversation_id"),
+            {"conversation_id": conversation_id},
+        )
+

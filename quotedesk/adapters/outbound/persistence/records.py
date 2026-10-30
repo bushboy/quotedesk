@@ -20,6 +20,35 @@ def bind_tenant(connection: Connection, tenant_id: UUID) -> None:
     )
 
 
+def hold_conversation(connection: Connection, tenant_id: UUID, conversation_id: UUID) -> bool:
+    """True when this tenant owns the conversation row.
+
+    The primary key is the conversation id alone. An insert that conflicts with
+    another tenant's row is invisible under row-level security, so a following
+    read would miss the message. `ON CONFLICT DO NOTHING` is not ownership.
+    """
+    connection.execute(
+        text(
+            """
+            INSERT INTO conversation (conversation_id, tenant_id)
+            VALUES (:conversation_id, :tenant_id)
+            ON CONFLICT (conversation_id) DO NOTHING
+            """
+        ),
+        {"conversation_id": conversation_id, "tenant_id": tenant_id},
+    )
+    row = connection.execute(
+        text(
+            """
+            SELECT 1 FROM conversation
+            WHERE tenant_id = :tenant_id AND conversation_id = :conversation_id
+            """
+        ),
+        {"tenant_id": tenant_id, "conversation_id": conversation_id},
+    ).first()
+    return row is not None
+
+
 class CaseTables:
     def save(self, connection: Connection, case: CaseFile) -> None:
         bind_tenant(connection, case.tenant_id)
@@ -125,19 +154,12 @@ class CaseTables:
 class ConversationTables:
     def save(self, connection: Connection, tenant_id: UUID, conversation: Conversation) -> None:
         bind_tenant(connection, tenant_id)
+        held = hold_conversation(connection, tenant_id, conversation.conversation_id)
+        if not held:
+            raise RuntimeError("That conversation belongs to another tenant.")
         connection.execute(
             text("DELETE FROM conversation_event WHERE conversation_id = :conversation_id"),
             {"conversation_id": conversation.conversation_id},
-        )
-        connection.execute(
-            text(
-                """
-                INSERT INTO conversation (conversation_id, tenant_id)
-                VALUES (:conversation_id, :tenant_id)
-                ON CONFLICT (conversation_id) DO NOTHING
-                """
-            ),
-            {"conversation_id": conversation.conversation_id, "tenant_id": tenant_id},
         )
         for arrival, event in enumerate(conversation.log):
             connection.execute(
