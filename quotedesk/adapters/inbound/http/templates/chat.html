@@ -8,7 +8,7 @@
     <title>{{ business }}</title>
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Ccircle cx='12' cy='12' r='12' fill='%230891b2'/%3E%3Cpath fill='%23fff' d='M12 5c-.2 0-.4.1-.5.3C10.4 6.7 7.5 10.4 7.5 13.2 7.5 15.9 9.5 18 12 18s4.5-2.1 4.5-4.8c0-2.8-2.9-6.5-4-7.9-.1-.2-.3-.3-.5-.3z'/%3E%3C/svg%3E">
     <script>
-      window.CHAT = { business: {{ business | tojson }}, waId: {{ wa_id | tojson }}, customer: {{ customer | tojson }} };
+      window.CHAT = { business: {{ business | tojson }}, waId: {{ wa_id | tojson }}, customer: {{ customer | tojson }}, numbers: {{ numbers | tojson }}, remember: {{ remember | tojson }} };
     </script>
     {% raw %}
     <style>
@@ -158,6 +158,39 @@
       .who .name .badge { width: 16px; height: 16px; color: #25d366; flex: none; }
       @media (prefers-color-scheme: dark) { .who .name .badge { color: #00a884; } }
       .who .status { font-size: 13px; line-height: 18px; color: var(--header-sub); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; height: 18px; }
+      .presence { display: flex; align-items: center; gap: 8px; min-width: 0; height: 22px; }
+      .presence select {
+        appearance: none;
+        -webkit-appearance: none;
+        flex: 0 1 auto;
+        min-width: 0;
+        max-width: 100%;
+        height: 22px;
+        margin: 0;
+        padding: 0 18px 0 8px;
+        border: 0;
+        border-radius: 999px;
+        background-color: #ffffff;
+        background-image: linear-gradient(45deg, transparent 50%, currentColor 50%), linear-gradient(135deg, currentColor 50%, transparent 50%);
+        background-position: calc(100% - 11px) 9px, calc(100% - 7px) 9px;
+        background-size: 4px 4px, 4px 4px;
+        background-repeat: no-repeat;
+        color: #111b21;
+        color-scheme: light;
+        font: inherit;
+        font-size: 12px;
+        line-height: 22px;
+        cursor: pointer;
+      }
+      .presence select option {
+        color: #111b21;
+        background: #ffffff;
+      }
+      .presence select option:checked {
+        color: #111b21;
+        background: #d9fdd3;
+      }
+      .presence select:focus-visible { outline: 2px solid rgba(255, 255, 255, 0.85); outline-offset: 1px; }
 
       .menu {
         position: absolute;
@@ -617,7 +650,14 @@
         <div class="avatar" aria-hidden="true"><svg><use href="#i-drop"/></svg></div>
         <div class="who">
           <div class="name"><span>{{ business }}</span><svg class="badge" aria-label="Business account"><use href="#i-verified"/></svg></div>
-          <div class="status" id="status">online</div>
+          <div class="presence">
+            <select id="client" aria-label="Simulated number">
+              {% for number in numbers %}
+              <option value="{{ number }}"{% if number == wa_id %} selected{% endif %}>{{ labels[number] }}</option>
+              {% endfor %}
+            </select>
+            <div class="status" id="status">online</div>
+          </div>
         </div>
         <button class="icon-btn" type="button" aria-label="Video call" data-call><svg><use href="#i-video"/></svg></button>
         <button class="icon-btn" type="button" aria-label="Voice call" data-call><svg><use href="#i-call"/></svg></button>
@@ -702,9 +742,20 @@
     <script>
     (() => {
       "use strict";
-      const { business, waId: WA, customer } = window.CHAT;
+      const { business, waId: WA, customer, numbers, remember } = window.CHAT;
       const ZONE = "Africa/Johannesburg";
       const KEY = "quotedesk.chat." + WA;
+      const CLIENT_KEY = "quotedesk.chat.client";
+      if (remember) {
+        try {
+          const saved = localStorage.getItem(CLIENT_KEY);
+          if (saved && saved !== WA && numbers.indexOf(saved) !== -1) {
+            location.replace("/chat?wa_id=" + encodeURIComponent(saved));
+            return;
+          }
+        } catch (_) {}
+      }
+      try { localStorage.setItem(CLIENT_KEY, WA); } catch (_) {}
       const POLL_MS = 300;
       const STAGGER_MS = 140;
       const NEAR_PX = 80;
@@ -1537,6 +1588,13 @@
         save();
         toBottom(false);
       }
+
+      $("client").addEventListener("change", () => {
+        const next = $("client").value;
+        if (!next || next === WA) return;
+        try { localStorage.setItem(CLIENT_KEY, next); } catch (_) {}
+        location.assign("/chat?wa_id=" + encodeURIComponent(next));
+      });
 
       async function boot() {
         let history = [];

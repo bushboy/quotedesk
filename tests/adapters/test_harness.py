@@ -51,7 +51,7 @@ def test_harness_posts_a_text_scenario(monkeypatch):
     assert len(stored.log) == 1
     assert stored.log[0].provider_message_id == "wamid.TEXT1"
     assert stored.log[0].body == "The tank in the yard is leaking."
-    assert report.outbox[0]["body"] == "Thanks."
+    assert report.outbox[0]["body"] == "Thanks. What name should I use for you?"
     assert report.outbox[0]["status"] == "pending"
     assert report.outbox[0]["id"] == 1
     assert report.outbox[0]["wa_id"] == "15550002222"
@@ -150,8 +150,8 @@ def test_harness_resumes_the_customer_trail(monkeypatch):
     assert [row["body"] for row in report.trail] == [
         "The tank in the yard is leaking.",
         "It is a 5000 litre tank.",
-        "Thanks.",
-        "Thanks.",
+        "Thanks. What name should I use for you?",
+        "Thanks. What name should I use for you?",
     ]
     assert [row["role"] for row in report.trail] == ["customer", "customer", "assistant", "assistant"]
     stored = application.state.conversations.get(TENANT_A, CONVERSATION)

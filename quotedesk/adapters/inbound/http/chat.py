@@ -19,7 +19,14 @@ router = APIRouter()
 _TEMPLATES = Path(__file__).resolve().parent / "templates"
 _MEDIA = Path(__file__).resolve().parents[4] / "seeds" / "media"
 _WA_ID = re.compile(r"\d{6,15}")
-_PINNED = "15550002222"
+_CLIENTS = (
+    "15550002222",
+    "15550003333",
+    "15550004444",
+    "15550005555",
+    "15550006666",
+)
+_PINNED = _CLIENTS[0]
 _MAX_UPLOAD = 16 * 1024 * 1024
 _MAX_OBJECTS = 200
 
@@ -43,17 +50,36 @@ class SimulatedMedia:
         return self._objects.get(media_id)
 
 
+def _labels(request: Request, numbers: tuple[str, ...]) -> dict[str, str]:
+    store = getattr(request.app.state, "conversations", None)
+    named = None if store is None else getattr(store, "name", None)
+    tenant_id = getattr(request.app.state, "tenant_id", None)
+    labels = {}
+    for number in numbers:
+        name = named(tenant_id, number) if named is not None and tenant_id is not None else None
+        labels[number] = f"{name} · {number}" if name else number
+    return labels
+
+
 def _environment() -> Environment:
     return Environment(loader=FileSystemLoader(_TEMPLATES), autoescape=select_autoescape(["html"]))
 
 
 @router.get("/chat", response_class=HTMLResponse)
-def chat(request: Request, wa_id: str = _PINNED) -> HTMLResponse:
-    if _WA_ID.fullmatch(wa_id) is None:
-        wa_id = _PINNED
+def chat(request: Request, wa_id: str | None = None) -> HTMLResponse:
+    explicit = bool(wa_id) and _WA_ID.fullmatch(wa_id) is not None
+    active = wa_id if explicit else _PINNED
+    numbers = _CLIENTS if active in _CLIENTS else (active, *_CLIENTS)
     profile = getattr(request.app.state, "tenant", None)
     business = profile.display_name if profile is not None else "AquaSure"
-    html = _environment().get_template("chat.html").render(business=business, wa_id=wa_id, customer="Thabo")
+    html = _environment().get_template("chat.html").render(
+        business=business,
+        wa_id=active,
+        customer="Thabo",
+        numbers=numbers,
+        labels=_labels(request, numbers),
+        remember=not explicit,
+    )
     return HTMLResponse(html)
 
 

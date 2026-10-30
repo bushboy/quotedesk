@@ -117,10 +117,10 @@
             <ul>
               {% for contact in contacts %}
               <li>
-                <span class="who num">{% if contact.wa_id.isdigit() %}+{% endif %}{{ contact.wa_id }}</span>
+                <span class="who{% if not contact.name %} num{% endif %}">{{ contact.name or contact.number }}</span>
                 <span class="at">{{ contact.at|when }}</span>
                 <span class="said">{{ contact.last }}</span>
-                <span class="meta">{{ contact.count }} {% if contact.count == 1 %}message{% else %}messages{% endif %}</span>
+                <span class="meta">{% if contact.name %}{{ contact.number }} · {% endif %}{{ contact.count }} {% if contact.count == 1 %}message{% else %}messages{% endif %}</span>
               </li>
               {% endfor %}
             </ul>
@@ -139,6 +139,7 @@
               <li>
                 <span class="who">{{ sent.quote_id }}</span>
                 <span class="at">{{ sent.at|when }}</span>
+                {% if sent.contact %}<span class="said">{{ sent.contact }}</span>{% endif %}
                 <span class="meta"><span class="tag">Version {{ sent.version }}</span>{{ sent.state|state }}<span class="amount">{{ sent.total|rand }}</span></span>
               </li>
               {% endfor %}

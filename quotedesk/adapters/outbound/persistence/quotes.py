@@ -279,6 +279,9 @@ class QuoteTables:
         return self.get(connection, tenant_id, row.conversation_id)
 
     def list_for(self, connection: Connection, tenant_id: UUID) -> tuple[Quote, ...]:
+        return tuple(quote for _, quote in self.threads(connection, tenant_id))
+
+    def threads(self, connection: Connection, tenant_id: UUID) -> tuple[tuple[UUID, Quote], ...]:
         _tenant(connection, tenant_id)
         rows = connection.execute(
             text("SELECT conversation_id FROM quote WHERE tenant_id = :tenant_id"),
@@ -288,7 +291,7 @@ class QuoteTables:
         for row in rows:
             quote = self.get(connection, tenant_id, row.conversation_id)
             if quote is not None:
-                loaded.append(quote)
+                loaded.append((row.conversation_id, quote))
         return tuple(loaded)
 
 

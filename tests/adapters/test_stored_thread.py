@@ -74,6 +74,7 @@ def test_a_restart_reads_the_thread_the_case_and_the_quote():
             ),
         )
         opened.conversations.record_reply(TENANT, conversation_id, WHEN, "The indicative range is R 8500.00.")
+        opened.conversations.rename(TENANT, "15559998888", "Lerato")
         longer = conversation.append("m2", WHEN, "Economy sheeting").conversation
         opened.conversations.save(TENANT, longer)
         case = (
@@ -107,6 +108,10 @@ def test_a_restart_reads_the_thread_the_case_and_the_quote():
         assert loaded is not None
         assert loaded.events[0].body == "5 by 7 metres"
         assert restarted.conversations.messages(TENANT, conversation_id)[0].kind == "text"
+        heard = restarted.conversations.heard(TENANT)
+        assert any(message.wa_id == "15559998888" and message.body == "5 by 7 metres" for message in heard)
+        assert restarted.conversations.name(TENANT, "15559998888") == "Lerato"
+        assert restarted.conversations.sender_for(TENANT, conversation_id) == "15559998888"
         transcript = restarted.conversations.transcript(TENANT, "15559998888")
         assert [row["side"] for row in transcript] == ["out", "out", "in"]
         assert "8500.00" in transcript[2]["body"]

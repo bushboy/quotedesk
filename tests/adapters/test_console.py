@@ -250,6 +250,56 @@ def test_activity_lists_contacts_and_quotes_that_went_out(monkeypatch):
     assert "R 4 250.00" in activity
 
 
+def test_activity_reads_contacts_the_store_has_saved(monkeypatch):
+    client = _client(monkeypatch)
+    at = datetime(2026, 10, 28, 12, 1, tzinfo=timezone.utc)
+    saved = InboundMessage(
+        conversation_id=FIRST,
+        provider_message_id="wamid.saved",
+        wa_id="27821234567",
+        at=at,
+        kind="text",
+        body="Can you do 10% off?",
+    )
+
+    class Saved:
+        def heard(self, tenant_id):
+            assert tenant_id == TENANT_A
+            return (saved,)
+
+    client.app.state.conversations = Saved()
+    activity = _plain(_activity(_text(client.get("/console"))))
+    assert "+27821234567" in activity
+    assert "Can you do 10% off?" in activity
+    assert "1 message" in activity
+
+
+def test_a_quote_shows_the_contact_it_was_sent_to(monkeypatch):
+    client = _client(monkeypatch)
+    seed(client.app, "QD-1042", FIRST)
+    client.app.state.conversations.bind(TENANT_A, "27821234567", FIRST)
+    client.app.state.conversations.rename(TENANT_A, "27821234567", "Lerato")
+    client.app.state.conversations.remember(
+        TENANT_A,
+        InboundMessage(
+            conversation_id=FIRST,
+            provider_message_id="wamid.named",
+            wa_id="27821234567",
+            at=datetime(2026, 10, 28, 12, 1, tzinfo=timezone.utc),
+            kind="text",
+            body="Please quote a 5000 L tank",
+        ),
+    )
+
+    activity = _plain(_activity(_text(client.get("/console"))))
+    contacts = activity.split("Quotes sent", 1)[0]
+    quotes = activity.split("Quotes sent", 1)[1]
+    assert "Lerato" in contacts
+    assert "+27821234567" in contacts
+    assert "QD-1042" in quotes
+    assert "Lerato · +27821234567" in quotes
+
+
 def test_activity_is_empty_before_anyone_writes(monkeypatch):
     activity = _activity(_text(_client(monkeypatch).get("/console")))
     assert "No customer has been in touch yet." in activity

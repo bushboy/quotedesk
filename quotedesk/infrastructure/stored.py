@@ -144,6 +144,42 @@ class StoredConversations:
             )
         return tuple(row.at for row in rows)
 
+    def heard(self, tenant_id: UUID) -> tuple:
+        """Every inbound message for this tenant, oldest first."""
+        from quotedesk.application.dto.inbound import InboundMessage
+
+        with self._engine.begin() as connection:
+            bind_tenant(connection, tenant_id)
+            rows = connection.execute(
+                text(
+                    """
+                    SELECT conversation_id, provider_message_id, wa_id, at, kind, body, media_id, mime,
+                           size_bytes, duration_seconds, transcript, image_text
+                    FROM inbound_message
+                    WHERE tenant_id = :tenant_id
+                    ORDER BY at
+                    """
+                ),
+                {"tenant_id": tenant_id},
+            ).all()
+        return tuple(
+            InboundMessage(
+                conversation_id=row.conversation_id,
+                provider_message_id=row.provider_message_id,
+                wa_id=row.wa_id,
+                at=row.at,
+                kind=row.kind,
+                body=row.body,
+                media_id=row.media_id,
+                mime=row.mime,
+                size_bytes=row.size_bytes,
+                duration_seconds=Decimal(row.duration_seconds) if row.duration_seconds is not None else None,
+                transcript=row.transcript,
+                image_text=row.image_text,
+            )
+            for row in rows
+        )
+
     def remember(self, tenant_id: UUID, message) -> None:
         with self._engine.begin() as connection:
             bind_tenant(connection, tenant_id)
@@ -234,6 +270,51 @@ class StoredConversations:
                 {"tenant_id": tenant_id, "wa_id": wa_id},
             ).one_or_none()
         return None if row is None else row.conversation_id
+
+    def sender_for(self, tenant_id: UUID, conversation_id: UUID) -> str | None:
+        with self._engine.begin() as connection:
+            bind_tenant(connection, tenant_id)
+            row = connection.execute(
+                text(
+                    """
+                    SELECT wa_id FROM sender_bind
+                    WHERE tenant_id = :tenant_id AND conversation_id = :conversation_id
+                    LIMIT 1
+                    """
+                ),
+                {"tenant_id": tenant_id, "conversation_id": conversation_id},
+            ).one_or_none()
+        return None if row is None else row.wa_id
+
+    def name(self, tenant_id: UUID, wa_id: str) -> str | None:
+        with self._engine.begin() as connection:
+            bind_tenant(connection, tenant_id)
+            row = connection.execute(
+                text(
+                    """
+                    SELECT display_name FROM sender_bind
+                    WHERE tenant_id = :tenant_id AND wa_id = :wa_id
+                    """
+                ),
+                {"tenant_id": tenant_id, "wa_id": wa_id},
+            ).one_or_none()
+        if row is None or not row.display_name:
+            return None
+        return row.display_name
+
+    def rename(self, tenant_id: UUID, wa_id: str, display_name: str) -> None:
+        with self._engine.begin() as connection:
+            bind_tenant(connection, tenant_id)
+            connection.execute(
+                text(
+                    """
+                    UPDATE sender_bind
+                    SET display_name = :display_name
+                    WHERE tenant_id = :tenant_id AND wa_id = :wa_id
+                    """
+                ),
+                {"tenant_id": tenant_id, "wa_id": wa_id, "display_name": display_name},
+            )
 
     def bind(self, tenant_id: UUID, wa_id: str, conversation_id: UUID) -> None:
         with self._engine.begin() as connection:
@@ -381,6 +462,10 @@ class StoredUnit:
     def list_quotes(self, tenant_id: UUID):
         with self._engine.begin() as connection:
             return self._quotes.list_for(connection, tenant_id)
+
+    def list_quote_threads(self, tenant_id: UUID):
+        with self._engine.begin() as connection:
+            return self._quotes.threads(connection, tenant_id)
 
     def commit(self) -> None:
         with self._memory._commit_lock:

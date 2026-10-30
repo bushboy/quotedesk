@@ -113,6 +113,14 @@ FRAME_HINTS = (
 )
 
 
+def _task(conversations, context: TenantContext, conversation, business: BusinessView) -> str:
+    task = task_for(business)
+    known = _known_name(conversations, context.tenant_id, conversation.conversation_id)
+    if not known:
+        return task
+    return f"{task}\nThe customer's name is {known}. Use that name."
+
+
 def task_for(business: BusinessView) -> str:
     trade = business.trade.casefold()
     if "water tank" in trade:
@@ -120,6 +128,104 @@ def task_for(business: BusinessView) -> str:
     if "carport" in trade or "sheeting" in trade:
         return f"{AGENT_TASK}\n{FRAME_HINTS}"
     return AGENT_TASK
+
+
+NAME_ASK = "What name should I use for you?"
+_NOT_A_NAME = frozenset(
+    {
+        "yes",
+        "no",
+        "ok",
+        "okay",
+        "thanks",
+        "thank",
+        "hi",
+        "hello",
+        "hey",
+        "please",
+        "sure",
+        "accept",
+        "quote",
+        "the",
+        "a",
+        "i",
+        "me",
+        "you",
+        "deposit",
+        "pay",
+        "monday",
+        "tuesday",
+        "wednesday",
+        "thursday",
+        "friday",
+        "saturday",
+        "sunday",
+    }
+)
+_INTRODUCED = re.compile(
+    r"(?i)\b(?:my name is|name is|call me)\s+"
+    r"([A-Za-z][A-Za-z'’\-]*(?:\s+[A-Za-z][A-Za-z'’\-]*){0,3})"
+)
+
+
+def remember_name(conversations, tenant_id, conversation_id: UUID, wa_id: str, events) -> None:
+    """Keep a name the customer stated, or a short reply after we asked."""
+    rename = getattr(conversations, "rename", None)
+    named = getattr(conversations, "name", None)
+    if rename is None or named is None or not wa_id or named(tenant_id, wa_id):
+        return
+    text = "\n".join(getattr(event, "body", "") or "" for event in events).strip()
+    found = _introduced_name(text)
+    if found is None and _asked_for_name(conversations, tenant_id, conversation_id):
+        found = _bare_name(text)
+    if found:
+        rename(tenant_id, wa_id, found)
+
+
+def with_name(conversations, tenant_id, wa_id: str, text: str) -> str:
+    """Ask once we still do not know who the number belongs to."""
+    named = getattr(conversations, "name", None)
+    if named is None or not wa_id or named(tenant_id, wa_id) or NAME_ASK in text:
+        return text
+    return f"{text.rstrip()} {NAME_ASK}".strip()
+
+
+def _introduced_name(text: str) -> str | None:
+    found = _INTRODUCED.search(text)
+    if found is None:
+        return None
+    return _bare_name(found.group(1))
+
+
+def _bare_name(text: str) -> str | None:
+    words = text.strip().split()
+    if not 1 <= len(words) <= 4 or len(text.strip()) > 40:
+        return None
+    if any(not re.fullmatch(r"[A-Za-z][A-Za-z'’\-]*", word) for word in words):
+        return None
+    if any(word.casefold() in _NOT_A_NAME for word in words):
+        return None
+    if len(words[0]) < 2:
+        return None
+    return " ".join(words)
+
+
+def _asked_for_name(conversations, tenant_id, conversation_id: UUID) -> bool:
+    replies = getattr(conversations, "replies", None)
+    if replies is None:
+        return False
+    rows = replies(tenant_id, conversation_id)
+    return bool(rows) and NAME_ASK in rows[-1][1]
+
+
+def _known_name(conversations, tenant_id, conversation_id: UUID) -> str | None:
+    named = getattr(conversations, "name", None)
+    if named is None:
+        return None
+    wa_id = _wa_id(conversations, tenant_id, conversation_id)
+    if not wa_id:
+        return None
+    return named(tenant_id, wa_id)
 
 
 _VIDEO = "Got your video, having a look."
@@ -246,8 +352,9 @@ class RunAgentTurn:
             batch = close_batch(pending, window=self._window, now=self._clock.now())
             if batch is None:
                 return
-            prompt = self._prompt(context, conversation)
             wa_id = _wa_id(self._conversations, context.tenant_id, conversation_id)
+            remember_name(self._conversations, context.tenant_id, conversation_id, wa_id, batch)
+            prompt = self._prompt(context, conversation)
             if _unfinished_video(batch, self._conversations.messages(context.tenant_id, conversation_id)):
                 _log.info("Turn handled by video acknowledgement")
                 self._speak(context, conversation_id, wa_id, _VIDEO)
@@ -356,7 +463,7 @@ class RunAgentTurn:
             rate_card=self._rate_card(context),
             extractions=self._extractions(context, conversation.conversation_id, ordered[-20:], kinds),
             business=self._business,
-            task=task_for(self._business),
+            task=_task(self._conversations, context, conversation, self._business),
         )
 
     def _trail(self, context: TenantContext, conversation, kinds: dict[str, str]) -> tuple[PromptMessage, ...]:
@@ -393,6 +500,7 @@ class RunAgentTurn:
         return tuple(item[2] for item in rows[-20:])
 
     def _speak(self, context: TenantContext, conversation_id: UUID, wa_id: str, body: str) -> None:
+        body = with_name(self._conversations, context.tenant_id, wa_id, body)
         buttons = ("Accept quote",) if "/card/" in body and "deposit/" not in body else ()
         image_url = None
         try:

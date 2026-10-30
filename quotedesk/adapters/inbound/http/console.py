@@ -140,15 +140,56 @@ def _decide(request: Request, form: dict[str, str], action: str) -> HTMLResponse
 def contacts(state) -> list[dict]:
     """One row per customer number, newest first, from the messages the app has stored."""
     rows: dict[str, dict] = {}
-    for tenant, message in list(getattr(state.conversations, "remembered", ())):
-        if tenant != state.tenant_id:
-            continue
+    for message in _heard(state):
         row = rows.setdefault(message.wa_id, {"wa_id": message.wa_id, "count": 0, "at": None, "last": ""})
         row["count"] += 1
         if row["at"] is None or message.at >= row["at"]:
             row["at"] = message.at
             row["last"] = _snippet(message)
+    named = getattr(state.conversations, "name", None)
+    for row in rows.values():
+        row["name"] = None if named is None else named(state.tenant_id, row["wa_id"])
+        row["number"] = f"+{row['wa_id']}" if str(row["wa_id"]).isdigit() else row["wa_id"]
     return sorted(rows.values(), key=lambda row: row["at"], reverse=True)[:_LIST_LIMIT]
+
+
+def _heard(state):
+    store = state.conversations
+    heard = getattr(store, "heard", None)
+    if heard is not None:
+        return heard(state.tenant_id)
+    return tuple(
+        message
+        for tenant, message in getattr(store, "remembered", ())
+        if tenant == state.tenant_id
+    )
+
+
+def _quote_threads(state) -> tuple:
+    listed = getattr(state.unit, "list_quote_threads", None)
+    if listed is not None:
+        return listed(state.tenant_id)
+    return tuple(
+        (conversation_id, quote)
+        for (tenant, conversation_id), quote in getattr(state.unit, "committed", {}).items()
+        if tenant == state.tenant_id
+    )
+
+
+def _contact_label(state, conversation_id) -> str:
+    store = state.conversations
+    sender = getattr(store, "sender_for", None)
+    if sender is None:
+        return ""
+    wa_id = sender(state.tenant_id, conversation_id)
+    if not wa_id:
+        return ""
+    number = f"+{wa_id}" if str(wa_id).isdigit() else wa_id
+    named = getattr(store, "name", None)
+    name = None if named is None else named(state.tenant_id, wa_id)
+    if name:
+        return f"{name} · {number}"
+    return number
 
 
 def _snippet(message) -> str:
@@ -162,9 +203,9 @@ def _snippet(message) -> str:
 
 
 def sent_quotes(state) -> list[dict]:
-    """Every stored quote past draft, newest first, as the quote store holds it."""
+    """Every stored quote past draft, newest first, with the contact it was sent to."""
     rows = []
-    for quote in state.quotes.list_for(state.tenant_id):
+    for conversation_id, quote in _quote_threads(state):
         current = quote.current
         if current.state is QuoteState.DRAFT:
             continue
@@ -175,6 +216,7 @@ def sent_quotes(state) -> list[dict]:
                 "state": current.state,
                 "total": total(current.lines),
                 "at": current.at,
+                "contact": _contact_label(state, conversation_id),
             }
         )
     floor = datetime.min.replace(tzinfo=timezone.utc)

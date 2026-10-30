@@ -48,6 +48,7 @@ class Conversations:
         self.notes: list[tuple[UUID, str, datetime]] = []
         self.remembered: list[tuple[UUID, InboundMessage]] = []
         self._by_sender: dict[tuple[UUID, str], UUID] = {}
+        self._names: dict[tuple[UUID, str], str] = {}
         self._replies: list[tuple[UUID, UUID, datetime, str]] = []
 
     def get(self, tenant_id: UUID, conversation_id: UUID) -> Conversation | None:
@@ -61,6 +62,18 @@ class Conversations:
 
     def bind(self, tenant_id: UUID, wa_id: str, conversation_id: UUID) -> None:
         self._by_sender[(tenant_id, wa_id)] = conversation_id
+
+    def sender_for(self, tenant_id: UUID, conversation_id: UUID) -> str | None:
+        for (tenant, wa_id), stored in self._by_sender.items():
+            if tenant == tenant_id and stored == conversation_id:
+                return wa_id
+        return None
+
+    def name(self, tenant_id: UUID, wa_id: str) -> str | None:
+        return self._names.get((tenant_id, wa_id))
+
+    def rename(self, tenant_id: UUID, wa_id: str, display_name: str) -> None:
+        self._names[(tenant_id, wa_id)] = display_name
 
     def taken(self, conversation_id: UUID) -> bool:
         return conversation_id in self._by_sender.values()
@@ -120,6 +133,9 @@ class Conversations:
 
     def remember(self, tenant_id: UUID, message: InboundMessage) -> None:
         self.remembered.append((tenant_id, message))
+
+    def heard(self, tenant_id: UUID) -> tuple[InboundMessage, ...]:
+        return tuple(message for tenant, message in self.remembered if tenant == tenant_id)
 
     def messages(self, tenant_id: UUID, conversation_id: UUID) -> tuple[InboundMessage, ...]:
         return tuple(

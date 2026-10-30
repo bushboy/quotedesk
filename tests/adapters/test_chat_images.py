@@ -34,6 +34,12 @@ def test_several_files_are_several_messages(monkeypatch):
     client = TestClient(app)
     html = client.get("/chat").text
     assert 'id="file" accept="image/*,video/*" multiple' in html
+    assert 'id="client"' in html
+    assert 'value="15550002222" selected' in html
+    for number in ("15550003333", "15550004444", "15550005555", "15550006666"):
+        assert f'value="{number}"' in html
+    picked = client.get("/chat", params={"wa_id": "15550004444"}).text
+    assert 'value="15550004444" selected' in picked
     assert "index === 0 ? caption" in html
     first = client.post("/sim/media", content=b"\xff\xd8\xffone", headers={"content-type": "image/jpeg"}).json()
     second = client.post("/sim/media", content=b"\xff\xd8\xfftwo", headers={"content-type": "image/jpeg"}).json()
