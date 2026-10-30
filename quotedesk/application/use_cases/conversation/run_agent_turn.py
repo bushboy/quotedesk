@@ -1,3 +1,4 @@
+import json
 import logging
 import re
 from datetime import datetime, timedelta, timezone
@@ -34,15 +35,19 @@ from quotedesk.application.dto.tool_inputs import (
     RequestChangeInput,
     UpdateCaseInput,
 )
-from quotedesk.application.errors import CaseNotFound, ModelTimeout, QuoteNotFound, TenantRequired
+from quotedesk.application.errors import CaseNotFound, ModelTimeout, QuoteNotFound, TenantRequired, ToolArgumentsInvalid
 from quotedesk.application.prompts import PLATFORM_TASK as AGENT_TASK
 from quotedesk.application.prompts import render_task
 from quotedesk.application.ports.agent import AgentModel, ConversationLock
 from quotedesk.application.ports.gate import ChannelSender
 from quotedesk.application.ports.repositories import CaseFileRepository, ConversationRepository
 from quotedesk.application.ports.runtime import Clock
+from quotedesk.domain.case.case_file import CaseFile
 from quotedesk.domain.conversation.events import ConversationEvent
-from quotedesk.domain.policy.rules import Outcome
+from quotedesk.domain.policy.playbook import BusinessPlaybook
+from quotedesk.domain.policy.rules import Outcome, Policy
+from quotedesk.domain.services.plan import NextStep, StepKind, plan_next_step
+from quotedesk.domain.shared.ids import PolicyVersionId
 from quotedesk.domain.services.commitments import TurnFacts, check_reply
 from quotedesk.domain.services.confidence import (
     MediaUsability,
@@ -126,6 +131,8 @@ def remember_name(conversations, tenant_id, conversation_id: UUID, wa_id: str, e
     found = _introduced_name(text)
     if found is None and _asked_for_name(conversations, tenant_id, conversation_id):
         found = _bare_name(text)
+        if found and _already_said(conversations, tenant_id, conversation_id, found):
+            found = None
     if found:
         rename(tenant_id, wa_id, found)
 
@@ -158,6 +165,17 @@ def _bare_name(text: str) -> str | None:
     return " ".join(words)
 
 
+def _already_said(conversations, tenant_id, conversation_id: UUID, name: str) -> bool:
+    """A one-word answer that repeats the last reply is a choice, not a name."""
+    replies = getattr(conversations, "replies", None)
+    if replies is None:
+        return False
+    rows = replies(tenant_id, conversation_id)
+    if not rows:
+        return False
+    return re.search(rf"(?i)\b{re.escape(name)}\b", rows[-1][1]) is not None
+
+
 def _asked_for_name(conversations, tenant_id, conversation_id: UUID) -> bool:
     replies = getattr(conversations, "replies", None)
     if replies is None:
@@ -180,6 +198,7 @@ _VIDEO = "Got your video, having a look."
 _HANDOVER = "I'll ask someone from the business to pick this up. You can keep sending details here."
 _ACK = "Thanks, I've added that for the team."
 _NUDGE = "Answer the customer in one sentence."
+_CALLS = 4
 _PHRASE = "can i speak to a person?"
 _PHRASE_REASON = "Can I speak to a person?"
 _TIMEOUT_REASON = "model timeout"
@@ -278,6 +297,7 @@ class RunAgentTurn:
         card_code: str | None = None,
         enricher=None,
         business: BusinessView | None = None,
+        cases: CaseFileRepository | None = None,
     ) -> None:
         self._conversations = conversations
         self._sender = sender
@@ -305,6 +325,10 @@ class RunAgentTurn:
         self._active_conversation = None
         self._seen: dict[str, ExtractionResult] = {}
         self._business = business or BusinessView()
+        self._cases = cases
+        self._step = NextStep(kind=StepKind.ASK, sentence="What should I quote for you?")
+        self._model_calls = 0
+        self._bad_arguments = 0
 
     def acknowledge(self, provider_message_ids) -> None:
         """Messages already stored before this process started are not answered again."""
@@ -331,6 +355,8 @@ class RunAgentTurn:
             conversation = self._conversations.get(context.tenant_id, conversation_id) or conversation
         self._active_tenant = context.tenant_id
         self._active_conversation = conversation_id
+        self._model_calls = 0
+        self._bad_arguments = 0
         pending = tuple(
             event for event in conversation.events if event.status == "pending"
         )
@@ -379,18 +405,7 @@ class RunAgentTurn:
                 TurnOutcome.ESCALATED,
             )
         if not reply.tool_calls and not reply.text.strip():
-            _log.info("Turn produced no front-end reply")
-            self._handover.execute(context, conversation_id, reason="The turn produced no reply.")
-            return self._commit(
-                context,
-                conversation,
-                conversation_id,
-                wa_id,
-                batch,
-                _HANDOVER,
-                "escalated",
-                TurnOutcome.ESCALATED,
-            )
+            return self._say_step(context, conversation, conversation_id, wa_id, batch, TurnFacts(), ())
         facts, answered = self._run_tools(context, reply, prompt, batch, conversation_id)
         text = reply.text
         needs_follow_up = bool(reply.tool_calls) and (not text.strip() or _payload_failed(answered))
@@ -408,39 +423,13 @@ class RunAgentTurn:
                     "escalated",
                     TurnOutcome.ESCALATED,
                 )
-            if spoken.tool_calls and _payload_failed(answered):
+            if spoken.tool_calls:
                 facts, answered = self._run_tools(context, spoken, answered, batch, conversation_id)
             text = spoken.text
-            if not text.strip():
-                if not spoken.tool_calls:
-                    _log.info("Turn produced no front-end reply")
-                    self._handover.execute(context, conversation_id, reason="The turn produced no reply.")
-                    return self._commit(
-                        context,
-                        conversation,
-                        conversation_id,
-                        wa_id,
-                        batch,
-                        _HANDOVER,
-                        "escalated",
-                        TurnOutcome.ESCALATED,
-                    )
+            if not text.strip() and spoken.tool_calls:
                 follow = self._spoken(answered)
                 if follow is None:
                     self._handover.execute(context, conversation_id, reason=_TIMEOUT_REASON)
-                    return self._commit(
-                        context,
-                        conversation,
-                        conversation_id,
-                        wa_id,
-                        batch,
-                        _HANDOVER,
-                        "escalated",
-                        TurnOutcome.ESCALATED,
-                    )
-                if not follow.text.strip():
-                    _log.info("Turn produced no front-end reply")
-                    self._handover.execute(context, conversation_id, reason="The turn produced no reply.")
                     return self._commit(
                         context,
                         conversation,
@@ -459,35 +448,16 @@ class RunAgentTurn:
         deposit_url = _named_sentence(answered, "create_deposit_link")
         if deposit_url and deposit_url not in text:
             text = f"{text.rstrip()} {deposit_url}".strip()
-        priced = _indicative_reply(answered)
-        if priced and not _states_indicative(text, priced):
-            text = priced
-        elif _fabrication(self._business) and "?" not in text:
-            question = _carport_question(answered)
-            heard = _customer_template(answered)
-            if question:
-                text = question
-            elif heard and _recording(text):
-                text = heard
         text = _with_card(text, facts.card_link)
-        if reply.tool_calls and not check_reply(text, facts).ok:
-            second = self._model.complete(answered)
-            _log_model_reply(self._model, second)
-            if second.text and check_reply(second.text, facts).ok:
-                text = second.text
+        if not text.strip() or (reply.tool_calls and not check_reply(text, facts).ok):
+            if text.strip():
+                second = self._complete(answered)
+                if second is not None and second.text and check_reply(_with_card(second.text, facts.card_link), facts).ok:
+                    text = _with_card(second.text, facts.card_link)
+                else:
+                    return self._say_step(context, conversation, conversation_id, wa_id, batch, facts, answered.tool_payloads)
             else:
-                _log.info("Checked reply replaced the model text")
-                self._handover.execute(context, conversation_id, reason="The reply did not match the quote.")
-                return self._commit(
-                    context,
-                    conversation,
-                    conversation_id,
-                    wa_id,
-                    batch,
-                    _HANDOVER,
-                    "escalated",
-                    TurnOutcome.ESCALATED,
-                )
+                return self._say_step(context, conversation, conversation_id, wa_id, batch, facts, answered.tool_payloads)
         return self._commit(
             context,
             conversation,
@@ -684,16 +654,45 @@ class RunAgentTurn:
             return TurnOutcome.ESCALATED
 
     def _complete(self, prompt: TurnPrompt) -> ModelReply | None:
+        if self._model_calls >= _CALLS:
+            return None
         try:
-            reply = self._model.complete(prompt)
+            reply = self._call(prompt)
         except ModelTimeout:
+            if self._model_calls >= _CALLS:
+                return None
             try:
-                reply = self._model.complete(prompt)
+                reply = self._call(prompt)
             except ModelTimeout:
                 _log.warning("Model %s timed out", type(self._model).__name__)
                 return None
+        except ToolArgumentsInvalid:
+            if self._bad_arguments >= 1 or self._model_calls >= _CALLS:
+                raise
+            self._bad_arguments += 1
+            retried = prompt.model_copy(
+                update={
+                    "effort": "low",
+                    "exchanges": prompt.exchanges
+                    + (
+                        {
+                            "type": "function_call_output",
+                            "call_id": "invalid",
+                            "output": json.dumps({"error": "The tool arguments could not be read."}),
+                        },
+                    ),
+                }
+            )
+            try:
+                reply = self._call(retried)
+            except ToolArgumentsInvalid:
+                raise
         _log_model_reply(self._model, reply)
         return reply
+
+    def _call(self, prompt: TurnPrompt) -> ModelReply:
+        self._model_calls += 1
+        return self._model.complete(prompt)
 
     def _prompt(self, context: TenantContext, conversation) -> TurnPrompt:
         ordered = conversation.events
@@ -709,7 +708,61 @@ class RunAgentTurn:
             rate_card=self._rate_card(context),
             extractions=self._extractions(context, conversation.conversation_id, ordered[-20:], kinds),
             business=self._business,
-            task=_task(self._conversations, context, conversation, self._policies),
+            task=self._task_for(context, conversation),
+            effort="medium",
+        )
+
+    def _task_for(self, context: TenantContext, conversation) -> str:
+        self._step = self._next(context, conversation.conversation_id)
+        task = _task(self._conversations, context, conversation, self._policies)
+        return (
+            f"{task}\nThe next step is {self._step.kind.value}. {self._step.sentence} "
+            "Phrase that step. Do not choose a different step."
+        )
+
+    def _next(self, context: TenantContext, conversation_id: UUID) -> NextStep:
+        from quotedesk.domain.case.case_file import CaseFile
+        from quotedesk.domain.policy.rules import Policy
+        from quotedesk.domain.shared.ids import PolicyVersionId
+
+        case = self._case(context, conversation_id)
+        if case is None:
+            case = CaseFile.open(conversation_id, context.tenant_id)
+        playbook = BusinessPlaybook()
+        policy = Policy(
+            version=PolicyVersionId("planner-policy-v1.0"),
+            rules=(),
+            rate_card_codes=(),
+            sam_score_threshold=Decimal("0"),
+        )
+        if self._policies is not None:
+            bundle = self._policies.published(context.tenant_id)
+            if bundle is not None:
+                playbook = bundle.playbook
+                policy = bundle.policy
+        return plan_next_step(case, playbook, policy)
+
+    def _case(self, context: TenantContext, conversation_id: UUID):
+        if self._cases is None:
+            return None
+        return self._cases.get(context.tenant_id, conversation_id)
+
+    def _say_step(self, context, conversation, conversation_id, wa_id, batch, facts, payloads):
+        sentence = _grounded(payloads, facts) or self._step.sentence
+        if self._step.kind is StepKind.ESCALATE:
+            self._handover.execute(context, conversation_id, reason=self._step.reason or "The next step is to escalate.")
+            body = sentence or _HANDOVER
+            return self._commit(context, conversation, conversation_id, wa_id, batch, body, "escalated", TurnOutcome.ESCALATED)
+        body = _with_card(sentence, facts.card_link)
+        return self._commit(
+            context,
+            conversation,
+            conversation_id,
+            wa_id,
+            batch,
+            body,
+            "answered",
+            _classify(body, TurnPrompt(event_ids=(), tool_payloads=tuple(payloads))),
         )
 
     def _trail(self, context: TenantContext, conversation, kinds: dict[str, str]) -> tuple[PromptMessage, ...]:
@@ -758,7 +811,7 @@ class RunAgentTurn:
             record(context.tenant_id, conversation_id, self._clock.now(), body)
 
     def _case_view(self, context: TenantContext, conversation_id: UUID) -> CaseView:
-        case = self._handover._cases.get(context.tenant_id, conversation_id)
+        case = self._case(context, conversation_id)
         if case is None:
             return CaseView()
         facts = tuple(
@@ -870,7 +923,11 @@ class RunAgentTurn:
         payloads: list[ToolPayload] = []
         for call in reply.tool_calls:
             names.append(call.name)
-            arguments = _on_conversation(call.name, call.arguments, conversation_id)
+            arguments = _with_quote(
+                call.name,
+                _bound(call.name, _on_conversation(call.name, call.arguments, conversation_id), self._step),
+                _known_quote(self._conversations, context, conversation_id, payloads),
+            )
             if call.name == "update_case":
                 payloads.append(self._update(context, _with_message_ids(arguments, batch)))
             elif call.name == "get_quote":
@@ -878,21 +935,24 @@ class RunAgentTurn:
                 price_kind, card_link = _quote_facts(payloads[-1], self._card_base, self._card_code, price_kind, card_link)
                 self._handover_escalation(context, conversation_id, payloads[-1])
             elif call.name == "request_change":
-                payloads.append(self._change(context, call.arguments, amounts, clauses))
+                payloads.append(self._change(context, arguments, amounts, clauses))
             elif call.name == "check_availability":
-                payloads.append(self._availability(context, call.arguments, civil_dates))
+                payloads.append(self._availability(context, arguments, civil_dates))
                 if payloads[-1].body.get("earliest_window"):
                     schedule_status = "indicative"
             elif call.name == "accept_quote":
-                payloads.append(self._accept(context, call.arguments))
+                payloads.append(self._accept(context, arguments))
             elif call.name == "create_deposit_link":
-                payloads.append(self._deposit_link(context, call.arguments))
+                payloads.append(self._deposit_link(context, arguments))
             elif call.name == "hold_slot":
-                payloads.append(self._hold(context, call.arguments))
+                payloads.append(self._hold(context, arguments))
             else:
                 payloads.append(_refused(call.name))
             _log_tool(payloads[-1])
-        if "get_quote" not in names and "check_availability" not in names and self._should_quote(reply, payloads):
+        stored = self._conversations.get(context.tenant_id, conversation_id)
+        if stored is not None:
+            self._step = self._next(context, conversation_id)
+        if "get_quote" not in names and "check_availability" not in names and self._should_quote(payloads):
             payloads.append(
                 self._quote(context, {"conversation_id": str(conversation_id)}, batch, amounts, clauses)
             )
@@ -902,8 +962,15 @@ class RunAgentTurn:
             )
             self._handover_escalation(context, conversation_id, payloads[-1])
             _log_tool(payloads[-1])
+        task = self._task_for(context, stored) if stored is not None else prompt.task
         answered = prompt.model_copy(
-            update={"tool_results": tuple(names), "tool_payloads": tuple(payloads)}
+            update={
+                "tool_results": tuple(names),
+                "tool_payloads": tuple(payloads),
+                "exchanges": prompt.exchanges + _exchanges(reply, payloads),
+                "effort": "low",
+                "task": task,
+            }
         )
         return (
             TurnFacts(
@@ -917,15 +984,20 @@ class RunAgentTurn:
             answered,
         )
 
-    def _should_quote(self, reply: ModelReply, payloads: list[ToolPayload]) -> bool:
-        if _recorded_sized_install(reply, payloads):
-            return True
-        return _fabrication(self._business) and _carport_measured(payloads)
+    def _should_quote(self, payloads: list[ToolPayload]) -> bool:
+        if self._step.kind is not StepKind.QUOTE:
+            return False
+        if any(item.name == "get_quote" for item in payloads):
+            return False
+        return any(item.name == "update_case" and not item.body.get("error") for item in payloads)
 
     def _update(self, context: TenantContext, arguments: dict) -> ToolPayload:
         try:
             data = UpdateCaseInput(**_without_confidence(arguments))
         except (ModelError, ValidationError) as error:
+            self._bad_arguments += 1
+            if self._bad_arguments >= 2:
+                raise ToolArgumentsInvalid() from error
             detail = _invalid(error)
             _log.info("Tool update_case rejected %s", detail)
             return ToolPayload(name="update_case", body={"error": detail})
@@ -938,6 +1010,10 @@ class RunAgentTurn:
         try:
             result = self._update_case.execute(context, data)
         except (CaseNotFound, ValidationError) as error:
+            if not isinstance(error, CaseNotFound):
+                self._bad_arguments += 1
+                if self._bad_arguments >= 2:
+                    raise ToolArgumentsInvalid() from error
             return ToolPayload(name="update_case", body={"error": error.sentence})
         return ToolPayload(name="update_case", body=_body(result))
 
@@ -1073,7 +1149,7 @@ class RunAgentTurn:
         if self._catalog is None or self._policies is None or not batch:
             return
         bundle = self._policies.published(context.tenant_id)
-        case = self._handover._cases.get(context.tenant_id, conversation_id)
+        case = self._case(context, conversation_id)
         if bundle is None or case is None or not case.jobs:
             return
         job = case.jobs[0]
@@ -1120,6 +1196,7 @@ class RunAgentTurn:
                     )
                     for key, flag in flags.items()
                 ),
+                system=True,
             ),
         )
 
@@ -1242,117 +1319,92 @@ def _tool_outcome(payload: ToolPayload) -> str:
     return str(body)
 
 
-_SPAN = re.compile(r"(\d+(?:\.\d+)?)\s*(?:x|×|by)\s*(\d+(?:\.\d+)?)", re.IGNORECASE)
-_SIZE_QUESTION = "What is the width and length in metres?"
+def _bound(name: str, arguments: dict, step: NextStep) -> dict:
+    bound = dict(arguments)
+    if name == "update_case" and not str(bound.get("job_id") or "").strip() and step.job_id:
+        bound["job_id"] = step.job_id
+    return bound
 
 
-def _fabrication(business: BusinessView) -> bool:
-    trade = business.trade.casefold()
-    return "carport" in trade or "sheeting" in trade
+_QUOTED = frozenset({"request_change", "accept_quote", "create_deposit_link", "hold_slot"})
+_CARD_ID = re.compile(r"/card/(QD-\d{4,8})")
 
 
-def _case_values(payloads: list[ToolPayload]) -> dict | None:
-    for item in payloads:
-        if item.name != "update_case" or item.body.get("error"):
-            continue
-        current = item.body.get("current")
-        if isinstance(current, dict):
-            return current
-    return None
+def _with_quote(name: str, arguments: dict, quote_id: str | None) -> dict:
+    if name not in _QUOTED or not quote_id:
+        return arguments
+    bound = dict(arguments)
+    bound["quote_id"] = quote_id
+    return bound
 
 
-def _has_span(values: dict) -> bool:
-    if values.get("width_m") and values.get("length_m"):
-        return True
-    raw = values.get("size") or values.get("dimensions") or ""
-    return _SPAN.search(str(raw)) is not None
-
-
-def _has_sheet(values: dict) -> bool:
-    return bool(values.get("item") or values.get("item_codes") or values.get("finish"))
-
-
-def _carport_measured(payloads: list[ToolPayload]) -> bool:
-    values = _case_values(payloads)
-    return values is not None and _has_span(values)
-
-
-def _carport_question(prompt: TurnPrompt) -> str | None:
-    values = _case_values(list(prompt.tool_payloads))
-    if values is None or _has_span(values) or not _has_sheet(values):
+def _known_quote(conversations, context, conversation_id: UUID, payloads: list[ToolPayload]) -> str | None:
+    for item in reversed(payloads):
+        found = _quote_value(item.body.get("quote_id")) if item.name == "get_quote" and not item.body.get("error") else None
+        if found:
+            return found
+    replies = getattr(conversations, "replies", None)
+    if replies is None:
         return None
-    return _SIZE_QUESTION
+    found = None
+    for _at, body in replies(context.tenant_id, conversation_id):
+        match = _CARD_ID.search(body or "")
+        if match:
+            found = match.group(1)
+    return found
 
 
-def _customer_template(prompt: TurnPrompt) -> str | None:
-    for item in prompt.tool_payloads:
-        if item.name == "get_quote":
-            template = item.body.get("customer_template")
-            if isinstance(template, str) and template.strip():
-                return template
+def _quote_value(raw) -> str | None:
+    if isinstance(raw, str) and raw.strip():
+        return raw.strip()
+    if isinstance(raw, dict) and str(raw.get("value") or "").strip():
+        return str(raw["value"]).strip()
     return None
 
 
-def _recording(text: str) -> bool:
-    folded = text.casefold()
-    return folded.startswith("i'll record") or folded.startswith("i will record")
+def _exchanges(reply: ModelReply, payloads: list[ToolPayload]) -> tuple[dict, ...]:
+    rows: list[dict] = []
+    for index, (call, payload) in enumerate(zip(reply.tool_calls, payloads)):
+        call_id = call.call_id or f"call-{index}"
+        rows.append(
+            {
+                "type": "function_call",
+                "name": call.name,
+                "arguments": json.dumps(call.arguments),
+                "call_id": call_id,
+            }
+        )
+        rows.append(
+            {
+                "type": "function_call_output",
+                "call_id": call_id,
+                "output": json.dumps(payload.body),
+            }
+        )
+    return tuple(rows)
 
 
-_INSTALL_JOBS = frozenset(
-    {
-        "replacement",
-        "swap",
-        "tank_swap",
-        "new_system",
-        "new",
-        "installation",
-        "new_installation",
-        "new_install",
-    }
-)
-
-
-def _recorded_sized_install(reply: ModelReply, payloads: list[ToolPayload]) -> bool:
-    updates = [call for call in reply.tool_calls if call.name == "update_case"]
-    recorded = [item for item in payloads if item.name == "update_case"]
-    for call, payload in zip(updates, recorded):
-        if payload.body.get("error"):
+def _grounded(payloads, facts: TurnFacts) -> str | None:
+    for item in payloads:
+        if item.name != "get_quote" or item.body.get("error"):
             continue
-        facts = call.arguments.get("facts") or []
-        values = {
-            fact.get("key"): fact.get("value")
-            for fact in facts
-            if isinstance(fact, dict)
-        }
-        if str(values.get("simple_swap", "")).casefold() == "false":
-            continue
-        job = values.get("job") or values.get("job_type") or call.arguments.get("job_type")
-        size = values.get("size_litres") or values.get("tank_size")
-        folded = str(job or "").casefold().replace("-", "_").replace(" ", "_")
-        if size and folded in _INSTALL_JOBS:
-            return True
-    return False
-
-
-def _indicative_reply(prompt: TurnPrompt) -> str | None:
-    for item in prompt.tool_payloads:
-        if item.name != "get_quote" or item.body.get("outcome") != "indicative_range":
-            continue
-        low = _amount(item.body.get("range_min"))
-        high = _amount(item.body.get("range_max"))
-        if low is None or high is None:
-            return None
-        if low == high:
-            return f"The indicative range is R {low}."
-        return f"The indicative range is R {low} to R {high}."
+        if item.body.get("outcome") == "indicative_range":
+            low = _amount(item.body.get("range_min"))
+            high = _amount(item.body.get("range_max"))
+            if low and high:
+                sentence = f"The indicative range is R {low}." if low == high else f"The indicative range is R {low} to R {high}."
+                return _with_card(sentence, facts.card_link)
+        template = item.body.get("customer_template")
+        if isinstance(template, str) and template.strip():
+            return _with_card(template.strip(), facts.card_link)
+    for item in payloads:
+        if item.name == "check_availability":
+            sentence = item.body.get("sentence")
+            if isinstance(sentence, str) and sentence.strip():
+                return sentence
+        if item.name == "request_change" and not item.body.get("error"):
+            return "The request is waiting."
     return None
-
-
-def _states_indicative(text: str, priced: str) -> bool:
-    if "range" not in text.casefold():
-        return False
-    amounts = [token.rstrip(".") for token in priced.split() if token.startswith("R")]
-    return all(amount in text for amount in amounts)
 
 
 def _amount(raw) -> str | None:

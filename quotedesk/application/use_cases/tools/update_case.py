@@ -8,6 +8,40 @@ from quotedesk.domain.case.case_file import CaseFile
 from quotedesk.domain.shared.errors import PolicyViolation, ValidationError
 
 _TYPE = "A new job names its type."
+_ALIAS = "That fact uses a name this business does not."
+_UNKNOWN = "That fact is not one this job asks for."
+_ALIASES = frozenset({"tank_size", "size", "dimensions", "item", "job"})
+_CONFIDENCE = frozenset({"required_fields", "agreement", "measurement", "media_usable", "rate_card"})
+_BOOKKEEPING = frozenset({"size_source", "item_codes"})
+_DECISION = frozenset(
+    {
+        "customer_text",
+        "installation_damaged",
+        "simple_swap",
+        "base_unconfirmed",
+        "new_tank_and_pump",
+        "sloped_ground",
+        "pipe_run_unknown",
+        "opening",
+        "above_ground_floor",
+        "multi_unit",
+        "standard_band",
+        "finish",
+        "budget",
+        "job_type",
+        "stand_condition",
+        "elevated",
+        "structure_damage",
+        "exposed_wiring",
+        "active_flooding",
+        "lintel_cracked",
+        "glass_broken",
+        "possible_asbestos",
+    }
+)
+_YES = frozenset({"true", "yes", "y"})
+_NO = frozenset({"false", "no", "n"})
+_NAME = frozenset({"customer_name", "name"})
 
 
 class UpdateCase:
@@ -19,6 +53,7 @@ class UpdateCase:
     def execute(self, context: TenantContext | None, data: UpdateCaseInput) -> UpdateCaseResult:
         if context is None:
             raise TenantRequired()
+        data = _without_name(data)
         case = self._cases.get(context.tenant_id, data.conversation_id)
         if case is None:
             raise CaseNotFound()
@@ -28,12 +63,17 @@ class UpdateCase:
         created = existing is None
         if created:
             case = case.add_job(data.job_id, data.job_type)
+        job = _find(case, data.job_id)
+        assert job is not None
         for fact in data.facts:
+            if fact.key in _CONFIDENCE and not data.system:
+                continue
+            value = _normalise(fact.key, fact.value, job.job_type or "", self._catalog, data.system, fact.source)
             case = case.record_fact(
                 data.job_id,
                 self._ids.next_fact_id(),
                 fact.key,
-                fact.value,
+                value,
                 fact.source,
                 fact.event_id,
             )
@@ -50,6 +90,49 @@ class UpdateCase:
             missing_required=missing,
             contradiction_count=len(case.contradictions),
         )
+
+
+def _without_name(data: UpdateCaseInput) -> UpdateCaseInput:
+    """A person's name is not a case fact. A job type stated as a fact still opens the job."""
+    facts = tuple(fact for fact in data.facts if fact.key not in _NAME)
+    job_type = data.job_type.strip() if data.job_type else ""
+    if not job_type:
+        stated = next((fact.value.strip() for fact in facts if fact.key == "job_type" and fact.value.strip()), "")
+        job_type = stated
+    if facts == data.facts and job_type == (data.job_type or ""):
+        return data
+    return data.model_copy(update={"facts": facts, "job_type": job_type or None})
+
+
+def _normalise(key: str, value: str, job_type: str, catalog, system: bool, source: str) -> str:
+    if key in _ALIASES:
+        raise ValidationError(code="fact.alias", sentence=_ALIAS)
+    defined = _defined(catalog, job_type)
+    media = source in ("photo_extraction", "video_extraction", "voice_transcript")
+    allowed = key in defined or key in _BOOKKEEPING or key in _DECISION or (system and key in _CONFIDENCE) or media
+    if defined and not allowed:
+        raise ValidationError(code="fact.unknown", sentence=_UNKNOWN)
+    fact = defined.get(key) if defined else None
+    if fact is None or fact.type == "text" or fact.type == "choice":
+        return value.strip()
+    if fact.type == "yes_no":
+        folded = value.strip().casefold()
+        if folded in _YES:
+            return "true"
+        if folded in _NO:
+            return "false"
+        raise ValidationError(code="fact.yes_no", sentence=_UNKNOWN)
+    digits = "".join(character for character in value if character.isdigit() or character == ".")
+    if digits == "" or digits == ".":
+        raise ValidationError(code="fact.number", sentence=_UNKNOWN)
+    return digits
+
+
+def _defined(catalog, job_type: str) -> dict:
+    reader = getattr(catalog, "facts", None)
+    if reader is None:
+        return {}
+    return {fact.key: fact for fact in reader(job_type)}
 
 
 def _find(case: CaseFile, job_id: str):

@@ -88,7 +88,6 @@ def test_harness_fixed_offer_replies_with_the_tool_amount(monkeypatch):
                             "job_id": "tank",
                             "job_type": "replacement",
                             "facts": [
-                                {"key": "job", "value": "replacement", "source": "customer_text", "event_id": EVENT},
                                 {"key": "size_litres", "value": "5000", "source": "customer_text", "event_id": EVENT},
                                 {
                                     "key": "size_source",

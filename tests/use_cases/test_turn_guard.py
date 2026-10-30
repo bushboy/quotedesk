@@ -1,5 +1,6 @@
-from quotedesk.application.dto.agent import ExtractionResult, ModelReply, ToolCall, TurnOutcome
+from quotedesk.application.dto.agent import ExtractionResult, ModelReply, ToolCall, TurnOutcome, TurnPrompt
 from quotedesk.application.dto.tenant import TenantContext
+from quotedesk.application.errors import ModelTimeout, ToolArgumentsInvalid
 from quotedesk.domain.conversation.events import Conversation, ConversationEvent
 from quotedesk.domain.shared.errors import InvalidTransition
 from quotedesk.infrastructure.demo import Conversations as Memory
@@ -81,16 +82,15 @@ def test_two_empty_replies_escalate_once():
     _open(store, "hello")
     model = Counting((ModelReply(text="", tool_calls=()), ModelReply(text="  ", tool_calls=())))
     use_case, _, _, _, handover = turn(model, store, sender, Clock(at(5)))
-    assert use_case.execute(CONTEXT, CONVERSATION) == TurnOutcome.ESCALATED
+    assert use_case.execute(CONTEXT, CONVERSATION) == TurnOutcome.ASKED
     assert model.calls == 2
-    assert sender.sent == [("", HANDOVER)]
-    assert handover.records[0].reason == "The turn produced no reply."
+    assert sender.sent == [("", "What should I quote for you?")]
+    assert "R " not in sender.sent[0][1]
     stored = store.get(TENANT, CONVERSATION)
-    assert stored.events[0].status == "escalated"
-    assert stored.events[0].outcome == "escalated"
+    assert stored.events[0].status == "answered"
+    assert stored.events[0].outcome == "asked"
     use_case.execute(CONTEXT, CONVERSATION)
     assert model.calls == 2
-    assert sender.sent == [("", HANDOVER)]
 
 
 def test_invalid_transition_does_not_call_the_model_again():
@@ -114,8 +114,8 @@ def test_a_held_conversation_acknowledges_and_does_not_quote():
     _open(store, "hello")
     model = Counting(
         (
-            ModelReply(text="", tool_calls=()),
-            ModelReply(text="", tool_calls=()),
+            ModelTimeout(),
+            ModelTimeout(),
             ModelReply(
                 text="",
                 tool_calls=(ToolCall(name="get_quote", arguments={"conversation_id": str(CONVERSATION)}),),
@@ -193,3 +193,38 @@ def test_a_new_turn_reuses_the_stored_extraction():
         assert found is not None
         assert found.summary == "a green tank"
     assert enricher.calls == 0
+
+
+def test_a_turn_calls_the_model_at_most_four_times():
+    store = Ledger()
+    model = Counting(tuple(ModelReply(text="Hello, I can help with that.", tool_calls=()) for _ in range(5)))
+    use_case, _, _, _, _ = turn(model, store, Sender(), Clock(at(5)))
+    prompt = TurnPrompt(event_ids=())
+    for _ in range(4):
+        assert use_case._complete(prompt) is not None
+    assert use_case._complete(prompt) is None
+    assert model.calls == 4
+
+
+def test_invalid_tool_arguments_are_retried_once_then_escalated():
+    store = Ledger()
+    sender = Sender()
+    _open(store, "hello")
+
+    class Bad:
+        def __init__(self) -> None:
+            self.calls = 0
+            self.prompts: list[TurnPrompt] = []
+
+        def complete(self, prompt: TurnPrompt) -> ModelReply:
+            self.calls += 1
+            self.prompts.append(prompt)
+            raise ToolArgumentsInvalid()
+
+    model = Bad()
+    use_case, _, _, _, _ = turn(model, store, sender, Clock(at(5)))
+    assert use_case.execute(CONTEXT, CONVERSATION) == TurnOutcome.ESCALATED
+    assert model.calls == 2
+    assert sender.sent == [("", HANDOVER)]
+    assert model.prompts[1].exchanges[-1]["type"] == "function_call_output"
+    assert "could not be read" in model.prompts[1].exchanges[-1]["output"]

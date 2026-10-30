@@ -1,7 +1,9 @@
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+from pathlib import Path
 from uuid import UUID, uuid4
 
+from quotedesk.adapters.outbound.parsers.aquasure import load_playbook
 from quotedesk.application.dto.agent import BusinessView, ModelReply, PromptRateItem, ToolCall, TurnPrompt
 from quotedesk.application.dto.published import PublishedPolicy
 from quotedesk.application.dto.inbound import InboundMessage
@@ -236,6 +238,7 @@ def harness(model, case: CaseFile | None = None, business: BusinessView | None =
         card_base="/card",
         card_code="1042",
         business=business,
+        cases=cases,
     )
     return conversations, cases, sender, clock, turn
 
@@ -267,7 +270,6 @@ def replacement_calls(prompt) -> tuple[ToolCall, ...]:
                 "job_id": "tank",
                 "job_type": "replacement",
                 "facts": [
-                    {"key": "job", "value": "replacement", **fact},
                     {"key": "size_litres", "value": "5000", **fact},
                     {"key": "size_source", "value": "customer_stated", **fact},
                     {"key": "existing_level_base", "value": "true", **fact},
@@ -341,9 +343,13 @@ def test_typed_replacement_issues_water_f01():
     assert cases.case.current("tank", "agreement") == "true"
 
 
-def test_a_recorded_size_still_gives_the_indicative_range():
+def test_an_alias_does_not_price_and_the_planner_asks_the_fact():
     class RecordOnly:
+        def __init__(self) -> None:
+            self.prompts: list[TurnPrompt] = []
+
         def complete(self, prompt: TurnPrompt) -> ModelReply:
+            self.prompts.append(prompt)
             fact = {"source": "customer_text", "event_id": prompt.messages[-1].provider_message_id}
             return ModelReply(
                 text="I'll record your 2500 L tank.",
@@ -363,10 +369,13 @@ def test_a_recorded_size_still_gives_the_indicative_range():
                 ),
             )
 
-    conversations, _, sender, _, turn = harness(RecordOnly())
+    model = RecordOnly()
+    conversations, _, sender, _, turn = harness(model)
     say(conversations, "I want a 2500 litre tank swap.", 0, str(EVENT))
     turn.execute(CONTEXT, CONVERSATION)
-    assert sender.sent == [(WA, "The indicative range is R 2850.00. /card/QD-1042?code=1042")]
+    assert "The next step is ask." in model.prompts[0].task
+    assert "Which tank size do you want?" in model.prompts[0].task
+    assert "R " not in sender.sent[0][1]
 
 
 def _sheet_policies():
@@ -386,6 +395,7 @@ def _sheet_policies():
             settings={"deposit_percent": 30, "validity_days": 14},
             rate_card_codes=("SHEET-ECO", "SHEET-POLY"),
         ),
+        playbook=load_playbook(Path(__file__).resolve().parents[2] / "seeds" / "frameworks.yaml"),
     )
 
     class Sheets:
@@ -397,7 +407,7 @@ def _sheet_policies():
 
 def _record_sheet(facts: list[dict]) -> ModelReply:
     return ModelReply(
-        text="I'll record your Economy sheeting choice for the carport.",
+        text="",
         tool_calls=(
             ToolCall(
                 name="update_case",
@@ -415,11 +425,14 @@ def _record_sheet(facts: list[dict]) -> ModelReply:
 def test_a_sheet_on_a_known_carport_is_quoted():
     class Record:
         def complete(self, prompt: TurnPrompt) -> ModelReply:
+            if prompt.tool_payloads:
+                return ModelReply(text="", tool_calls=())
             fact = {"source": "customer_text", "event_id": prompt.messages[-1].provider_message_id}
             return _record_sheet(
                 [
-                    {"key": "item", "value": "Economy sheeting", **fact},
-                    {"key": "size", "value": "5 x 7 meters", **fact},
+                    {"key": "item_codes", "value": "SHEET-ECO", **fact},
+                    {"key": "width_m", "value": "5", **fact},
+                    {"key": "length_m", "value": "7", **fact},
                 ],
             )
 
@@ -433,14 +446,16 @@ def test_a_sheet_on_a_known_carport_is_quoted():
 def test_a_sheet_choice_without_a_size_asks_for_one():
     class Record:
         def complete(self, prompt: TurnPrompt) -> ModelReply:
+            if prompt.tool_payloads:
+                return ModelReply(text="", tool_calls=())
             fact = {"source": "customer_text", "event_id": prompt.messages[-1].provider_message_id}
-            return _record_sheet([{"key": "item", "value": "Economy sheeting", **fact}])
+            return _record_sheet([{"key": "item_codes", "value": "SHEET-ECO", **fact}])
 
     business = BusinessView(name="FrameWorks", trade="carports and sheeting")
     conversations, _, sender, _, turn = harness(Record(), business=business, policies=_sheet_policies())
     say(conversations, "Economy sheeting.", 0, str(EVENT))
     turn.execute(CONTEXT, CONVERSATION)
-    assert sender.sent == [(WA, "What is the width and length in metres?")]
+    assert sender.sent == [(WA, "What is the width in metres?")]
 
 
 def test_missing_size_does_not_invent_a_price():
@@ -484,7 +499,7 @@ def test_invented_amount_is_still_refused():
     conversations, _, sender, _, turn = harness(model)
     say(conversations, TANK, 0, str(EVENT))
     turn.execute(CONTEXT, CONVERSATION)
-    assert sender.sent == [(WA, HANDOVER)]
+    assert sender.sent == [(WA, "We can send a fixed quote for this replacement. /card/QD-1042?code=1042")]
     assert all("R 3 000" not in body for _, body in sender.sent)
 
 
@@ -518,7 +533,7 @@ def test_date_comes_from_check_availability():
 
     assert run(WINDOW)[-1] == (WA, WINDOW)
     refused = run("We can do it this Saturday.")
-    assert refused[-1] == (WA, HANDOVER)
+    assert refused[-1] == (WA, WINDOW)
     assert all("Saturday" not in body for _, body in refused)
 
 
@@ -561,7 +576,9 @@ def test_ten_percent_waits_and_states_no_new_total():
         return sender.sent
 
     assert run(WAITING)[-1] == (WA, WAITING)
-    assert run("The total is R 3 825.")[-1] == (WA, HANDOVER)
+    discounted = run("The total is R 3 825.")
+    assert discounted[-1] == (WA, "The request is waiting.")
+    assert "3 825" not in discounted[-1][1]
 
 
 def test_a_whatsapp_message_id_is_accepted_as_event_id():
@@ -598,7 +615,7 @@ def test_a_whatsapp_message_id_is_accepted_as_event_id():
     say(conversations, "5000l", 0, "wamid.SIM5000")
     turn.execute(CONTEXT, CONVERSATION)
     assert cases.case.current("tank", "size_litres") == "5000"
-    assert sender.sent == [(WA, "The indicative range is R 4250.00. /card/QD-1042?code=1042")]
+    assert sender.sent == [(WA, "Noted.")]
 
 
 def test_unknown_tool_is_not_called():
@@ -621,7 +638,7 @@ def test_unknown_tool_is_not_called():
     assert price.calls == 0
     assert model.prompts[1].tool_payloads[0].name == "price"
     assert model.prompts[1].tool_payloads[0].body == {"error": "That tool is not available."}
-    assert sender.sent == [(WA, HANDOVER)]
+    assert sender.sent == [(WA, "Which tank size do you want?")]
 
 
 def test_second_turn_sees_the_recorded_size():

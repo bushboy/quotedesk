@@ -247,8 +247,9 @@ def test_a_stated_carport_size_prices_the_chosen_sheet():
     )
     result, _, _, _ = execute(
         {
-            "item": "Economy sheeting",
-            "size": "5 x 7 meters",
+            "item_codes": "SHEET-ECO",
+            "width_m": "5",
+            "length_m": "7",
             "required_fields": "true",
             "agreement": "true",
             "measurement": "true",
@@ -264,10 +265,15 @@ def test_a_stated_carport_size_prices_the_chosen_sheet():
 
 
 def test_a_stated_size_without_item_codes_is_still_indicative():
-    result, _, _, _ = execute({"job": "swap", "tank_size": "5000l"})
+    result, _, _, _ = execute({"size_litres": "5000"})
     assert result.rule_id.value == "WATER-R02"
     assert result.range_min == Money("4250.00")
     assert result.range_max == Money("4250.00")
+
+
+def test_an_alias_does_not_set_the_size():
+    result, _, _, _ = execute({"tank_size": "5000l", "job": "swap"})
+    assert result.rule_id.value != "WATER-R02"
 
 
 def test_a_confirmed_swap_is_quoted_even_when_the_stand_is_damaged():

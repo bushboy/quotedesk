@@ -1,5 +1,6 @@
 import json
 import logging
+import time
 from typing import Any, Protocol
 
 _log = logging.getLogger(__name__)
@@ -29,12 +30,26 @@ _TOOL_TEXT = {
     "create_deposit_link": "Return the deposit link for an accepted quote. The result is the only link.",
     "hold_slot": "Hold a day for a quote. The result says whether the day is held.",
 }
+_BOUND = frozenset({"conversation_id", "job_id", "quote_id", "system"})
+
+
+def _schema(model) -> dict[str, Any]:
+    schema = model.model_json_schema()
+    properties = dict(schema.get("properties") or {})
+    for key in _BOUND:
+        properties.pop(key, None)
+    schema["properties"] = properties
+    if schema.get("required"):
+        schema["required"] = [item for item in schema["required"] if item not in _BOUND]
+    return schema
+
+
 _TOOLS = tuple(
     {
         "type": "function",
         "name": name,
         "description": _TOOL_TEXT[name],
-        "parameters": model.model_json_schema(),
+        "parameters": _schema(model),
     }
     for name, model in (
         ("update_case", UpdateCaseInput),
@@ -89,10 +104,12 @@ class SparkTurn:
         body = {
             "model": self._model_id,
             "instructions": prompt.task,
-            "input": [{"role": "user", "content": _context(prompt)}],
+            "input": [{"role": "user", "content": _context(prompt)}, *prompt.exchanges],
             "tools": list(_TOOLS),
+            "reasoning": {"effort": prompt.effort},
         }
-        _log.info("Spark call model=%s", self._model_id)
+        _log.info("Spark call model=%s effort=%s", self._model_id, prompt.effort)
+        started = time.perf_counter()
         try:
             payload = self._transport.post(f"{self._base_url}/responses", body)
         except TimeoutError as exc:
@@ -105,9 +122,10 @@ class SparkTurn:
                 raise ModelTimeout() from exc
             _log.exception("Spark call model=%s failed", self._model_id)
             raise
+        elapsed_ms = int((time.perf_counter() - started) * 1000)
         reply = _reply(payload)
         tools = ", ".join(call.name for call in reply.tool_calls) or "none"
-        _log.info("AI response text=%s tools=%s", reply.text, tools)
+        _log.info("AI response text=%s tools=%s latency_ms=%s", reply.text, tools, elapsed_ms)
         return reply
 
 
@@ -118,7 +136,6 @@ def _context(prompt: TurnPrompt) -> str:
         "case": dumped["case"],
         "rate_card": dumped["rate_card"],
         "extractions": dumped["extractions"],
-        "tool_payloads": dumped["tool_payloads"],
         "business": dumped["business"],
     }
     return json.dumps(context, ensure_ascii=False)
@@ -132,7 +149,13 @@ def _reply(payload: dict[str, Any]) -> ModelReply:
             arguments = _arguments(item.get("arguments"))
             if arguments is None:
                 raise ToolArgumentsInvalid()
-            calls.append(ToolCall(name=str(item.get("name", "")), arguments=arguments))
+            calls.append(
+                ToolCall(
+                    name=str(item.get("name", "")),
+                    arguments=arguments,
+                    call_id=str(item.get("call_id") or ""),
+                )
+            )
         elif item.get("type") == "message":
             for part in item.get("content") or []:
                 if part.get("type") == "output_text":

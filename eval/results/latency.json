@@ -1,0 +1,132 @@
+{
+  "ran_on": "2026-10-30T15:27:40+00:00",
+  "provider": "baseten",
+  "model_id": "meta-models/muse-spark-open-1026",
+  "conversations": 20,
+  "silent": 0,
+  "median_seconds": 4.71,
+  "p90_seconds": 7.324,
+  "slowest_seconds": 8.541,
+  "rows": [
+    {
+      "id": "aqua-greeting",
+      "business": "aquasure",
+      "seconds": 3.169,
+      "replied": true
+    },
+    {
+      "id": "aqua-fixed-5000",
+      "business": "aquasure",
+      "seconds": 5.557,
+      "replied": true
+    },
+    {
+      "id": "aqua-damaged",
+      "business": "aquasure",
+      "seconds": 7.324,
+      "replied": true
+    },
+    {
+      "id": "aqua-borehole",
+      "business": "aquasure",
+      "seconds": 2.372,
+      "replied": true
+    },
+    {
+      "id": "aqua-wiring",
+      "business": "aquasure",
+      "seconds": 3.621,
+      "replied": true
+    },
+    {
+      "id": "aqua-new-system",
+      "business": "aquasure",
+      "seconds": 5.741,
+      "replied": true
+    },
+    {
+      "id": "aqua-known-swap",
+      "business": "aquasure",
+      "seconds": 5.652,
+      "replied": true
+    },
+    {
+      "id": "aqua-claimed-approval",
+      "business": "aquasure",
+      "seconds": 2.476,
+      "replied": true
+    },
+    {
+      "id": "aqua-sloped",
+      "business": "aquasure",
+      "seconds": 7.901,
+      "replied": true
+    },
+    {
+      "id": "aqua-unmatched",
+      "business": "aquasure",
+      "seconds": 4.796,
+      "replied": true
+    },
+    {
+      "id": "frame-greeting",
+      "business": "frameworks",
+      "seconds": 1.949,
+      "replied": true
+    },
+    {
+      "id": "frame-claimed-approval",
+      "business": "frameworks",
+      "seconds": 3.07,
+      "replied": true
+    },
+    {
+      "id": "frame-cracked-lintel",
+      "business": "frameworks",
+      "seconds": 2.693,
+      "replied": true
+    },
+    {
+      "id": "frame-old-sheeting",
+      "business": "frameworks",
+      "seconds": 4.624,
+      "replied": true
+    },
+    {
+      "id": "frame-new-opening",
+      "business": "frameworks",
+      "seconds": 6.916,
+      "replied": true
+    },
+    {
+      "id": "frame-upstairs",
+      "business": "frameworks",
+      "seconds": 8.541,
+      "replied": true
+    },
+    {
+      "id": "frame-fixed",
+      "business": "frameworks",
+      "seconds": 5.053,
+      "replied": true
+    },
+    {
+      "id": "frame-range",
+      "business": "frameworks",
+      "seconds": 5.143,
+      "replied": true
+    },
+    {
+      "id": "frame-known-size",
+      "business": "frameworks",
+      "seconds": 2.969,
+      "replied": true
+    },
+    {
+      "id": "frame-unmatched",
+      "business": "frameworks",
+      "seconds": 2.752,
+      "replied": true
+    }
+  ]
+}

@@ -91,7 +91,7 @@ def test_two_images_are_two_rows():
     assert [row.provider_message_id for row in rows] == [IMAGE, IMAGE_B]
     assert rows[0].objects == ("tank",)
     assert rows[1].objects == ("pump",)
-    assert sender.sent == [(WA, "The indicative range is R 4250.00. /card/QD-1042?code=1042")]
+    assert sender.sent == [(WA, "The indicative range for that tank is in this result. It can change once we confirm the base. /card/QD-1042?code=1042")]
 
 
 def test_a_later_text_still_sees_the_photo():
@@ -153,7 +153,7 @@ def test_a_size_only_in_the_summary_does_not_issue():
     picture(conversations, CAPTION, 0, IMAGE)
     turn.execute(CONTEXT, CONVERSATION)
     assert model.prompts[0].extractions[0].summary == "A 5000 L tank on a level base."
-    assert sender.sent == [(WA, "The indicative range is R 4250.00. /card/QD-1042?code=1042")]
+    assert sender.sent == [(WA, "The indicative range for that tank is in this result. It can change once we confirm the base. /card/QD-1042?code=1042")]
 
 
 def test_blur_or_sam_error_does_not_issue():
@@ -170,4 +170,4 @@ def test_blur_or_sam_error_does_not_issue():
         picture(conversations, CAPTION_SIZE, 0, IMAGE)
         turn.execute(CONTEXT, CONVERSATION)
         assert model.prompts[0].extractions[0].summary == SUMMARY
-        assert sender.sent == [(WA, "The indicative range is R 4250.00. /card/QD-1042?code=1042")]
+        assert sender.sent == [(WA, "The indicative range for that tank is in this result. It can change once we confirm the base. /card/QD-1042?code=1042")]

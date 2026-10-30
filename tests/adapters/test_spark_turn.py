@@ -1,3 +1,4 @@
+import logging
 import socket
 
 import pytest
@@ -139,6 +140,7 @@ def test_spark_parses_a_tool_call_and_then_text(monkeypatch):
         assert url == "https://api.meta.ai/v1/responses"
         assert body["model"] == settings.spark_model_id
         assert body["instructions"] == prompt.task
+        assert body["reasoning"] == {"effort": "medium"}
         assert "You speak for the owner on WhatsApp" not in body["instructions"]
         assert body["input"][0]["role"] == "user"
         content = body["input"][0]["content"]
@@ -147,7 +149,52 @@ def test_spark_parses_a_tool_call_and_then_text(monkeypatch):
         assert [tool["name"] for tool in body["tools"]] == list(TOOL_FIELDS)
         for tool, model in zip(body["tools"], TOOL_FIELDS.values(), strict=True):
             assert tool["description"]
-            assert set(tool["parameters"]["properties"]) == set(model.model_json_schema()["properties"])
+            assert set(tool["parameters"]["properties"]) == set(model.model_json_schema()["properties"]) - {
+                "conversation_id",
+                "job_id",
+                "quote_id",
+                "system",
+            }
+
+
+def test_spark_sends_the_tool_exchange_and_records_latency():
+    class Transport:
+        def __init__(self) -> None:
+            self.body: dict = {}
+
+        def post(self, url: str, body: dict) -> dict:
+            self.body = body
+            return RECORDED_TEXT
+
+    transport = Transport()
+    spark = SparkTurn(model_id="muse-spark-1.3-contributor", base_url="https://api.meta.ai/v1", transport=transport)
+    exchange = {"type": "function_call_output", "call_id": "call-0", "output": "{\"ok\": true}"}
+    prompt = _prompt().model_copy(update={"effort": "low", "exchanges": (exchange,)})
+    messages: list[str] = []
+
+    class Handler(logging.Handler):
+        def __init__(self) -> None:
+            super().__init__(level=logging.INFO)
+
+        def emit(self, record: logging.LogRecord) -> None:
+            messages.append(record.getMessage())
+
+    from quotedesk.adapters.outbound.models import spark as spark_mod
+
+    logger = spark_mod._log
+    previous = logger.level
+    handler = Handler()
+    logger.addHandler(handler)
+    logger.setLevel(logging.INFO)
+    try:
+        reply = spark.complete(prompt)
+    finally:
+        logger.removeHandler(handler)
+        logger.setLevel(previous)
+    assert reply.text == "The total is R 4 250."
+    assert transport.body["reasoning"] == {"effort": "low"}
+    assert transport.body["input"][-1] == exchange
+    assert any("latency_ms=" in message for message in messages)
 
 
 def test_spark_timeout_is_model_timeout():

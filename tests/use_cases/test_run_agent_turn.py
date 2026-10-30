@@ -162,7 +162,8 @@ def turn(model, conversations, sender, clock, cases=None, update=None, availabil
     lock = Lock()
     update = update or Update()
     quote = Quote()
-    handover = HandoverToHuman(cases or Cases(CaseFile.open(CONVERSATION, TENANT)))
+    stored = cases or Cases(CaseFile.open(CONVERSATION, TENANT))
+    handover = HandoverToHuman(stored)
     use_case = RunAgentTurn(
         conversations,
         sender,
@@ -173,6 +174,7 @@ def turn(model, conversations, sender, clock, cases=None, update=None, availabil
         handover,
         clock,
         check_availability=availability,
+        cases=stored,
     )
     return use_case, lock, update, quote, handover
 
@@ -253,7 +255,7 @@ def test_run_agent_turn_calls_tools_then_checks_the_reply():
     assert quote.calls == 1
     assert good.sent == [("", "The total is R 4 250.")]
     bad, _, _ = run((ModelReply(text="The total is R 3 000.", tool_calls=tools()),))
-    assert bad.sent == [("", HANDOVER)]
+    assert bad.sent == [("", "What should I quote for you?")]
     assert all("R 3 000" not in body for _, body in bad.sent)
     safe, _, _ = run(
         (
@@ -397,7 +399,7 @@ def test_a_new_job_without_a_type_is_sent_back_to_the_model():
     use_case, _, _, quote, _ = turn(script, conversations, sender, Clock(at(5)), update=update)
     use_case.execute(TenantContext(tenant_id=TENANT), CONVERSATION)
     assert update.calls == 2
-    assert quote.calls == 1
+    assert quote.calls == 0
     assert sender.sent == [("", "Is that tank on the existing level base?")]
     assert script.prompts[1].tool_payloads[0].body["error"] == "A new job names its type."
 
@@ -424,3 +426,112 @@ def test_a_closed_calendar_still_replies_with_the_turnaround():
     use_case, _, _, _, _ = turn(script, conversations, sender, Clock(at(5)), availability=Closed())
     use_case.execute(TenantContext(tenant_id=TENANT), CONVERSATION)
     assert sender.sent == [("", "That calendar has no open day.")]
+
+
+def test_a_missing_job_id_is_taken_from_the_planned_step():
+    case = CaseFile.open(CONVERSATION, TENANT).add_job("tank", "replacement")
+    conversations = Conversations()
+    sender = Sender()
+    conversations.save(TENANT, Conversation.open(CONVERSATION).append("wamid.A", at(0), "The tank.").conversation)
+
+    class RecordingUpdate(Update):
+        def __init__(self) -> None:
+            super().__init__()
+            self.job_id = ""
+
+        def execute(self, context, data):
+            super().execute(context, data)
+            self.job_id = data.job_id
+
+    update = RecordingUpdate()
+    script = Script(
+        (
+            ModelReply(
+                text="Noted.",
+                tool_calls=(
+                    ToolCall(
+                        name="update_case",
+                        arguments={
+                            "facts": [
+                                {
+                                    "key": "colour",
+                                    "value": "blue",
+                                    "source": "customer_text",
+                                    "event_id": str(EVENT),
+                                }
+                            ]
+                        },
+                    ),
+                ),
+            ),
+        )
+    )
+    use_case, _, _, _, _ = turn(script, conversations, sender, Clock(at(5)), cases=Cases(case), update=update)
+    use_case.execute(TenantContext(tenant_id=TENANT), CONVERSATION)
+    assert update.job_id == "tank"
+    assert sender.sent == [("", "Noted.")]
+
+
+def test_a_model_quote_id_is_replaced_with_the_issued_quote():
+    conversations = Conversations()
+    sender = Sender()
+    conversations.save(TENANT, Conversation.open(CONVERSATION).append("wamid.A", at(0), "Can I have 10 percent off?").conversation)
+
+    class Issued:
+        def execute(self, context, data):
+            return type(
+                "Result",
+                (),
+                {
+                    "total": None,
+                    "clauses": (),
+                    "range_min": None,
+                    "range_max": None,
+                    "model_dump": lambda self, mode="json": {"quote_id": {"value": "QD-1042"}, "outcome": "fixed_offer"},
+                },
+            )()
+
+    class Changes:
+        def __init__(self) -> None:
+            self.quote_id = ""
+
+        def execute(self, context, data):
+            self.quote_id = data.quote_id.value
+            return type(
+                "Result",
+                (),
+                {
+                    "lines": (),
+                    "clauses": (),
+                    "model_dump": lambda self, mode="json": {"state": "pending", "quote_id": {"value": data.quote_id.value}},
+                },
+            )()
+
+    changes = Changes()
+    script = Script(
+        (
+            ModelReply(
+                text="",
+                tool_calls=(
+                    ToolCall(name="get_quote", arguments={}),
+                    ToolCall(
+                        name="request_change",
+                        arguments={
+                            "quote_id": "QD-9999",
+                            "version": 1,
+                            "idempotency_key": "change-1",
+                            "discount_percent": "10",
+                            "reason": "10 percent off",
+                        },
+                    ),
+                ),
+            ),
+            ModelReply(text="The request is waiting.", tool_calls=()),
+        )
+    )
+    use_case, _, _, _, _ = turn(script, conversations, sender, Clock(at(5)))
+    use_case._get_quote = Issued()
+    use_case._request_change = changes
+    use_case.execute(TenantContext(tenant_id=TENANT), CONVERSATION)
+    assert changes.quote_id == "QD-1042"
+    assert "QD-9999" not in sender.sent[0][1]

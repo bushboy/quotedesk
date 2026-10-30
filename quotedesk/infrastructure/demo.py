@@ -426,6 +426,14 @@ class Catalog:
             return ("size_litres", "existing_level_base")
         return ()
 
+    def facts(self, job_type: str):
+        if self._playbook is None or not self._playbook.populated():
+            return ()
+        for job in self._playbook.job_types:
+            if job.key == job_type:
+                return job.facts
+        return ()
+
 
 class Media:
     def __init__(self) -> None:
@@ -471,7 +479,6 @@ QUOTE_REPLY = f"The total is R 4 250. Your card: {CARD_URL}"
 
 def quote_facts() -> list[dict[str, str]]:
     return [
-        {"key": "job", "value": "replacement", "source": "customer_text", "event_id": EVENT},
         {"key": "size_litres", "value": "5000", "source": "customer_text", "event_id": EVENT},
         {"key": "size_source", "value": "customer_stated", "source": "customer_text", "event_id": EVENT},
         {"key": "existing_level_base", "value": "true", "source": "customer_text", "event_id": EVENT},
@@ -802,6 +809,7 @@ def install(
             area=profile.area,
             about=profile.about,
         ),
+        cases=cases,
     )
     app.state.tenant_id = profile.tenant_id
     app.state.tenant = profile

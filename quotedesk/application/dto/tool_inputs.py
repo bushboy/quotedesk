@@ -80,6 +80,7 @@ class UpdateCaseInput(BaseModel):
     job_id: str
     job_type: str | None = None
     facts: tuple[FactInput, ...]
+    system: bool = False
 
 
 class CheckAvailabilityInput(BaseModel):

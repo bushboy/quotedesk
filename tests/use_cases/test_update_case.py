@@ -123,6 +123,36 @@ def test_update_case_records_a_fact_on_a_job():
     assert len(cases.case.jobs) == 1
 
 
+def test_a_customer_name_is_dropped_and_a_job_type_fact_opens_the_job():
+    class Carport:
+        def required(self, job_type: str) -> tuple[str, ...]:
+            return ("width_m",) if job_type == "carport" else ()
+
+        def facts(self, job_type: str):
+            if job_type != "carport":
+                return ()
+            return (type("Fact", (), {"key": "width_m", "type": "number"})(),)
+
+    cases = Cases(CaseFile.open(CONVERSATION, TENANT))
+    tool = UpdateCase(cases, Carport(), Ids((FIRST, SECOND)))
+    result = tool.execute(
+        TenantContext(tenant_id=TENANT),
+        UpdateCaseInput(
+            conversation_id=CONVERSATION,
+            job_id="carport",
+            facts=(
+                fact("customer_name", "Polycarbonate"),
+                fact("item_codes", "SHEET-POLY"),
+                fact("job_type", "carport"),
+            ),
+        ),
+    )
+    assert result.created is True
+    assert cases.case.jobs[0].job_type == "carport"
+    assert result.current["item_codes"] == "SHEET-POLY"
+    assert "customer_name" not in result.current
+
+
 def test_update_case_supersedes():
     tool, cases = use(CaseFile.open(CONVERSATION, TENANT), (FIRST, SECOND))
     context = TenantContext(tenant_id=TENANT)

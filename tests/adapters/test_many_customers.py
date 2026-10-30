@@ -57,14 +57,14 @@ class Caller:
         if "pump" in text:
             return _record(fact, "pump", ())
         if "carport" in text:
-            size = "6 x 9" if "6" in text else "3 x 5"
+            wide = "6" in text
             return _record(
                 fact,
                 "carport",
                 (
-                    {"key": "item", "value": "Economy sheeting", **fact},
-                    {"key": "size", "value": size, **fact},
-                    {"key": "job_type", "value": "carport", **fact},
+                    {"key": "item_codes", "value": "SHEET-ECO", **fact},
+                    {"key": "width_m", "value": "6" if wide else "3", **fact},
+                    {"key": "length_m", "value": "9" if wide else "5", **fact},
                     {"key": "required_fields", "value": "true", **fact},
                     {"key": "agreement", "value": "true", **fact},
                     {"key": "measurement", "value": "true", **fact},
@@ -78,19 +78,24 @@ class Caller:
             "tank",
             (
                 {"key": "size_litres", "value": litres, **fact},
-                {"key": "job", "value": "replacement", **fact},
-                {"key": "job_type", "value": "replacement", **fact},
+                {"key": "existing_level_base", "value": "true", **fact},
             ),
+            job_type="replacement",
         )
 
 
-def _record(fact, job_id, facts):
+def _record(fact, job_id, facts, job_type=None):
     return ModelReply(
         text="",
         tool_calls=(
             ToolCall(
                 name="update_case",
-                arguments={"conversation_id": fact["event_id"], "job_id": job_id, "job_type": job_id, "facts": list(facts)},
+                arguments={
+                    "conversation_id": fact["event_id"],
+                    "job_id": job_id,
+                    "job_type": job_type or job_id,
+                    "facts": list(facts),
+                },
             ),
             ToolCall(name="get_quote", arguments={"conversation_id": fact["event_id"]}),
         ),

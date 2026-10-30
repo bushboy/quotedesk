@@ -25,6 +25,7 @@ class ToolCall(BaseModel):
 
     name: str
     arguments: dict[str, Any]
+    call_id: str = ""
 
 
 class ModelReply(BaseModel):
@@ -134,3 +135,5 @@ class TurnPrompt(BaseModel):
     extractions: tuple[PromptExtraction, ...] = ()
     business: BusinessView = Field(default_factory=BusinessView)
     task: str = ""
+    effort: Literal["low", "medium"] = "medium"
+    exchanges: tuple[dict[str, Any], ...] = ()

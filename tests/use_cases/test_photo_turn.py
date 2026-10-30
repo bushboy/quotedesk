@@ -93,6 +93,7 @@ def harness(model, enricher: Enricher):
         card_base="/card",
         card_code="1042",
         enricher=enricher,
+        cases=cases,
     )
     return conversations, cases, sender, turn
 
@@ -140,7 +141,6 @@ def stated_size(prompt):
                 "job_id": "tank",
                 "job_type": "replacement",
                 "facts": [
-                    {"key": "job", "value": "replacement", **fact},
                     {"key": "size_litres", "value": "5000", **fact},
                     {"key": "size_source", "value": "photo_inferred", **fact},
                     {"key": "existing_level_base", "value": "true", **fact},
@@ -192,7 +192,7 @@ def test_photo_inferred_size_does_not_issue_a_fixed_price():
     text(conversations, TANK, 0, str(EVENT))
     picture(conversations, CAPTION, 1, IMAGE)
     turn.execute(CONTEXT, CONVERSATION)
-    assert sender.sent == [(WA, "The indicative range is R 4250.00. /card/QD-1042?code=1042")]
+    assert sender.sent == [(WA, "The indicative range for that tank is in this result. It can change once we confirm the base. /card/QD-1042?code=1042")]
     assert "fixed" not in sender.sent[0][1]
 
 
@@ -203,7 +203,7 @@ def test_blur_does_not_issue_a_fixed_price():
     picture(conversations, CAPTION, 1, IMAGE)
     turn.execute(CONTEXT, CONVERSATION)
     assert cases.case.current("tank", "media_usable") == "false"
-    assert sender.sent == [(WA, "The indicative range is R 4250.00. /card/QD-1042?code=1042")]
+    assert sender.sent == [(WA, "The indicative range for that tank is in this result. It can change once we confirm the base. /card/QD-1042?code=1042")]
     assert "fixed" not in sender.sent[0][1]
 
 
@@ -220,7 +220,7 @@ def test_sam_error_does_not_issue_a_fixed_price():
     picture(conversations, CAPTION, 1, IMAGE)
     turn.execute(CONTEXT, CONVERSATION)
     assert cases.case.current("tank", "agreement") == "false"
-    assert sender.sent == [(WA, "The indicative range is R 4250.00. /card/QD-1042?code=1042")]
+    assert sender.sent == [(WA, "The indicative range for that tank is in this result. It can change once we confirm the base. /card/QD-1042?code=1042")]
     assert "fixed" not in sender.sent[0][1]
 
 

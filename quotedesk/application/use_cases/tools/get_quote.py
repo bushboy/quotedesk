@@ -1,4 +1,3 @@
-import re
 from datetime import timedelta
 from decimal import Decimal
 from zoneinfo import ZoneInfo
@@ -136,11 +135,10 @@ class GetQuote:
         )
 
 
-_SPAN = re.compile(r"(\d+(?:\.\d+)?)\s*(?:x|×|by)\s*(\d+(?:\.\d+)?)", re.IGNORECASE)
-
-
 def _facts(case: CaseFile, rate_card=None) -> tuple[CaseFacts, ExtractionFacts]:
-    job = case.jobs[0]
+    job = case.jobs[0] if case.jobs else None
+    if job is None:
+        raise CaseNotFound()
     values = {
         fact.key: fact.value
         for fact in case.facts(job.job_id)
@@ -157,23 +155,19 @@ def _facts(case: CaseFile, rate_card=None) -> tuple[CaseFacts, ExtractionFacts]:
             return False
         raise PolicyViolation(code="policy.violation", sentence=_NOT_A_FLAG)
 
-    size = values.get("size_litres") or values.get("tank_size")
+    size = values.get("size_litres")
     stand = values.get("stand_condition")
     width = _decimal(values.get("width_m"))
     length = _decimal(values.get("length_m"))
-    spanned = _span(values.get("size") or values.get("dimensions"))
-    if width is None:
-        width = spanned[0]
-    if length is None:
-        length = spanned[1]
     finish = values.get("finish")
     codes = _codes(values.get("item_codes"))
-    matched = _match_card(values.get("item") or finish, rate_card)
+    matched = _match_card(finish, rate_card)
     if not codes and matched is not None:
         codes = (matched,)
     if not finish and matched is not None and rate_card is not None:
         finish = next(item.description for item in rate_card.items if item.item_code == matched)
     opening = values.get("opening")
+    stated = _size_source(case, job.job_id)
     case_facts = CaseFacts(
         checks=ConfidenceChecks(
             required_fields=flag("required_fields", False),
@@ -182,13 +176,17 @@ def _facts(case: CaseFile, rate_card=None) -> tuple[CaseFacts, ExtractionFacts]:
             media_usable=flag("media_usable", False),
             rate_card=flag("rate_card", False),
         ),
-        job=_job_kind(values.get("job") or values.get("job_type") or job.job_type),
+        job=_job_kind(job.job_type or values.get("job_type")),
         customer_text=values.get("customer_text"),
         size_litres=_litres(size),
-        size_source=SizeSource(values["size_source"]) if "size_source" in values else None,
+        size_source=stated,
         existing_level_base=flag("existing_level_base", False),
         installation_damaged=flag("installation_damaged", False),
         simple_swap=_optional_flag(values.get("simple_swap")),
+        base_unconfirmed=flag("base_unconfirmed", False),
+        new_tank_and_pump=flag("new_tank_and_pump", False),
+        sloped_ground=flag("sloped_ground", False),
+        pipe_run_unknown=flag("pipe_run_unknown", False),
         item_codes=codes,
         width_m=width,
         length_m=length,
@@ -200,17 +198,30 @@ def _facts(case: CaseFile, rate_card=None) -> tuple[CaseFacts, ExtractionFacts]:
         budget=_decimal(values.get("budget")),
         job_type=_job_type(values.get("job_type") or job.job_type),
     )
-    extraction = ExtractionFacts(stand_condition=stand) if stand is not None else ExtractionFacts()
+    stand_value = stand if stand in ("sound", "leaning", "cracked", "sagging") else None
+    extraction = ExtractionFacts(
+        stand_condition=stand_value,
+        elevated=flag("elevated", False),
+        structure_damage=flag("structure_damage", False),
+        exposed_wiring=flag("exposed_wiring", False),
+        active_flooding=flag("active_flooding", False),
+        lintel_cracked=flag("lintel_cracked", False),
+        glass_broken=flag("glass_broken", False),
+        possible_asbestos=flag("possible_asbestos", False),
+    )
     return case_facts, extraction
 
 
-def _span(raw: str | None) -> tuple[Decimal | None, Decimal | None]:
-    if raw is None:
-        return None, None
-    match = _SPAN.search(raw)
-    if match is None:
-        return None, None
-    return Decimal(match.group(1)), Decimal(match.group(2))
+def _size_source(case: CaseFile, job_id: str):
+    stated = None
+    for fact in case.facts(job_id):
+        if fact.superseded_by is not None or fact.contested:
+            continue
+        if fact.key == "size_source" and fact.value in ("photo_inferred", "customer_stated", "reference_object"):
+            return SizeSource(fact.value)
+        if fact.key == "size_litres" and fact.source == "customer_text":
+            stated = SizeSource.CUSTOMER_STATED
+    return stated
 
 
 def _match_card(raw: str | None, rate_card) -> str | None:

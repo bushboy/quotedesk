@@ -41,6 +41,19 @@ def test_a_job_request_is_not_stored_as_a_name():
     assert with_name(store, TENANT, WA, "Thanks.") == f"Thanks. {NAME_ASK}"
 
 
+def test_a_sheet_we_just_offered_is_not_stored_as_a_name():
+    store = Conversations()
+    store.bind(TENANT, WA, CONVERSATION)
+    store.record_reply(
+        TENANT,
+        CONVERSATION,
+        WHEN,
+        f"We offer Polycarbonate sheeting. Which sheet are you interested in? {NAME_ASK}",
+    )
+    remember_name(store, TENANT, CONVERSATION, WA, (_event("Polycarbonate"),))
+    assert store.name(TENANT, WA) is None
+
+
 def test_yes_after_the_question_is_not_a_name():
     store = Conversations()
     store.bind(TENANT, WA, CONVERSATION)
