@@ -29,11 +29,12 @@ class QuoteTables:
                 text(
                     """
                     INSERT INTO quote_version (
-                        quote_id, number, state, expiry, at, price_type, range_min, range_max, deposit, site_visit_fee
+                        quote_id, number, state, expiry, at, price_type, range_min, range_max, deposit, site_visit_fee,
+                        outcome, rule_id, reasons, policy_version, facts_used
                     )
                     VALUES (
                         :quote_id, :number, :state, :expiry, :at, :price_type, :range_min, :range_max, :deposit,
-                        :site_visit_fee
+                        :site_visit_fee, :outcome, :rule_id, :reasons, :policy_version, :facts_used
                     )
                     """
                 ),
@@ -48,6 +49,11 @@ class QuoteTables:
                     "range_max": None if version.range_max is None else version.range_max.amount,
                     "deposit": None if version.deposit is None else version.deposit.amount,
                     "site_visit_fee": None if version.site_visit_fee is None else version.site_visit_fee.amount,
+                    "outcome": version.outcome,
+                    "rule_id": version.rule_id,
+                    "reasons": "\n".join(version.reasons),
+                    "policy_version": version.policy_version,
+                    "facts_used": "\n".join(version.facts_used),
                 },
             )
             for position, line in enumerate(version.lines):
@@ -181,7 +187,8 @@ class QuoteTables:
         version_rows = connection.execute(
             text(
                 """
-                SELECT number, state, expiry, at, price_type, range_min, range_max, deposit, site_visit_fee
+                SELECT number, state, expiry, at, price_type, range_min, range_max, deposit, site_visit_fee,
+                       outcome, rule_id, reasons, policy_version, facts_used
                 FROM quote_version
                 WHERE quote_id = :quote_id
                 ORDER BY number
@@ -259,6 +266,11 @@ class QuoteTables:
                     range_max=_money(version.range_max),
                     deposit=_money(version.deposit),
                     site_visit_fee=_money(version.site_visit_fee),
+                    outcome=version.outcome or "",
+                    rule_id=version.rule_id or "",
+                    reasons=_lines(version.reasons),
+                    policy_version=version.policy_version or "",
+                    facts_used=_lines(version.facts_used),
                 )
             )
         return Quote(quote_id=QuoteId(quote_id), versions=tuple(versions))
@@ -293,6 +305,12 @@ class QuoteTables:
             if quote is not None:
                 loaded.append((row.conversation_id, quote))
         return tuple(loaded)
+
+
+def _lines(value: str | None) -> tuple[str, ...]:
+    if not value:
+        return ()
+    return tuple(line for line in value.split("\n") if line)
 
 
 def _money(amount) -> Money | None:

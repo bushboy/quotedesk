@@ -60,14 +60,35 @@ def next_version(current: PolicyVersionId) -> PolicyVersionId:
     return PolicyVersionId(f"{match.group('head')}{match.group('major')}.{minor}")
 
 
+def _enabled(edit) -> bool:
+    return True if edit is None else edit.enabled
+
+
+def _edited(rule, edit):
+    if edit is None:
+        return rule
+    updates = {}
+    if edit.customer_template is not None:
+        updates["customer_template"] = edit.customer_template
+    if edit.reason is not None:
+        updates["reason"] = edit.reason
+    if edit.when is not None:
+        updates["when"] = edit.when
+    return rule.model_copy(update=updates) if updates else rule
+
+
 def _require_reason(reason: str) -> None:
     if reason.strip() == "":
         raise ValidationError(code="publish.reason", sentence=_REASON)
 
 
 def _bundle(current: PublishedPolicy, draft: PolicyDraft, version: PolicyVersionId) -> PublishedPolicy:
-    enabled = {rule.rule_id: rule.enabled for rule in draft.rules}
-    rules = tuple(rule for rule in current.policy.rules if enabled.get(rule.rule_id.value, True))
+    edits = {rule.rule_id: rule for rule in draft.rules}
+    rules = tuple(
+        _edited(rule, edits.get(rule.rule_id.value))
+        for rule in current.policy.rules
+        if _enabled(edits.get(rule.rule_id.value))
+    )
     codes = tuple(row.item_code for row in draft.rate_rows)
     settings = dict(current.clause_policy.settings)
     settings["deposit_percent"] = draft.deposit_percent
@@ -82,6 +103,8 @@ def _bundle(current: PublishedPolicy, draft: PolicyDraft, version: PolicyVersion
                     item_code=row.item_code,
                     description=row.description or row.item_code,
                     unit_price=Money(row.unit_price),
+                    unit=row.unit if row.unit in ("each", "per m²", "per metre") else "each",
+                    role=row.role if row.role in ("product", "frame", "hardware", "installation", "delivery", "inspection") else "product",
                 )
                 for row in draft.rate_rows
             ),

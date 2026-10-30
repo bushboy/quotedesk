@@ -1,6 +1,7 @@
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Literal
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
 
@@ -103,6 +104,26 @@ class ApproveResult(BaseModel):
     state: QuoteState
     discount_percent: Decimal
     lines: tuple[QuoteLine, ...]
+
+
+class BookInspectionResult(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    inspection_id: UUID
+    status: Literal["offered", "booked", "completed"]
+    rule_id: str
+    fee: str
+    window_start: date | None
+    window_end: date | None
+    sentence: str
+
+
+class EscalateToOwnerResult(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    sentence: str
+    brief: str
+    notified: str = ""
 
 
 class PendingRow(BaseModel):

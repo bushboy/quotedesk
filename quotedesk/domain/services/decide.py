@@ -1,18 +1,19 @@
+"""Match the first rule whose condition the facts satisfy.
+
+The condition is data on the rule. This function does not look at which business
+published the policy, and it does not keep a predicate per rule id.
+"""
+
 from decimal import Decimal
 
-from quotedesk.domain.case.facts import CaseFacts, ExtractionFacts, JobKind, SegmentationFacts
+from quotedesk.domain.case.facts import CaseFacts, ExtractionFacts, SegmentationFacts
 from quotedesk.domain.policy.rules import Decision, Policy, PolicyRule
-from quotedesk.domain.services.confidence import (
-    ConfidenceBand,
-    SizeSource,
-    derive_confidence,
-    rate_card_match,
-)
+from quotedesk.domain.policy.when import FactView, When, matches
+from quotedesk.domain.services.confidence import derive_confidence, rate_card_match
 from quotedesk.domain.services.injection import classify_injection_claims
 from quotedesk.domain.shared.errors import PolicyViolation
 
 _STAND_HAZARD_WORDS = ("leaning", "cracked", "sagging")
-_BAD_STAND = frozenset(_STAND_HAZARD_WORDS)
 
 
 def decide(
@@ -21,12 +22,10 @@ def decide(
     segmentation_facts: SegmentationFacts,
     policy: Policy,
 ) -> Decision:
+    facts = _facts(case_facts, extraction_facts, policy)
     indexed = sorted(enumerate(policy.rules), key=lambda item: (item[1].priority, item[0]))
     for _, rule in indexed:
-        predicate = _PREDICATES.get(rule.rule_id.value)
-        if predicate is None:
-            continue
-        if predicate(case_facts, extraction_facts, segmentation_facts, policy):
+        if rule.when is not None and matches(rule.when, facts):
             return _decision(rule, case_facts, policy)
     raise PolicyViolation(code="policy.violation", sentence="The policy matched no rule.")
 
@@ -42,12 +41,89 @@ def _decision(rule: PolicyRule, case_facts: CaseFacts, policy: Policy) -> Decisi
     )
 
 
-def _e01(
-    case: CaseFacts,
-    extraction: ExtractionFacts,
-    _segmentation: SegmentationFacts,
-    _policy: Policy,
-) -> bool:
+def _facts(case: CaseFacts, extraction: ExtractionFacts, policy: Policy) -> FactView:
+    values: dict[str, str] = {}
+    numbers: dict[str, Decimal] = {}
+    missing: list[str] = []
+
+    def text(key: str, value: object, *, blank_missing: bool = False) -> None:
+        if value is None:
+            missing.append(key)
+            return
+        rendered = getattr(value, "value", None)
+        rendered = str(value) if rendered is None else str(rendered)
+        if blank_missing and rendered.strip() == "":
+            missing.append(key)
+            return
+        values[key] = rendered
+
+    def flag(key: str, value: bool) -> None:
+        values[key] = "true" if value else "false"
+
+    def number(key: str, value: Decimal | int | None) -> None:
+        if value is None:
+            missing.append(key)
+            values[f"{key}_known"] = "false"
+            return
+        amount = Decimal(value)
+        numbers[key] = amount
+        values[key] = format(amount, "f")
+        values[f"{key}_known"] = "true"
+
+    text("job", case.job)
+    text("size_source", case.size_source)
+    text("stand_condition", extraction.stand_condition)
+    text("opening", case.opening)
+    text("finish", case.finish, blank_missing=True)
+    text("job_type", case.job_type)
+    number("size_litres", case.size_litres)
+    number("width_m", case.width_m)
+    number("length_m", case.length_m)
+    number("budget", case.budget)
+    number("range_minimum", policy.range_minimum)
+    values["size_known"] = values.get("size_litres_known", "false")
+    values["width_known"] = values.get("width_m_known", "false")
+    values["length_known"] = values.get("length_m_known", "false")
+    values["budget_known"] = values.get("budget_known", "false")
+    values["range_known"] = "true" if "range_minimum" in numbers else "false"
+    values["finish_chosen"] = "false" if "finish" in missing else "true"
+    if case.simple_swap is None:
+        missing.append("simple_swap")
+    else:
+        flag("simple_swap", case.simple_swap)
+    for key, value in (
+        ("existing_level_base", case.existing_level_base),
+        ("installation_damaged", case.installation_damaged),
+        ("base_unconfirmed", case.base_unconfirmed),
+        ("new_tank_and_pump", case.new_tank_and_pump),
+        ("sloped_ground", case.sloped_ground),
+        ("pipe_run_unknown", case.pipe_run_unknown),
+        ("elevated", extraction.elevated),
+        ("structure_damage", extraction.structure_damage),
+        ("exposed_wiring", extraction.exposed_wiring),
+        ("active_flooding", extraction.active_flooding),
+        ("lintel_cracked", extraction.lintel_cracked),
+        ("glass_broken", extraction.glass_broken),
+        ("possible_asbestos", extraction.possible_asbestos),
+        ("above_ground_floor", case.above_ground_floor),
+        ("multi_unit", case.multi_unit),
+        ("standard_band", case.standard_band),
+    ):
+        flag(key, value)
+    if case.item_codes:
+        values["items_chosen"] = "true"
+        values["item_codes"] = ",".join(case.item_codes)
+    else:
+        values["items_chosen"] = "false"
+        missing.append("item_codes")
+    flag("rate_card_match", rate_card_match(case.item_codes, set(policy.rate_card_codes)))
+    values["confidence"] = derive_confidence(case.checks).value
+    flag("injection", _injection(case, extraction))
+    flag("stand_hazard_mentioned", _stand_hazard(case))
+    return FactView(values=values, numbers=numbers, missing=tuple(missing))
+
+
+def _injection(case: CaseFacts, extraction: ExtractionFacts) -> bool:
     for text in (case.customer_text, case.voice_transcript, extraction.image_text):
         flags = classify_injection_claims(text)
         if flags.instruction or flags.claimed_approval:
@@ -55,7 +131,7 @@ def _e01(
     return False
 
 
-def _text_mentions_stand_hazard(case: CaseFacts) -> bool:
+def _stand_hazard(case: CaseFacts) -> bool:
     for text in (case.customer_text, case.voice_transcript):
         if text is None:
             continue
@@ -65,233 +141,15 @@ def _text_mentions_stand_hazard(case: CaseFacts) -> bool:
     return False
 
 
-def _installation_damaged(case: CaseFacts, extraction: ExtractionFacts) -> bool:
-    if case.installation_damaged:
-        return True
-    if extraction.stand_condition in _BAD_STAND:
-        return True
-    if extraction.structure_damage:
-        return True
-    return _text_mentions_stand_hazard(case)
-
-
-def _sized_install(case: CaseFacts) -> bool:
-    return (
-        case.size_litres is not None
-        and case.job in (JobKind.REPLACEMENT, JobKind.NEW_SYSTEM)
-        and case.simple_swap is not False
+def parse_when(raw: object) -> When | None:
+    if not isinstance(raw, dict):
+        return None
+    nested = raw.get("of") or ()
+    values = raw.get("values") or ()
+    return When(
+        op=str(raw.get("op") or ""),
+        fact=str(raw.get("fact") or ""),
+        value="" if raw.get("value") is None else str(raw.get("value")),
+        values=tuple(str(item) for item in values),
+        of=tuple(item for item in (parse_when(part) for part in nested) if item is not None),
     )
-
-
-def _e02(
-    case: CaseFacts,
-    extraction: ExtractionFacts,
-    segmentation: SegmentationFacts,
-    policy: Policy,
-) -> bool:
-    if not _installation_damaged(case, extraction):
-        return False
-    if _f01(case, extraction, segmentation, policy) or _sized_install(case):
-        return False
-    return True
-
-
-def _e03(
-    _case: CaseFacts,
-    extraction: ExtractionFacts,
-    _segmentation: SegmentationFacts,
-    _policy: Policy,
-) -> bool:
-    return extraction.exposed_wiring or extraction.active_flooding
-
-
-def _s01(
-    case: CaseFacts,
-    _extraction: ExtractionFacts,
-    _segmentation: SegmentationFacts,
-    _policy: Policy,
-) -> bool:
-    return case.job is JobKind.BOREHOLE
-
-
-def _s02(
-    case: CaseFacts,
-    extraction: ExtractionFacts,
-    _segmentation: SegmentationFacts,
-    _policy: Policy,
-) -> bool:
-    sound_elevated = extraction.elevated and not extraction.structure_damage
-    return sound_elevated or case.sloped_ground or case.pipe_run_unknown
-
-
-def _f01(
-    case: CaseFacts,
-    _extraction: ExtractionFacts,
-    _segmentation: SegmentationFacts,
-    policy: Policy,
-) -> bool:
-    if case.simple_swap is False:
-        return False
-    if derive_confidence(case.checks) is not ConfidenceBand.HIGH:
-        return False
-    if case.job is not JobKind.REPLACEMENT:
-        return False
-    if case.size_litres is None or case.size_source is not SizeSource.CUSTOMER_STATED:
-        return False
-    if not case.existing_level_base or not case.item_codes:
-        return False
-    return rate_card_match(case.item_codes, set(policy.rate_card_codes))
-
-
-def _r01(
-    case: CaseFacts,
-    _extraction: ExtractionFacts,
-    _segmentation: SegmentationFacts,
-    _policy: Policy,
-) -> bool:
-    band = derive_confidence(case.checks)
-    if band not in (ConfidenceBand.MEDIUM, ConfidenceBand.HIGH):
-        return False
-    return case.new_tank_and_pump and case.base_unconfirmed
-
-
-def _r02(
-    case: CaseFacts,
-    _extraction: ExtractionFacts,
-    _segmentation: SegmentationFacts,
-    _policy: Policy,
-) -> bool:
-    return _sized_install(case)
-
-
-def _l01(
-    case: CaseFacts,
-    _extraction: ExtractionFacts,
-    _segmentation: SegmentationFacts,
-    _policy: Policy,
-) -> bool:
-    return derive_confidence(case.checks) is ConfidenceBand.LOW
-
-
-def _l02(
-    case: CaseFacts,
-    _extraction: ExtractionFacts,
-    _segmentation: SegmentationFacts,
-    _policy: Policy,
-) -> bool:
-    return derive_confidence(case.checks) in (ConfidenceBand.MEDIUM, ConfidenceBand.HIGH)
-
-
-def _fab_e02(
-    _case: CaseFacts,
-    extraction: ExtractionFacts,
-    _segmentation: SegmentationFacts,
-    _policy: Policy,
-) -> bool:
-    return extraction.lintel_cracked or extraction.glass_broken
-
-
-def _fab_e03(
-    _case: CaseFacts,
-    extraction: ExtractionFacts,
-    _segmentation: SegmentationFacts,
-    _policy: Policy,
-) -> bool:
-    return extraction.possible_asbestos
-
-
-def _fab_s01(
-    case: CaseFacts,
-    _extraction: ExtractionFacts,
-    _segmentation: SegmentationFacts,
-    _policy: Policy,
-) -> bool:
-    return case.opening in ("new", "widened")
-
-
-def _fab_s02(
-    case: CaseFacts,
-    _extraction: ExtractionFacts,
-    _segmentation: SegmentationFacts,
-    _policy: Policy,
-) -> bool:
-    return case.above_ground_floor or case.multi_unit
-
-
-def _finish_chosen(case: CaseFacts) -> bool:
-    return isinstance(case.finish, str) and case.finish.strip() != ""
-
-
-def _fab_f01(
-    case: CaseFacts,
-    _extraction: ExtractionFacts,
-    _segmentation: SegmentationFacts,
-    _policy: Policy,
-) -> bool:
-    if derive_confidence(case.checks) is not ConfidenceBand.HIGH:
-        return False
-    if case.opening != "existing" or case.width_m is None or case.length_m is None:
-        return False
-    if case.size_source not in (SizeSource.CUSTOMER_STATED, SizeSource.REFERENCE_OBJECT):
-        return False
-    return case.standard_band and _finish_chosen(case)
-
-
-def _fab_r01(
-    case: CaseFacts,
-    _extraction: ExtractionFacts,
-    _segmentation: SegmentationFacts,
-    _policy: Policy,
-) -> bool:
-    band = derive_confidence(case.checks)
-    if band not in (ConfidenceBand.MEDIUM, ConfidenceBand.HIGH):
-        return False
-    return case.width_m == Decimal("6.0") and case.length_m == Decimal("7.0") and case.finish is None
-
-
-def _fab_r02(
-    case: CaseFacts,
-    _extraction: ExtractionFacts,
-    _segmentation: SegmentationFacts,
-    _policy: Policy,
-) -> bool:
-    band = derive_confidence(case.checks)
-    if band not in (ConfidenceBand.MEDIUM, ConfidenceBand.HIGH):
-        return False
-    return case.width_m is not None and case.length_m is not None
-
-
-def _fab_b01(
-    case: CaseFacts,
-    _extraction: ExtractionFacts,
-    _segmentation: SegmentationFacts,
-    policy: Policy,
-) -> bool:
-    if case.budget is None or policy.range_minimum is None:
-        return False
-    return case.budget < policy.range_minimum
-
-
-_PREDICATES = {
-    "WATER-E01": _e01,
-    "WATER-E02": _e02,
-    "WATER-E03": _e03,
-    "WATER-S01": _s01,
-    "WATER-S02": _s02,
-    "WATER-F01": _f01,
-    "WATER-R01": _r01,
-    "WATER-R02": _r02,
-    "WATER-L01": _l01,
-    "WATER-L02": _l02,
-    "FAB-E01": _e01,
-    "FAB-E02": _fab_e02,
-    "FAB-E03": _fab_e03,
-    "FAB-S01": _fab_s01,
-    "FAB-S02": _fab_s02,
-    "FAB-F01": _fab_f01,
-    "FAB-R01": _fab_r01,
-    "FAB-R02": _fab_r02,
-    "FAB-B01": _fab_b01,
-    "FAB-L01": _l01,
-    "FAB-L02": _l02,
-}

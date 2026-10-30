@@ -140,7 +140,16 @@ The customer channel is the web chat. `GET /whatsapp/webhook` answers Meta's ver
 
 `seeds/frameworks.yaml` is loaded by tests. The running app loads `seeds/aquasure.yaml` only. With `MODEL=spark`, the chat uses `AGENT_PROVIDER` and a photo uses `IMAGE_PROVIDER`, as in [Model settings](#model-settings). With `MODEL=script`, both stay on the fixed reply and the recorded photo. Voice Transcribe is not called yet. Excel import exists as a use case. It is not a page. Approval, publish, and rate card edits are on `/console`. Word, PowerPoint, PDF, and photo import are not in this build. Deposit links, where a use case returns one, are sandbox URLs.
 
-There is no evaluation runner yet. The planned set and the metrics are in the build spec. Do not treat an unrun case as a result.
+`python -m eval.run_gate` runs the release set: 24 scripted conversations for AquaSure and 24 for FrameWorks. The customer is a scripted voice behind the model port. The wording changes with the seed. The expected outcome does not. The command does not call a live model, so it does not replace `eval/results/latency.json`.
+
+Latest run, 30 October 2026, seed 0:
+
+| Business | Conversations | Outcome accuracy | Questions before the outcome | No reply | Unfounded commitments | Re-asked facts | Brief completeness | Median | Slowest 10% | Cost |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| AquaSure | 24 | 1.0 | 0.33 | 0 | 0 | 0 | 1.0 | 0.002s | 0.003s | 0 |
+| FrameWorks | 24 | 1.0 | 0.33 | 0 | 0 | 0 | 1.0 | 0.002s | 0.003s | 0 |
+
+That is one passing run. A live WhatsApp number needs three passing runs in a row, so neither business is given one. Kingdom Doors has a set in `eval/conversations/kingdom-doors.yaml` and is not served: no prices, no tenant, no number. The small set of ten per business remains in `eval/results/small-set.json`.
 
 ## Licence
 

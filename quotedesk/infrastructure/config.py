@@ -3,8 +3,6 @@ from typing import Literal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from quotedesk.infrastructure.tenants import known_tenant, unknown_tenant_sentence
-
 StoreKind = Literal["postgres", "memory"]
 _STORE = "STORE is postgres or memory."
 
@@ -18,7 +16,7 @@ _BASETEN_KEY_AGENT = "BASETEN_API_KEY is required when AGENT_PROVIDER is baseten
 _BASETEN_MODEL_AGENT = "BASETEN_MODEL_ID is required when AGENT_PROVIDER is baseten."
 _BASETEN_KEY_IMAGE = "BASETEN_API_KEY is required when IMAGE_PROVIDER is baseten."
 _BASETEN_MODEL_IMAGE = "BASETEN_MODEL_ID is required when IMAGE_PROVIDER is baseten."
-_TENANT = unknown_tenant_sentence()
+_TENANT = "TENANT is aquasure or frameworks."
 _META_BASE = "https://api.meta.ai/v1"
 _BASETEN_BASE = "https://inference.baseten.co/v1"
 _PROVIDERS = ("meta", "baseten")
@@ -85,10 +83,8 @@ def get_settings() -> Settings:
     base = os.environ.get("META_BASE_URL", "") or _META_BASE
     baseten_base = os.environ.get("BASETEN_BASE_URL", "") or _BASETEN_BASE
     tenant = os.environ.get("TENANT", "aquasure")
-    try:
-        known_tenant(tenant)
-    except ValueError as exc:
-        raise SettingsError(_TENANT) from exc
+    if tenant not in ("aquasure", "frameworks"):
+        raise SettingsError(_TENANT)
     store = os.environ.get("STORE", "postgres")
     if store not in ("postgres", "memory"):
         raise SettingsError(_STORE)

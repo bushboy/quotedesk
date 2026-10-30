@@ -1,5 +1,7 @@
 """The next step for a conversation, chosen from the case and the published playbook."""
 
+import re
+from collections.abc import Mapping
 from decimal import Decimal
 from enum import Enum
 
@@ -15,6 +17,9 @@ from quotedesk.domain.shared.errors import PolicyViolation
 
 _ASK = "What should I quote for you?"
 _QUOTE = "I'll price that from the rate card."
+_TWICE = "I've asked twice, so I won't ask again."
+_UNSURE = "You don't know that, so I won't ask again."
+_GREETING = re.compile(r"^(?:hi|hello|hey|good morning|good afternoon|good evening)\b", re.IGNORECASE)
 _ORDER = {"escalate": 0, "inspection": 1, "ask": 2, "quote": 3}
 _CONFIDENCE = ("required_fields", "agreement", "measurement", "media_usable", "rate_card")
 _TRUE = frozenset({"true", "yes", "y"})
@@ -38,12 +43,21 @@ class NextStep(BaseModel):
     rule_id: str = ""
 
 
-def plan_next_step(case: CaseFile, playbook: BusinessPlaybook, policy: Policy) -> NextStep:
+def plan_next_step(
+    case: CaseFile,
+    playbook: BusinessPlaybook,
+    policy: Policy,
+    asked: Mapping[str, int] | None = None,
+    customer_text: str = "",
+) -> NextStep:
     """One step. Escalate wins, then an inspection, then a missing fact, then a quote."""
+    counts = dict(asked or {})
     if not case.jobs:
-        return _opening(playbook)
-    steps = tuple(_job_step(job, case, playbook, policy) for job in case.jobs)
-    return min(steps, key=lambda step: _ORDER[step.kind.value])
+        step = _opening(playbook)
+    else:
+        steps = tuple(_job_step(job, case, playbook, policy, counts) for job in case.jobs)
+        step = min(steps, key=lambda item: _ORDER[item.kind.value])
+    return _phrase(step, playbook, customer_text)
 
 
 def _opening(playbook: BusinessPlaybook) -> NextStep:
@@ -58,21 +72,33 @@ def _opening(playbook: BusinessPlaybook) -> NextStep:
     return NextStep(kind=StepKind.ASK, sentence=_ASK, fact_key="job_type")
 
 
-def _job_step(job: Job, case: CaseFile, playbook: BusinessPlaybook, policy: Policy) -> NextStep:
+def _job_step(
+    job: Job,
+    case: CaseFile,
+    playbook: BusinessPlaybook,
+    policy: Policy,
+    asked: dict[str, int],
+) -> NextStep:
     current = _current(case, job.job_id)
+    states = _states(case, job.job_id)
     play = next((item for item in playbook.job_types if item.key == (job.job_type or "")), None)
     missing = None
+    unknown = None
     if play is not None:
         for fact in play.facts:
-            if fact.required and not current.get(fact.key, "").strip():
+            if not fact.required:
+                continue
+            if states.get(fact.key) == "unknown":
+                unknown = unknown or fact
+                continue
+            if not current.get(fact.key, "").strip() and missing is None:
                 missing = fact
-                break
     decision = _decision(job, current, policy)
     if decision is not None and not _fallback(decision.rule_id.value):
         step = _from_decision(decision, job.job_id)
         if step.kind in (StepKind.ESCALATE, StepKind.INSPECTION):
             return step
-    if missing is not None:
+    if missing is not None and asked.get(missing.key, 0) < 2:
         question = missing.question.strip() or _ASK
         return NextStep(
             kind=StepKind.ASK,
@@ -80,9 +106,70 @@ def _job_step(job: Job, case: CaseFile, playbook: BusinessPlaybook, policy: Poli
             job_id=job.job_id,
             fact_key=missing.key,
         )
+    if missing is not None or unknown is not None:
+        return _stop(playbook, job.job_id, missing or unknown, missing is not None)
     if decision is None:
         return NextStep(kind=StepKind.QUOTE, sentence=_QUOTE, job_id=job.job_id)
     return _from_decision(decision, job.job_id)
+
+
+def _stop(playbook: BusinessPlaybook, job_id: str, fact, twice: bool) -> NextStep:
+    lead = _TWICE if twice else _UNSURE
+    if playbook.inspections:
+        return NextStep(
+            kind=StepKind.INSPECTION,
+            sentence=f"{lead} We'll book an inspection.",
+            job_id=job_id,
+            fact_key=fact.key,
+            reason="The customer could not answer a required fact.",
+        )
+    return NextStep(
+        kind=StepKind.ESCALATE,
+        sentence=f"{lead} Someone from the business will take it from here.",
+        job_id=job_id,
+        fact_key=fact.key,
+        reason="The customer could not answer a required fact.",
+    )
+
+
+def _phrase(step: NextStep, playbook: BusinessPlaybook, text: str) -> NextStep:
+    outside = _outside(playbook, text)
+    if outside and step.kind in (StepKind.ASK, StepKind.QUOTE):
+        return NextStep(
+            kind=StepKind.ESCALATE,
+            sentence=outside,
+            job_id=step.job_id,
+            reason="This is outside what the business does.",
+        )
+    if step.kind is not StepKind.ASK or not text.strip():
+        return step
+    folded = text.casefold()
+    for question in playbook.questions:
+        topic = question.topic.strip().casefold()
+        if topic and topic in folded and question.answer.strip():
+            return step.model_copy(update={"sentence": f"{question.answer.strip()} {step.sentence}".strip()})
+    if _GREETING.match(text.strip()) and playbook.hours.strip():
+        return step.model_copy(update={"sentence": f"{playbook.hours.strip()} {step.sentence}".strip()})
+    return step
+
+
+def _outside(playbook: BusinessPlaybook, text: str) -> str | None:
+    raw = playbook.does_not.strip()
+    if not raw or not text.strip():
+        return None
+    words = re.findall(r"[a-z]{5,}", raw.casefold())
+    if any(word in text.casefold() for word in words):
+        return raw
+    return None
+
+
+def _states(case: CaseFile, job_id: str) -> dict[str, str]:
+    found: dict[str, str] = {}
+    for fact in case.facts(job_id):
+        if fact.superseded_by is not None or fact.contested or fact.key in found:
+            continue
+        found[fact.key] = fact.state
+    return found
 
 
 def _decision(job: Job, current: dict[str, str], policy: Policy):

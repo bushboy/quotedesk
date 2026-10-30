@@ -232,8 +232,8 @@ def test_a_stated_carport_size_prices_the_chosen_sheet():
         vat_inclusive=True,
         site_visit_fee=Money("750.00"),
         items=(
-            RateCardItem(item_code="SHEET-ECO", description="Economy sheeting", unit_price=Money("8500.00")),
-            RateCardItem(item_code="SHEET-POLY", description="Polycarbonate sheeting", unit_price=Money("12400.00")),
+            RateCardItem(item_code="SHEET-ECO", description="Economy sheeting", unit_price=Money("8500.00"), unit="per m²"),
+            RateCardItem(item_code="SHEET-POLY", description="Polycarbonate sheeting", unit_price=Money("12400.00"), unit="per m²"),
         ),
     )
     bundle = PublishedPolicy(
@@ -282,6 +282,37 @@ def test_a_confirmed_swap_is_quoted_even_when_the_stand_is_damaged():
     result, _, _, _ = execute(values)
     assert result.rule_id.value == "WATER-F01"
     assert result.total == Money("4250.00")
+
+
+def test_a_second_job_is_quoted():
+    case = build_case(BASE).add_job("pump", "replacement")
+    for key, value in BASE.items():
+        case = case.record_fact("pump", uuid4(), key, value, "customer_text", EVENT)
+    use_case, _, unit, _ = world(BASE)
+    use_case._cases.case = case
+    result = use_case.execute(TenantContext(tenant_id=TENANT_A), GetQuoteInput(conversation_id=CONVERSATION))
+    assert [line.item_code for line in result.lines] == ["TANK-5000", "TANK-5000"]
+    stored = unit.get_quote(TENANT_A, CONVERSATION)
+    assert stored.current.rule_id == "WATER-F01"
+    assert stored.current.policy_version == "water-policy-v1.0"
+    assert stored.current.reasons
+
+
+def test_a_revision_after_escalation_creates_a_version():
+    values = dict(BASE)
+    values["exposed_wiring"] = "true"
+    use_case, cases, unit, _ = world(values)
+    context = TenantContext(tenant_id=TENANT_A)
+    data = GetQuoteInput(conversation_id=CONVERSATION)
+    first = use_case.execute(context, data)
+    assert first.state is QuoteState.ESCALATED
+    cases.case = cases.case.record_fact("tank", uuid4(), "exposed_wiring", "false", "customer_text", EVENT)
+    second = use_case.execute(context, data)
+    stored = unit.get_quote(TENANT_A, CONVERSATION)
+    assert second.version == 2
+    assert second.state is QuoteState.ISSUED
+    assert stored.version(1).state is QuoteState.REVISED
+    assert stored.current.rule_id == "WATER-F01"
 
 
 def test_get_quote_second_call_creates_version_two():

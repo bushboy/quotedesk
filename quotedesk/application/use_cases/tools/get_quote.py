@@ -13,10 +13,11 @@ from quotedesk.application.ports.runtime import Clock, IdGenerator, UnitOfWork
 from quotedesk.domain.case.case_file import CaseFile
 from quotedesk.domain.case.facts import CaseFacts, ExtractionFacts, JobKind, SegmentationFacts
 from quotedesk.domain.policy.clauses import ClauseFacts, ClauseSelection
+from quotedesk.domain.policy.rules import Decision, Outcome
 from quotedesk.domain.quotes.quote import Quote, QuoteLine
 from quotedesk.domain.services.confidence import ConfidenceChecks, SizeSource
 from quotedesk.domain.services.decide import decide
-from quotedesk.domain.services.price import PriceFacts, RequestedItem, price
+from quotedesk.domain.services.price import PriceFacts, PricedQuote, RequestedItem, price
 from quotedesk.domain.services.schedule import civil_date
 from quotedesk.domain.services.select_clauses import select_clauses
 from quotedesk.domain.shared.errors import PolicyViolation
@@ -53,10 +54,14 @@ class GetQuote:
             raise CaseNotFound()
         at = self._clock.now()
         expiry = civil_date(at, _ZONE) + timedelta(days=bundle.clause_policy.settings["validity_days"])
-        case_facts, extraction = _facts(case, bundle.rate_card)
-        decision = decide(case_facts, extraction, SegmentationFacts(), bundle.policy)
-        priced = price(decision, _price_facts(case_facts, bundle.rate_card), bundle.rate_card)
-        priced = _scale_carport(priced, case_facts)
+        if not case.jobs:
+            raise CaseNotFound()
+        quoted = [
+            _quote_job(case, job, bundle)
+            for job in case.jobs
+        ]
+        decision, case_facts, priced = _primary(quoted)
+        priced = _combine(quoted, priced)
         deposit = _deposit(priced, int(bundle.clause_policy.settings["deposit_percent"]))
         priced = priced.model_copy(update={"deposit": deposit})
         try:
@@ -99,6 +104,13 @@ class GetQuote:
                 **_terms(priced),
             )
             action = "quote.revised"
+        quote = quote.record_decision(
+            outcome=decision.outcome.value,
+            rule_id=decision.rule_id.value,
+            reasons=decision.reasons,
+            policy_version=decision.policy_version.value,
+            facts_used=_facts_used(case),
+        )
         current = quote.current
         event = AuditEvent(
             tenant_id=context.tenant_id,
@@ -135,10 +147,44 @@ class GetQuote:
         )
 
 
-def _facts(case: CaseFile, rate_card=None) -> tuple[CaseFacts, ExtractionFacts]:
-    job = case.jobs[0] if case.jobs else None
-    if job is None:
-        raise CaseNotFound()
+_RANK = {
+    Outcome.ESCALATION: 0,
+    Outcome.SITE_ASSESSMENT: 1,
+    Outcome.INDICATIVE_RANGE: 2,
+    Outcome.FIXED_OFFER: 3,
+}
+
+
+def _quote_job(case: CaseFile, job, bundle):
+    case_facts, extraction = _facts(case, job)
+    decision = decide(case_facts, extraction, SegmentationFacts(), bundle.policy)
+    priced = price(decision, _price_facts(case_facts, bundle.rate_card, bundle.playbook), bundle.rate_card)
+    return decision, case_facts, priced
+
+
+def _primary(quoted: list[tuple[Decision, CaseFacts, PricedQuote]]):
+    return min(quoted, key=lambda row: _RANK[row[0].outcome])
+
+
+def _combine(quoted, priced: PricedQuote) -> PricedQuote:
+    if priced.price_type == "fixed":
+        lines = tuple(line for _decision, _facts, item in quoted for line in item.lines)
+        return priced.model_copy(update={"lines": lines}) if lines else priced
+    if priced.price_type != "range":
+        return priced
+    lows = [item.range_min for _decision, _facts, item in quoted if item.range_min is not None]
+    highs = [item.range_max for _decision, _facts, item in quoted if item.range_max is not None]
+    if not lows or not highs:
+        return priced
+    return priced.model_copy(
+        update={
+            "range_min": min(lows, key=lambda amount: amount.amount),
+            "range_max": max(highs, key=lambda amount: amount.amount),
+        }
+    )
+
+
+def _facts(case: CaseFile, job) -> tuple[CaseFacts, ExtractionFacts]:
     values = {
         fact.key: fact.value
         for fact in case.facts(job.job_id)
@@ -161,11 +207,6 @@ def _facts(case: CaseFile, rate_card=None) -> tuple[CaseFacts, ExtractionFacts]:
     length = _decimal(values.get("length_m"))
     finish = values.get("finish")
     codes = _codes(values.get("item_codes"))
-    matched = _match_card(finish, rate_card)
-    if not codes and matched is not None:
-        codes = (matched,)
-    if not finish and matched is not None and rate_card is not None:
-        finish = next(item.description for item in rate_card.items if item.item_code == matched)
     opening = values.get("opening")
     stated = _size_source(case, job.job_id)
     case_facts = CaseFacts(
@@ -224,17 +265,6 @@ def _size_source(case: CaseFile, job_id: str):
     return stated
 
 
-def _match_card(raw: str | None, rate_card) -> str | None:
-    if raw is None or rate_card is None:
-        return None
-    folded = " ".join(raw.casefold().split())
-    for item in rate_card.items:
-        description = item.description.casefold()
-        if folded in (item.item_code.casefold(), description) or description in folded:
-            return item.item_code
-    return None
-
-
 def _decimal(raw: str | None) -> Decimal | None:
     if raw is None or raw.strip() == "":
         return None
@@ -285,34 +315,34 @@ def _codes(raw: str | None) -> tuple[str, ...]:
     return tuple(part.strip() for part in raw.split(",") if part.strip())
 
 
-def _price_facts(case_facts: CaseFacts, rate_card=None) -> PriceFacts:
+def _price_facts(case_facts: CaseFacts, rate_card=None, playbook=None) -> PriceFacts:
     codes = case_facts.item_codes or _tank_codes(case_facts.size_litres, rate_card) or _sheet_codes(case_facts, rate_card)
-    quantity = _area(case_facts) or Decimal("1")
     return PriceFacts(
-        items=tuple(RequestedItem(item_code=code, quantity=quantity) for code in codes),
+        items=tuple(RequestedItem(item_code=code, quantity=Decimal("1")) for code in codes),
         discount_percent=Decimal("0"),
+        width_m=case_facts.width_m,
+        length_m=case_facts.length_m,
+        roles=_roles(playbook, case_facts.job_type),
     )
 
 
-def _area(case_facts: CaseFacts) -> Decimal | None:
-    if case_facts.width_m is None or case_facts.length_m is None:
-        return None
-    sheets = any(code.startswith("SHEET-") for code in case_facts.item_codes)
-    if case_facts.job_type == "carport" or sheets:
-        return case_facts.width_m * case_facts.length_m
-    return None
+def _roles(playbook, job_type: str | None) -> tuple[str, ...]:
+    if playbook is None or not job_type:
+        return ()
+    for job in playbook.job_types:
+        if job.key == job_type:
+            return tuple(role for role in job.roles if role in ("product", "frame", "hardware", "installation", "delivery", "inspection"))
+    return ()
 
 
-def _scale_carport(priced, case_facts: CaseFacts):
-    area = _area(case_facts)
-    if area is None or priced.price_type != "range" or priced.range_min is None:
-        return priced
-    return priced.model_copy(
-        update={
-            "range_min": priced.range_min * area,
-            "range_max": None if priced.range_max is None else priced.range_max * area,
-        }
-    )
+def _facts_used(case: CaseFile) -> tuple[str, ...]:
+    used = []
+    for job in case.jobs:
+        for fact in case.facts(job.job_id):
+            if fact.superseded_by is not None or fact.contested or not fact.value.strip():
+                continue
+            used.append(f"{fact.key}={fact.value}")
+    return tuple(used)
 
 
 def _deposit(priced, percent: int):

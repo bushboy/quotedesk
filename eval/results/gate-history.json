@@ -1,0 +1,10 @@
+[
+  {
+    "ran_on": "2026-10-30",
+    "seed": 0,
+    "passed": {
+      "aquasure": true,
+      "frameworks": true
+    }
+  }
+]

@@ -63,6 +63,61 @@ def test_two_jobs_return_one_step_in_fixed_order():
     assert higher.rule_id == "WATER-E01"
 
 
+def test_an_unknown_fact_is_not_asked_again():
+    tank = CaseFile.open(CONVERSATION, TENANT).add_job("tank", "replacement")
+    tank = tank.record_fact("tank", uuid4(), "size_litres", "", "customer_text", EVENT, state="unknown")
+    tank = tank.record_fact("tank", uuid4(), "existing_level_base", "true", "customer_text", EVENT)
+    step = plan_next_step(tank, AQUA, aquasure_policy())
+    assert step.kind is StepKind.INSPECTION
+    assert "won't ask again" in step.sentence
+    assert step.sentence != "Which tank size do you want?"
+    assert step.rule_id == ""
+
+
+def test_two_unanswered_asks_stop_and_say_so():
+    tank = CaseFile.open(CONVERSATION, TENANT).add_job("tank", "replacement")
+    tank = tank.record_fact("tank", uuid4(), "existing_level_base", "true", "customer_text", EVENT)
+    step = plan_next_step(tank, AQUA, aquasure_policy(), asked={"size_litres": 2})
+    assert step.kind is StepKind.INSPECTION
+    assert "twice" in step.sentence
+    assert step.rule_id != "WATER-E02"
+
+
+def test_two_asks_escalate_when_the_playbook_has_no_inspection():
+    book = AQUA.model_copy(update={"inspections": ()})
+    tank = CaseFile.open(CONVERSATION, TENANT).add_job("tank", "replacement")
+    tank = tank.record_fact("tank", uuid4(), "existing_level_base", "true", "customer_text", EVENT)
+    step = plan_next_step(tank, book, aquasure_policy(), asked={"size_litres": 2})
+    assert step.kind is StepKind.ESCALATE
+    assert "twice" in step.sentence
+    assert step.rule_id == ""
+
+
+def test_a_greeting_and_a_common_question_move_toward_the_job():
+    empty = CaseFile.open(CONVERSATION, TENANT)
+    hours = AQUA.model_copy(update={"hours": "Weekdays 8 to 5."})
+    greeting = plan_next_step(empty, hours, aquasure_policy(), customer_text="hello")
+    assert greeting.kind is StepKind.ASK
+    assert greeting.sentence.startswith("Weekdays 8 to 5.")
+    assert "Which tank size do you want?" in greeting.sentence
+    delivery = plan_next_step(empty, AQUA, aquasure_policy(), customer_text="What about delivery?")
+    assert delivery.sentence.startswith("We deliver inside the service area.")
+    assert "Which tank size do you want?" in delivery.sentence
+
+
+def test_an_out_of_scope_request_uses_the_playbook_reply():
+    book = AQUA.model_copy(update={"does_not": "We don't take plumbing call-outs."})
+    step = plan_next_step(
+        CaseFile.open(CONVERSATION, TENANT),
+        book,
+        aquasure_policy(),
+        customer_text="I need plumbing for a leak.",
+    )
+    assert step.kind is StepKind.ESCALATE
+    assert step.sentence == "We don't take plumbing call-outs."
+    assert step.reason == "This is outside what the business does."
+
+
 def test_a_safety_rule_beats_a_missing_fact():
     damaged = CaseFile.open(CONVERSATION, TENANT).add_job("tank", "replacement")
     damaged = damaged.record_fact("tank", uuid4(), "installation_damaged", "true", "customer_text", EVENT)

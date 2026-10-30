@@ -123,6 +123,31 @@ def test_update_case_records_a_fact_on_a_job():
     assert len(cases.case.jobs) == 1
 
 
+def test_i_dont_know_is_recorded_as_unknown():
+    class Tanks:
+        def required(self, job_type: str) -> tuple[str, ...]:
+            return ("size_litres",)
+
+        def facts(self, job_type: str):
+            return (type("Fact", (), {"key": "size_litres", "type": "number"})(),)
+
+    cases = Cases(CaseFile.open(CONVERSATION, TENANT))
+    tool = UpdateCase(cases, Tanks(), Ids((FIRST,)))
+    tool.execute(
+        TenantContext(tenant_id=TENANT),
+        UpdateCaseInput(
+            conversation_id=CONVERSATION,
+            job_id="tank",
+            job_type="replacement",
+            facts=(fact("size_litres", "I don't know"),),
+        ),
+    )
+    stored = cases.case.facts("tank")
+    assert stored[0].state == "unknown"
+    assert stored[0].value == ""
+    assert stored[0].event_id == EVENT
+
+
 def test_a_customer_name_is_dropped_and_a_job_type_fact_opens_the_job():
     class Carport:
         def required(self, job_type: str) -> tuple[str, ...]:

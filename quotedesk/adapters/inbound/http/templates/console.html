@@ -142,6 +142,7 @@
                 <span class="at">{{ sent.at|when }}</span>
                 {% if sent.sent %}<span class="said">{{ sent.sent }}</span>{% endif %}
                 {% if sent.contact %}<span class="said">{{ sent.contact }}</span>{% endif %}
+                {% if sent.why %}<span class="said">{{ sent.why }}</span>{% endif %}
                 <span class="meta"><span class="tag">Version {{ sent.version }}</span>{{ sent.state|state }}</span>
                 <span class="money">Quote <span class="amount">{{ sent.amount }}</span></span>
                 {% if sent.deposit %}<span class="money">Deposit <span class="amount">{{ sent.deposit }}</span></span>{% endif %}
@@ -153,6 +154,32 @@
             {% endif %}
           </div>
         </div>
+      </section>
+
+      <section id="cases" aria-labelledby="cases-title">
+        <div class="section-head">
+          <h2 id="cases-title">Open cases</h2>
+          <span class="count">{{ cases|length }}</span>
+        </div>
+        <p class="hint">Escalated, inspection offered, and quote issued. Newest first.</p>
+        {% if cases %}
+        <ul class="queue">
+          {% for case in cases %}
+          <li class="card row">
+            <div class="row-head">
+              <h3 class="quote-id">{{ case.outcome }}</h3>
+              <span class="tag">{{ case.at|when }}</span>
+            </div>
+            <p class="said">{{ case.title }}</p>
+            <a href="/console/brief/{{ case.conversation_id }}">Open the brief</a>
+          </li>
+          {% endfor %}
+        </ul>
+        {% else %}
+        <div class="card empty">
+          <p class="empty-title">No open case.</p>
+        </div>
+        {% endif %}
       </section>
 
       <section id="handovers" aria-labelledby="handovers-title">
@@ -303,7 +330,7 @@
                     <tr{% if row.blank %} class="new"{% endif %}>
                       <td><input name="code-{{ i }}" value="{{ row.code }}" autocomplete="off" spellcheck="false" aria-label="{% if row.blank %}New item code{% else %}Code, row {{ loop.index }}{% endif %}"{% if row.blank %} placeholder="New code"{% endif %}></td>
                       <td><input name="name-{{ i }}" value="{{ row.name }}" autocomplete="off" aria-label="{% if row.blank %}New item name{% else %}Name, row {{ loop.index }}{% endif %}"></td>
-                      <td><input name="price-{{ i }}" value="{{ row.price }}" inputmode="decimal" autocomplete="off" aria-label="{% if row.blank %}New item price{% else %}Price, row {{ loop.index }}{% endif %}"></td>
+                      <td><input name="price-{{ i }}" value="{{ row.price }}" inputmode="decimal" autocomplete="off" aria-label="{% if row.blank %}New item price{% else %}Price, row {{ loop.index }}{% endif %}"><input type="hidden" name="unit-{{ i }}" value="{{ row.unit }}"><input type="hidden" name="role-{{ i }}" value="{{ row.role }}"></td>
                       <td>{% if not row.blank %}<label class="remove"><input type="checkbox" name="remove-{{ i }}"{% if row.remove %} checked{% endif %}> Remove</label>{% endif %}</td>
                     </tr>
                     {% endfor %}

@@ -3,6 +3,7 @@ import re
 from pydantic import BaseModel
 
 from quotedesk.domain.policy.draft import PolicyDraft, PolicyError
+from quotedesk.domain.policy.when import published_when
 
 _TOKEN = re.compile(r"\{([A-Za-z0-9_]+)\}")
 _LOCKED = frozenset({"WATER-E01", "WATER-E02", "WATER-E03", "FAB-E01", "FAB-E02", "FAB-E03"})
@@ -16,6 +17,7 @@ _VAT = "A rate card uses one VAT basis."
 _DUPLICATE = "Each item code appears once on the rate card."
 _EMPTY_CARD = "The rate card needs at least one item."
 _LOCKED_SENTENCE = "A safety rule cannot be turned off."
+_LOCKED_CONDITION = "A safety rule's condition cannot be changed."
 _FIELD_CAP = 4000
 _LONG = "A playbook field is too long."
 _PLAYBOOK_QUESTION = "A required playbook fact needs a question."
@@ -69,6 +71,9 @@ def validate_policy(draft: PolicyDraft) -> tuple[PolicyError, ...]:
     for rule in draft.rules:
         if not rule.enabled and rule.rule_id in _LOCKED:
             errors.append(PolicyError(code="policy.locked_rule", sentence=_LOCKED_SENTENCE))
+        locked = published_when(rule.rule_id) if rule.rule_id in _LOCKED else None
+        if locked is not None and rule.when is not None and rule.when != locked:
+            errors.append(PolicyError(code="policy.locked_condition", sentence=_LOCKED_CONDITION))
     errors.extend(_playbook_errors(draft))
     return tuple(errors)
 

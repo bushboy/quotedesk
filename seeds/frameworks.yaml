@@ -75,8 +75,10 @@ playbook:
   trade: carports and sheeting
   guidance: 'This business builds carports and replaces sheeting.
 
-    When they have not chosen a sheet, offer the descriptions on the rate card and
-    ask which one they want. Do not state a price.
+    When a photo shows the sheeting, name the closest sheet on the rate card in
+    plain words and ask them to confirm it. Do not assume they know the product name.
+    When they have not chosen a sheet and the photo does not suggest one, offer the
+    descriptions on the rate card and ask which one they want. Do not state a price.
 
     When they give a size, record width_m and length_m in metres, and record the chosen
     sheet as item_codes.
@@ -101,6 +103,8 @@ playbook:
     item_codes:
     - SHEET-ECO
     - SHEET-POLY
+    roles:
+    - product
     pricing: indicative range or fixed offer
     facts:
     - key: width_m

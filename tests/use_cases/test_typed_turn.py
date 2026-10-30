@@ -383,8 +383,8 @@ def _sheet_policies():
         vat_inclusive=True,
         site_visit_fee=Money("750.00"),
         items=(
-            RateCardItem(item_code="SHEET-ECO", description="Economy sheeting", unit_price=Money("8500.00")),
-            RateCardItem(item_code="SHEET-POLY", description="Polycarbonate sheeting", unit_price=Money("12400.00")),
+            RateCardItem(item_code="SHEET-ECO", description="Economy sheeting", unit_price=Money("8500.00"), unit="per m²"),
+            RateCardItem(item_code="SHEET-POLY", description="Polycarbonate sheeting", unit_price=Money("12400.00"), unit="per m²"),
         ),
     )
     bundle = PublishedPolicy(

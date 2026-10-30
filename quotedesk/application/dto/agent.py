@@ -92,6 +92,7 @@ class PromptExtraction(BaseModel):
     provider_message_id: str
     summary: str
     objects: tuple[str, ...]
+    notes: tuple[str, ...] = ()
 
 
 class ExtractionResult(BaseModel):
@@ -103,6 +104,7 @@ class ExtractionResult(BaseModel):
     darkness: bool = False
     wrong_subject: bool = False
     masks: tuple[RecordedMask, ...] = ()
+    notes: tuple[str, ...] = ()
     sam_error: bool = False
     sam_sentence: str = ""
 

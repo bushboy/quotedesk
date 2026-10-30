@@ -20,7 +20,8 @@ from quotedesk.domain.quotes.quote import Quote, QuoteLine
 from quotedesk.domain.shared.ids import QuoteId
 from quotedesk.domain.shared.money import Money
 from quotedesk.infrastructure.db import engine
-from quotedesk.infrastructure.stored import StoredThread, open_thread
+from quotedesk.adapters.outbound.persistence.stored import StoredThread, open_thread
+from quotedesk.infrastructure.demo import Unit
 
 URL = "postgresql+psycopg://quotedesk:quotedesk@127.0.0.1:5432/quotedesk"
 TENANT = UUID("11111111-1111-4111-8111-111111111111")
@@ -53,7 +54,7 @@ def test_a_restart_reads_the_thread_the_case_and_the_quote():
     except OperationalError:
         pytest.skip("PostgreSQL is not listening on 127.0.0.1:5432.")
     command.upgrade(Config("alembic.ini"), "head")
-    opened = open_thread(URL)
+    opened = open_thread(URL, Unit)
     assert opened is not None
     opened.conversations.tenant_id = TENANT
     conversation_id = uuid4()
@@ -102,7 +103,7 @@ def test_a_restart_reads_the_thread_the_case_and_the_quote():
         )
         opened.unit.commit()
 
-        restarted = StoredThread(URL)
+        restarted = StoredThread(URL, Unit)
         restarted.conversations.tenant_id = TENANT
         loaded = restarted.conversations.get(TENANT, conversation_id)
         assert loaded is not None
@@ -137,7 +138,7 @@ def test_a_message_is_stored_for_the_tenant_that_sends_it():
     except OperationalError:
         pytest.skip("PostgreSQL is not listening on 127.0.0.1:5432.")
     command.upgrade(Config("alembic.ini"), "head")
-    opened = open_thread(URL)
+    opened = open_thread(URL, Unit)
     assert opened is not None
     conversation_id = uuid4()
     database = opened.engine

@@ -6,8 +6,10 @@ import pytest
 from quotedesk.application.dto.agent import ModelReply, PromptMessage, ToolCall, TurnPrompt
 from quotedesk.application.dto.tool_inputs import (
     AcceptQuoteInput,
+    BookInspectionInput,
     CheckAvailabilityInput,
     CreateDepositLinkInput,
+    EscalateToOwnerInput,
     GetQuoteInput,
     HoldSlotInput,
     RequestChangeInput,
@@ -27,6 +29,8 @@ TOOL_FIELDS = {
     "accept_quote": AcceptQuoteInput,
     "create_deposit_link": CreateDepositLinkInput,
     "hold_slot": HoldSlotInput,
+    "book_inspection": BookInspectionInput,
+    "escalate_to_owner": EscalateToOwnerInput,
 }
 RECORDED_CALL = {
     "output": [

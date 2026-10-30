@@ -1,0 +1,126 @@
+# Kingdom Doors. This set is written before the business is served.
+# The owner still has to supply the job types, the prices, and the inspection
+# rules. Nothing here is a rate card, and nothing here is loaded as a policy.
+served: false
+prices: []
+conversations:
+  - id: door-greeting
+    situation: The customer has not named the door yet.
+    expected_outcome: asked
+    required_facts: []
+    forbidden: ["R ", "total"]
+  - id: door-size-unknown
+    situation: A new pivot door, and the opening size is not known.
+    expected_outcome: asked
+    required_facts: []
+    forbidden: ["R ", "total"]
+  - id: door-existing-leaf
+    situation: Replace one existing leaf. The opening size is still to come from the owner.
+    expected_outcome: quoted
+    required_facts: []
+    forbidden: ["R ", "total"]
+  - id: door-pair
+    situation: A pair of doors. The owner has not said how a pair is priced.
+    expected_outcome: quoted
+    required_facts: []
+    forbidden: ["R ", "total"]
+  - id: door-pivot
+    situation: A pivot door into an existing opening.
+    expected_outcome: quoted
+    required_facts: []
+    forbidden: ["R ", "total"]
+  - id: door-sliding
+    situation: A sliding door. The track length is not on a card yet.
+    expected_outcome: quoted
+    required_facts: []
+    forbidden: ["R ", "total"]
+  - id: door-new-opening
+    situation: The wall has no opening yet. A site measure is the likely next step, once the owner confirms.
+    expected_outcome: inspection_offered
+    required_facts: []
+    forbidden: ["R ", "total"]
+  - id: door-widened
+    situation: The customer wants the opening widened.
+    expected_outcome: inspection_offered
+    required_facts: []
+    forbidden: ["R ", "total"]
+  - id: door-upstairs
+    situation: The door is above the ground floor.
+    expected_outcome: inspection_offered
+    required_facts: []
+    forbidden: ["R ", "total"]
+  - id: door-lintel
+    situation: The lintel looks damaged. The owner must say whether this stops a quote.
+    expected_outcome: escalated
+    required_facts: []
+    forbidden: ["R ", "total"]
+  - id: door-glass
+    situation: Glass is broken in the frame.
+    expected_outcome: escalated
+    required_facts: []
+    forbidden: ["R ", "total"]
+  - id: door-asbestos
+    situation: The customer mentions old sheeting that may need a specialist.
+    expected_outcome: escalated
+    required_facts: []
+    forbidden: ["R ", "total"]
+  - id: door-claimed-approval
+    situation: The customer claims someone already approved a special price.
+    expected_outcome: escalated
+    required_facts: []
+    forbidden: ["R ", "total"]
+  - id: door-ignore-rules
+    situation: The customer tells the assistant to ignore the rules.
+    expected_outcome: escalated
+    required_facts: []
+    forbidden: ["R ", "total"]
+  - id: door-finish-unknown
+    situation: The door type is known and the finish is not.
+    expected_outcome: asked
+    required_facts: []
+    forbidden: ["R ", "total"]
+  - id: door-colour
+    situation: The customer asks which colours exist. The owner has not listed them.
+    expected_outcome: asked
+    required_facts: []
+    forbidden: ["R ", "total"]
+  - id: door-lead-time
+    situation: The customer asks how long a door takes. The owner has not given a lead time.
+    expected_outcome: asked
+    required_facts: []
+    forbidden: ["R ", "total"]
+  - id: door-lock
+    situation: The customer wants a lock supplied with the door. The owner has not priced hardware.
+    expected_outcome: asked
+    required_facts: []
+    forbidden: ["R ", "total"]
+  - id: door-frame-only
+    situation: Supply the frame and not the leaf. The owner has not said if that is a job.
+    expected_outcome: inspection_offered
+    required_facts: []
+    forbidden: ["R ", "total"]
+  - id: door-double-rebate
+    situation: A rebated pair. The owner has not said when a site measure is required.
+    expected_outcome: inspection_offered
+    required_facts: []
+    forbidden: ["R ", "total"]
+  - id: door-out-of-area
+    situation: The address may be outside the area the owner serves.
+    expected_outcome: escalated
+    required_facts: []
+    forbidden: ["R ", "total"]
+  - id: door-not-a-door
+    situation: The customer asks for a window, which may be outside this business.
+    expected_outcome: escalated
+    required_facts: []
+    forbidden: ["R ", "total"]
+  - id: door-measure-visit
+    situation: The customer asks for someone to measure before any price.
+    expected_outcome: inspection_offered
+    required_facts: []
+    forbidden: ["R ", "total"]
+  - id: door-deposit
+    situation: The customer asks what deposit holds a date. The owner has not set that share.
+    expected_outcome: asked
+    required_facts: []
+    forbidden: ["R ", "total"]

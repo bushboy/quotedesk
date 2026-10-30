@@ -3,6 +3,7 @@ from decimal import Decimal
 from pydantic import BaseModel, ConfigDict, Field
 
 from quotedesk.domain.policy.playbook import BusinessPlaybook
+from quotedesk.domain.policy.when import When
 
 
 class PolicyError(BaseModel):
@@ -20,6 +21,8 @@ class DraftRateRow(BaseModel):
     unit_price: Decimal
     vat_inclusive: bool
     description: str = ""
+    unit: str = "each"
+    role: str = "product"
 
 
 class DraftClause(BaseModel):
@@ -42,6 +45,9 @@ class DraftRule(BaseModel):
 
     rule_id: str
     enabled: bool
+    customer_template: str | None = None
+    reason: str | None = None
+    when: When | None = None
 
 
 class PolicyDraft(BaseModel):

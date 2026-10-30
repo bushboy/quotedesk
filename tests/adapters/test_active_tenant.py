@@ -21,6 +21,8 @@ def test_the_process_starts_as_one_business(monkeypatch):
     assert works.state.tenant.display_name == "FrameWorks"
     assert "AquaSure" in TestClient(aqua).get("/chat").text
     assert "FrameWorks" in TestClient(works).get("/chat").text
+    assert 'class="tenant">AquaSure' in TestClient(aqua).get("/console").text
+    assert 'class="tenant">FrameWorks' in TestClient(works).get("/console").text
     assert aqua.state.policies.published(_AQUASURE).policy.version.value == "water-policy-v1.0"
     assert works.state.policies.published(_FRAMEWORKS).policy.version.value == "fab-policy-v1.0"
     assert aqua.state.turn._business.name == "AquaSure"

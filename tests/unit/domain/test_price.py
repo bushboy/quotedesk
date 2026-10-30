@@ -207,6 +207,57 @@ def test_price_does_not_apply_a_discount():
     assert priced.lines[0].total == Money("4250.00")
 
 
+def test_a_per_square_metre_item_uses_the_measured_area():
+    card = RateCard(
+        vat_inclusive=True,
+        site_visit_fee=Money("750.00"),
+        items=(
+            RateCardItem(
+                item_code="SHEET-ECO",
+                description="Economy sheeting",
+                unit_price=Money("8500.00"),
+                unit="per m²",
+            ),
+        ),
+    )
+    priced = price(
+        decision(Outcome.INDICATIVE_RANGE, rule_id="FAB-R02"),
+        PriceFacts(
+            items=(RequestedItem(item_code="SHEET-ECO", quantity=Decimal("1")),),
+            discount_percent=Decimal("0"),
+            width_m=Decimal("5"),
+            length_m=Decimal("7"),
+        ),
+        card,
+    )
+    assert priced.range_min == priced.range_max == Money("297500.00")
+
+
+def test_price_composes_the_roles_a_pivot_door_adds():
+    card = RateCard(
+        vat_inclusive=True,
+        site_visit_fee=Money("750.00"),
+        items=(
+            RateCardItem(item_code="DOOR-PIVOT", description="Pivot door", unit_price=Money("1000.00"), role="product"),
+            RateCardItem(item_code="FRAME", description="Frame", unit_price=Money("200.00"), role="frame"),
+            RateCardItem(item_code="HANDLE", description="Handle", unit_price=Money("50.00"), role="hardware"),
+            RateCardItem(item_code="INSTALL", description="Installation", unit_price=Money("300.00"), role="installation"),
+            RateCardItem(item_code="DELIVER", description="Delivery", unit_price=Money("100.00"), role="delivery"),
+        ),
+    )
+    priced = price(
+        decision(Outcome.FIXED_OFFER),
+        PriceFacts(
+            items=(RequestedItem(item_code="DOOR-PIVOT", quantity=Decimal("1")),),
+            discount_percent=Decimal("0"),
+            roles=("product", "frame", "hardware", "installation", "delivery"),
+        ),
+        card,
+    )
+    assert [line.item_code for line in priced.lines] == ["DOOR-PIVOT", "FRAME", "HANDLE", "INSTALL", "DELIVER"]
+    assert sum((line.total.amount for line in priced.lines), start=Decimal("0")) == Decimal("1650.00")
+
+
 def test_price_refuses_low_confidence_fixed_decision():
     choice = decision(Outcome.FIXED_OFFER, ConfidenceBand.LOW)
     expect_price_refused(

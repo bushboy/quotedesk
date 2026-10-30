@@ -15,7 +15,15 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from quotedesk.adapters.outbound.persistence.quotes import QuoteTables
 from quotedesk.adapters.outbound.persistence.records import CaseTables, ConversationTables, bind_tenant, hold_conversation
-from quotedesk.infrastructure.commercial import StoredAcceptances, StoredCapacity, StoredCodes, StoredHandovers, StoredLinks
+from quotedesk.adapters.outbound.persistence.commercial import (
+    StoredAcceptances,
+    StoredCapacity,
+    StoredCodes,
+    StoredHandovers,
+    StoredInspections,
+    StoredLinks,
+    StoredNotices,
+)
 from quotedesk.domain.case.case_file import CaseFile
 from quotedesk.domain.conversation.events import Conversation
 from quotedesk.domain.shared.ids import QuoteId
@@ -23,9 +31,9 @@ from quotedesk.domain.shared.ids import QuoteId
 _log = logging.getLogger(__name__)
 
 
-def open_thread(database_url: str):
+def open_thread(database_url: str, memory):
     try:
-        thread = StoredThread(database_url)
+        thread = StoredThread(database_url, memory)
         if not thread.ready():
             return None
     except SQLAlchemyError:
@@ -36,17 +44,19 @@ def open_thread(database_url: str):
 
 
 class StoredThread:
-    def __init__(self, database_url: str) -> None:
+    def __init__(self, database_url: str, memory) -> None:
         self.engine = create_engine(database_url, pool_pre_ping=True, connect_args={"connect_timeout": 1})
         self.cases = StoredCases(self.engine)
         self.conversations = StoredConversations(self.engine)
-        self.unit = StoredUnit(self.engine)
+        self.unit = StoredUnit(self.engine, memory)
         self.ids = StoredIds(self.engine)
         self.codes = StoredCodes(self.engine)
         self.acceptances = StoredAcceptances(self.engine)
         self.links = StoredLinks(self.engine)
         self.capacity = StoredCapacity(self.engine)
         self.handovers = StoredHandovers(self.engine)
+        self.inspections = StoredInspections(self.engine)
+        self.notices = StoredNotices(self.engine)
 
     def ready(self) -> bool:
         with self.engine.connect() as connection:
@@ -64,6 +74,8 @@ class StoredThread:
             "links": self.links,
             "capacity": self.capacity,
             "handovers": self.handovers,
+            "inspections": self.inspections,
+            "notices": self.notices,
         }
 
     def clear(self, tenant_id: UUID) -> None:
@@ -75,6 +87,8 @@ class StoredThread:
                 {"tenant_id": tenant_id},
             )
             connection.execute(text("DELETE FROM handover WHERE tenant_id = :tenant_id"), {"tenant_id": tenant_id})
+            connection.execute(text("DELETE FROM inspection WHERE tenant_id = :tenant_id"), {"tenant_id": tenant_id})
+            connection.execute(text("DELETE FROM owner_notice WHERE tenant_id = :tenant_id"), {"tenant_id": tenant_id})
             connection.execute(text("DELETE FROM acceptance WHERE tenant_id = :tenant_id"), {"tenant_id": tenant_id})
             connection.execute(text("DELETE FROM deposit_link WHERE tenant_id = :tenant_id"), {"tenant_id": tenant_id})
             connection.execute(text("DELETE FROM capacity_hold WHERE tenant_id = :tenant_id"), {"tenant_id": tenant_id})
@@ -488,10 +502,8 @@ class StoredUnit:
     `read_quote` so a restart still opens the card.
     """
 
-    def __init__(self, engine) -> None:
-        from quotedesk.infrastructure.demo import Unit
-
-        self._memory = Unit()
+    def __init__(self, engine, memory) -> None:
+        self._memory = memory()
         self._engine = engine
         self._quotes = QuoteTables()
 

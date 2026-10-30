@@ -1,6 +1,7 @@
 from decimal import Decimal
 
 from quotedesk.domain.policy.rules import Outcome, Policy, PolicyRule
+from quotedesk.domain.policy.when import published_when
 from quotedesk.domain.shared.ids import PolicyVersionId, RuleId
 
 
@@ -17,6 +18,7 @@ def _rule(
         outcome=outcome,
         customer_template=customer_template,
         reason=reason,
+        when=published_when(rule_id),
     )
 
 

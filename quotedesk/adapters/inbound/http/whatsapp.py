@@ -47,12 +47,16 @@ async def webhook(request: Request, background: BackgroundTasks) -> Response:
     if getattr(request.app.state, "store_status", "postgres") == "down":
         _log.warning("WhatsApp webhook refused: the store is down")
         return Response(status_code=503)
-    context = TenantContext(tenant_id=request.app.state.tenant_id)
+    tenant_id = _tenant_id(request, payload)
+    if tenant_id is None:
+        _log.info("WhatsApp inbound ignored: that phone number is not a tenant")
+        return Response(status_code=200)
+    context = TenantContext(tenant_id=tenant_id)
     messages = inbound_messages(payload, request.app.state.conversation_id)
     if not messages:
         _log.info("WhatsApp inbound with no customer message")
     for message in messages:
-        message = message.model_copy(update={"conversation_id": _resume(request, message.wa_id)})
+        message = message.model_copy(update={"conversation_id": _resume(request, message.wa_id, tenant_id)})
         message = _measured(request, message)
         _note_image(request, message)
         result = request.app.state.receive.execute(context, message, request.app.state.flags, request.app.state.limits)
@@ -93,11 +97,29 @@ def read_outbox(request: Request, wa_id: str | None = None, after: int | None = 
     return [row.model_dump() for row in rows]
 
 
-def _resume(request: Request, wa_id: str):
+def phone_number_id(payload: dict) -> str | None:
+    """The Cloud API number this delivery was sent to."""
+    for entry in payload.get("entry") or ():
+        for change in entry.get("changes") or ():
+            value = change.get("value") or {}
+            phone = (value.get("metadata") or {}).get("phone_number_id")
+            if phone:
+                return str(phone)
+    return None
+
+
+def _tenant_id(request: Request, payload: dict):
+    """The business that owns this number. A delivery with no number uses the simulator default."""
+    phone = phone_number_id(payload)
+    if not phone:
+        return request.app.state.tenant_id
+    return getattr(request.app.state, "tenants_by_phone", {}).get(phone)
+
+
+def _resume(request: Request, wa_id: str, tenant_id):
     """The customer's existing thread, or a new one with its own case."""
     conversations = request.app.state.conversations
     cases = request.app.state.cases
-    tenant_id = request.app.state.tenant_id
     found = conversations.find(tenant_id, wa_id)
     if found is not None:
         conversation_id = _for_tenant(conversations, tenant_id, found)

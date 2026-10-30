@@ -46,6 +46,7 @@ def test_caption_stays_on_the_message_and_the_summary_is_separate():
     assert image.body == CAPTION
     assert prompt.extractions[0].summary == SUMMARY
     assert prompt.extractions[0].objects == ("tank",)
+    assert prompt.extractions[0].notes == ("A tank on a level base.",)
     dumped = str(prompt.model_dump(mode="json"))
     assert MARKER not in dumped
     assert "0.91" not in dumped
@@ -53,6 +54,10 @@ def test_caption_stays_on_the_message_and_the_summary_is_separate():
     assert "Use each extraction with the message it names." in AGENT_TASK
     assert "When the photo and the customer disagree, ask one question." in AGENT_TASK
     assert "A size that appears only in an extraction is not customer_stated." in AGENT_TASK
+    assert "name the closest rate-card item in plain words" in AGENT_TASK
+    assert "Do not assume the customer knows that product name." in AGENT_TASK
+    assert "The business is in South Africa." in AGENT_TASK
+    assert "Lengths and widths are metres." in AGENT_TASK
     assert "offer the descriptions on the rate card" in AGENT_TASK
     assert "A new job on update_case sets job_type." in AGENT_TASK
     assert "Lead the conversation to one outcome." in AGENT_TASK

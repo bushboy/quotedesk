@@ -42,6 +42,17 @@ _DECISION = frozenset(
 _YES = frozenset({"true", "yes", "y"})
 _NO = frozenset({"false", "no", "n"})
 _NAME = frozenset({"customer_name", "name"})
+_UNSURE = frozenset(
+    {
+        "unknown",
+        "i don't know",
+        "i dont know",
+        "don't know",
+        "dont know",
+        "not sure",
+        "no idea",
+    }
+)
 
 
 class UpdateCase:
@@ -68,6 +79,17 @@ class UpdateCase:
         for fact in data.facts:
             if fact.key in _CONFIDENCE and not data.system:
                 continue
+            if _unsure(fact.value):
+                case = case.record_fact(
+                    data.job_id,
+                    self._ids.next_fact_id(),
+                    fact.key,
+                    "",
+                    fact.source,
+                    fact.event_id,
+                    state="unknown",
+                )
+                continue
             value = _normalise(fact.key, fact.value, job.job_type or "", self._catalog, data.system, fact.source)
             case = case.record_fact(
                 data.job_id,
@@ -90,6 +112,10 @@ class UpdateCase:
             missing_required=missing,
             contradiction_count=len(case.contradictions),
         )
+
+
+def _unsure(value: str) -> bool:
+    return " ".join(value.strip().casefold().split()) in _UNSURE
 
 
 def _without_name(data: UpdateCaseInput) -> UpdateCaseInput:

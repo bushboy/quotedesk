@@ -310,6 +310,26 @@ def test_locked_rule_rejected_by_the_use_case() -> None:
     assert any(rule.rule_id.value == "WATER-E01" for rule in published.policy.rules)
 
 
+def test_safety_wording_can_change_and_its_condition_cannot() -> None:
+    from quotedesk.domain.policy.when import eq
+
+    library, unit, _ = _world(
+        30,
+        _draft(rules=(DraftRule(rule_id="WATER-E01", enabled=True, customer_template="Please phone us about that message."),)),
+    )
+    _publish(library, unit, "Clarify the safety sentence.")
+    rule = next(rule for rule in library.published(TENANT).policy.rules if rule.rule_id.value == "WATER-E01")
+    assert rule.customer_template == "Please phone us about that message."
+    assert rule.when == aquasure_policy().rules[0].when
+
+    blocked, blocked_unit, _ = _world(
+        30,
+        _draft(rules=(DraftRule(rule_id="WATER-E01", enabled=True, when=eq("job", "borehole")),)),
+    )
+    with pytest.raises(PolicyViolation, match="A safety rule's condition cannot be changed."):
+        _publish(blocked, blocked_unit, "Retarget a safety rule.")
+
+
 def test_publish_requires_a_tenant() -> None:
     library, unit, _ = _world()
     with pytest.raises(TenantRequired):

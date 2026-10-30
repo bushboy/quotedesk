@@ -1,0 +1,10 @@
+{% extends "owner.html" %}
+{% block title %}Brief{% endblock %}
+{% block style %}
+      pre.brief { white-space: pre-wrap; font: inherit; }
+{% endblock %}
+{% block main %}
+      <h1>Brief</h1>
+      <p class="lede"><a href="/console#cases">Back to open cases</a></p>
+      <pre class="brief">{{ brief }}</pre>
+{% endblock %}

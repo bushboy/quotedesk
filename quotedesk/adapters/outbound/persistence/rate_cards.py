@@ -26,7 +26,7 @@ class RateCardTables:
         items = connection.execute(
             text(
                 """
-                SELECT item_code, description, unit_price FROM rate_card_item
+                SELECT item_code, description, unit_price, unit, role FROM rate_card_item
                 WHERE tenant_id = :tenant_id
                 ORDER BY position, item_code
                 """
@@ -41,6 +41,8 @@ class RateCardTables:
                     item_code=item["item_code"],
                     description=item["description"],
                     unit_price=Money(item["unit_price"]),
+                    unit=item["unit"] or "each",
+                    role=item["role"] or "product",
                 )
                 for item in items
             ),
@@ -66,8 +68,8 @@ class RateCardTables:
             connection.execute(
                 text(
                     """
-                    INSERT INTO rate_card_item (tenant_id, item_code, description, unit_price, position)
-                    VALUES (:tenant_id, :item_code, :description, :unit_price, :position)
+                    INSERT INTO rate_card_item (tenant_id, item_code, description, unit_price, position, unit, role)
+                    VALUES (:tenant_id, :item_code, :description, :unit_price, :position, :unit, :role)
                     """
                 ),
                 {
@@ -76,5 +78,7 @@ class RateCardTables:
                     "description": item.description,
                     "unit_price": item.unit_price.amount,
                     "position": position,
+                    "unit": item.unit,
+                    "role": item.role,
                 },
             )

@@ -12,6 +12,7 @@ FactSource = Literal[
     "video_extraction",
     "owner",
 ]
+FactState = Literal["known", "unknown"]
 JobStatus = Literal["gathering", "quoted", "held", "closed"]
 
 _EVENT = "A fact names the event it came from."
@@ -30,6 +31,7 @@ class CaseFact(BaseModel):
     value: str
     source: FactSource
     event_id: UUID
+    state: FactState = "known"
     superseded_by: UUID | None = None
     contested: bool = False
 
@@ -71,6 +73,8 @@ class CaseFile(BaseModel):
         value: str,
         source: FactSource,
         event_id: UUID | None,
+        *,
+        state: FactState = "known",
     ) -> "CaseFile":
         if event_id is None:
             raise ValidationError(code="fact.event_required", sentence=_EVENT)
@@ -82,6 +86,7 @@ class CaseFile(BaseModel):
             value=value,
             source=source,
             event_id=event_id,
+            state=state,
         )
         active = next(
             (

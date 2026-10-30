@@ -17,9 +17,11 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from quotedesk.application.dto.tenant import TenantContext
-from quotedesk.application.dto.tool_inputs import ApproveExceptionInput, RejectExceptionInput
+from quotedesk.application.dto.tool_inputs import ApproveExceptionInput, EscalateToOwnerInput, RejectExceptionInput
 from quotedesk.application.dto.tool_outputs import ApproveResult
 from quotedesk.application.errors import ApplicationError
+from quotedesk.application.use_cases.tools.escalate_to_owner import EscalateToOwner
+from quotedesk.application.use_cases.tools.notify_owner import NotifyOwner
 from quotedesk.domain.quotes.quote import QuoteState
 from quotedesk.domain.services.validate_policy import validate_policy
 from quotedesk.domain.shared.errors import DomainError
@@ -39,6 +41,12 @@ _SNIPPET = 80
 _SENT_SNIPPET = 160
 _LIST_LIMIT = 20
 _KINDS = {"image": "Photo", "audio": "Voice note", "video": "Video"}
+
+
+def _business_name(state) -> str:
+    tenant = getattr(state, "tenant", None)
+    name = "" if tenant is None else getattr(tenant, "display_name", "") or ""
+    return name.strip()
 
 
 def owner_templates() -> Environment:
@@ -127,6 +135,62 @@ async def approve(request: Request) -> HTMLResponse | RedirectResponse:
 @router.post("/console/reject", response_model=None)
 async def reject(request: Request) -> HTMLResponse | RedirectResponse:
     return _decide(request, await read_form(request), "rejected")
+
+
+@router.get("/console/brief/{conversation_id}", response_class=HTMLResponse)
+def brief(request: Request, conversation_id: UUID) -> HTMLResponse:
+    state = request.app.state
+    log = getattr(state, "handovers", None)
+    notes = () if log is None else log.list(state.tenant_id)
+    found = next((note for note in notes if note.conversation_id == conversation_id), None)
+    text = "" if found is None else found.brief
+    if "Customer:" not in text:
+        built = _built_brief(state, conversation_id)
+        if built:
+            text = built
+    if not text.strip():
+        text = "This case has no brief yet."
+    html = owner_templates().get_template("brief.html").render(
+        brief=text,
+        conversation_id=conversation_id,
+        business=_business_name(state),
+    )
+    return HTMLResponse(html, headers={"Cache-Control": "no-store"})
+
+
+class _Silent:
+    def already(self, *_args) -> bool:
+        return True
+
+    def record(self, *_args) -> None:
+        return None
+
+    def send(self, *_args) -> None:
+        return None
+
+
+def _built_brief(state, conversation_id: UUID) -> str:
+    """A brief from the case, for a row that was never escalated or still has the old short note."""
+    cases = getattr(state, "cases", None)
+    if cases is None:
+        return ""
+    try:
+        tool = EscalateToOwner(
+            cases,
+            state.conversations,
+            getattr(state, "policies", None),
+            None,
+            getattr(state, "inspections", None),
+            NotifyOwner(_Silent(), _Silent()),
+            getattr(state, "clock", None),
+            quotes=getattr(state, "unit", None),
+        )
+        return tool.render(
+            TenantContext(tenant_id=state.tenant_id),
+            EscalateToOwnerInput(conversation_id=conversation_id),
+        )
+    except (ApplicationError, DomainError):
+        return ""
 
 
 @router.post("/console/release", response_model=None)
@@ -256,6 +320,48 @@ def _snippet(message) -> str:
     return text if len(text) <= _SNIPPET else text[: _SNIPPET - 1].rstrip() + "…"
 
 
+def open_cases(state, handovers) -> list[dict]:
+    """Escalations, offered inspections, and issued quotes, newest first."""
+    rows = []
+    for note in handovers:
+        rows.append(
+            {
+                "outcome": "escalated",
+                "at": note.at,
+                "conversation_id": note.conversation_id,
+                "title": note.reason,
+            }
+        )
+    inspections = getattr(state, "inspections", None)
+    if inspections is not None:
+        for item in inspections.list(state.tenant_id):
+            if item.status.value not in ("offered", "booked"):
+                continue
+            rows.append(
+                {
+                    "outcome": "inspection offered" if item.status.value == "offered" else "inspection booked",
+                    "at": item.at,
+                    "conversation_id": item.conversation_id,
+                    "title": item.summary or item.rule_id or "Inspection",
+                }
+            )
+    issued = {QuoteState.ISSUED, QuoteState.WAITING_FOR_DEPOSIT, QuoteState.INSPECTION_BOOKED}
+    for conversation_id, quote in _quote_threads(state):
+        if quote.current.state not in issued:
+            continue
+        rows.append(
+            {
+                "outcome": "quote issued" if quote.current.state is not QuoteState.INSPECTION_BOOKED else "inspection booked",
+                "at": quote.current.at,
+                "conversation_id": conversation_id,
+                "title": quote.quote_id.value,
+            }
+        )
+    floor = datetime.min.replace(tzinfo=timezone.utc)
+    rows.sort(key=lambda row: row["at"] or floor, reverse=True)
+    return rows
+
+
 def sent_quotes(state) -> list[dict]:
     """Every stored quote past draft, newest first, with the contact it was sent to."""
     rows = []
@@ -274,11 +380,19 @@ def sent_quotes(state) -> list[dict]:
                 "at": current.at,
                 "contact": _contact_label(state, conversation_id),
                 "sent": _sent_line(state, conversation_id, quote.quote_id.value),
+                "why": _why(current),
             }
         )
     floor = datetime.min.replace(tzinfo=timezone.utc)
     rows.sort(key=lambda row: row["at"] or floor, reverse=True)
     return rows[:_LIST_LIMIT]
+
+
+def _why(version) -> str:
+    reason = version.reasons[0] if version.reasons else ""
+    if version.rule_id and reason:
+        return f"{version.rule_id}: {reason}"
+    return version.rule_id or reason
 
 
 def policy_view(
@@ -308,7 +422,7 @@ def policy_view(
         "refusal": refusal,
         "published": _published_version(request, published),
         "names": _item_names(state),
-        "rows": [*rows, {"code": "", "name": "", "price": "", "remove": False, "blank": True}],
+        "rows": [*rows, {"code": "", "name": "", "price": "", "remove": False, "blank": True, "unit": "each", "role": "product"}],
         "deposit_invalid": any("deposit" in sentence.lower() for sentence in errors),
         "storage": None if store is None else store.reachable,
         "ready": not errors and draft is not None and reason.strip() != "",
@@ -319,7 +433,14 @@ def draft_rows(draft) -> list[dict]:
     if draft is None:
         return []
     return [
-        {"code": row.item_code, "name": row.description, "price": f"{row.unit_price:.2f}", "remove": False}
+        {
+            "code": row.item_code,
+            "name": row.description,
+            "price": f"{row.unit_price:.2f}",
+            "remove": False,
+            "unit": row.unit,
+            "role": row.role,
+        }
         for row in draft.rate_rows
     ]
 
@@ -367,6 +488,7 @@ def owner_page(
     html = owner_templates().get_template("console.html").render(
         contacts=contacts(state),
         quotes=sent_quotes(state),
+        cases=open_cases(state, handovers),
         rows=rows,
         handovers=handovers,
         result=result,
@@ -374,5 +496,6 @@ def owner_page(
         action=action,
         error=error,
         policy=policy if policy is not None else policy_view(request),
+        business=_business_name(state),
     )
     return HTMLResponse(html, status_code=status_code, headers={"Cache-Control": "no-store"})

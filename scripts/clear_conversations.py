@@ -1,8 +1,10 @@
-"""Clear conversations, quotes, and cases so a test can start from scratch.
+"""Clear conversations, quotes, cases, and escalations so a test can start from scratch.
 
-Deletes every tenant's chats, messages, cases, quotes, bookings, and handovers.
-Keeps the tenant directory, rate cards, and published policy ids. Audit rows are
-insert-only and stay.
+Deletes every tenant's chats, messages, case files, escalations, inspections,
+quotes, bookings, and handovers. An escalation is the handover row, the owner
+notice, and the escalated flag on the conversation. An open case is that
+escalation, an inspection, or an issued quote. Keeps the tenant directory,
+rate cards, and published policy ids. Audit rows are insert-only and stay.
 
 The running app keeps an outbox and a quote cache in memory. Restart it after
 this script.
@@ -28,10 +30,14 @@ _TABLES = (
     "acceptance",
     "verification_code",
     "handover",
+    "owner_notice",
+    "inspection",
     "schedule_commitment",
     "quote",
     "sender_bind",
+    "case_fact",
     "case_file",
+    "enrichment",
     "conversation",
 )
 

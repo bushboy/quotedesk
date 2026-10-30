@@ -3,6 +3,7 @@ from enum import Enum
 
 from pydantic import BaseModel, ConfigDict
 
+from quotedesk.domain.policy.when import When
 from quotedesk.domain.services.confidence import ConfidenceBand
 from quotedesk.domain.shared.ids import PolicyVersionId, RuleId
 
@@ -22,6 +23,7 @@ class PolicyRule(BaseModel):
     outcome: Outcome
     customer_template: str
     reason: str
+    when: When | None = None
 
 
 class Policy(BaseModel):

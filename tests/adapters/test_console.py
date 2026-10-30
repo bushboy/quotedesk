@@ -223,6 +223,20 @@ def test_money_and_percent_are_formatted_from_decimals():
     assert percent(Decimal("12.50")) == "12.5"
 
 
+def test_the_console_shows_why_a_quote_was_issued(monkeypatch):
+    client = _client(monkeypatch)
+    quote = seed(client.app, "QD-1042", FIRST)
+    client.app.state.unit.committed[(TENANT_A, FIRST)] = quote.record_decision(
+        outcome="fixed_offer",
+        rule_id="WATER-F01",
+        reasons=("Like-for-like replacement on a level base with a stated size.",),
+        policy_version="water-policy-v1.0",
+        facts_used=("size_litres=5000",),
+    )
+    page = _text(client.get("/console"))
+    assert "WATER-F01: Like-for-like replacement on a level base with a stated size." in page
+
+
 def test_activity_lists_contacts_and_quotes_that_went_out(monkeypatch):
     client = _client(monkeypatch)
     seed(client.app, "QD-1042", FIRST)
@@ -386,6 +400,10 @@ def test_the_owner_can_release_a_held_conversation(monkeypatch):
     page = _text(client.get("/console"))
     assert 'action="/console/release"' in page
     assert str(FIRST) in page
+    assert 'id="cases"' in page
+    assert f"/console/brief/{FIRST}" in page
+    brief = _text(client.get(f"/console/brief/{FIRST}"))
+    assert "Customer:" in brief
     response = client.post("/console/release", data={"conversation_id": str(FIRST)}, follow_redirects=False)
     assert response.status_code == 303
     assert not client.app.state.conversations.escalation_held(TENANT_A, FIRST)

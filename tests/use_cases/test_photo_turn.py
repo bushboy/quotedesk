@@ -42,6 +42,7 @@ def tank_mask(**flags: bool) -> ExtractionResult:
         summary=SUMMARY,
         objects=("tank",),
         masks=(RecordedMask(label="tank", score=Decimal("0.91")),),
+        notes=("A tank on a level base.",),
         **flags,
     )
 

@@ -99,6 +99,23 @@ class HoldSlotInput(BaseModel):
     job_type: str = "replacement"
 
 
+class BookInspectionInput(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    conversation_id: UUID
+    job_id: str = ""
+    address: str = ""
+    summary: str = ""
+    confirm: bool = False
+
+
+class EscalateToOwnerInput(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    conversation_id: UUID
+    summary: str = ""
+
+
 class AcceptQuoteInput(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 

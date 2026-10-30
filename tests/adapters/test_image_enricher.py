@@ -166,13 +166,43 @@ def test_spark_extraction_reads_the_bytes_once(monkeypatch):
     assert len(transport.calls) == 2
     dumped = json.dumps(extracts[0])
     assert _CAPTION in dumped
+    assert "South Africa" in extracts[0]["instructions"]
+    assert "metres" in extracts[0]["instructions"]
     assert "unit_price" not in dumped
     assert base64.b64encode(blob).decode("ascii") in dumped
+    segment = transport.calls[1][1]
+    assert "image segmentation" in segment["instructions"]
+    assert "South Africa" in segment["instructions"]
+    assert base64.b64encode(blob).decode("ascii") in json.dumps(segment)
     assert result is not None and again == result
     assert result.summary == "A tank on a level base."
     assert result.objects == ("tank",)
+    assert result.notes == ("A tank on a level base.",)
     assert host.reads == ["media-1"]
     assert len(transport.calls) == 2
+
+
+def test_a_description_in_the_envelope_is_kept(monkeypatch):
+    _refuse_socket(monkeypatch)
+    prose = "A one-car carport with translucent sheeting, about 3 m by 6 m."
+    envelope = {
+        "error": None,
+        "output": [{"type": "message", "content": [{"type": "output_text", "text": prose}]}],
+    }
+    host = _Host({"media-1": ("image/jpeg", b"\xff\xd8\xff\xd9")})
+    transport = _Transport([envelope])
+    enricher = ImageEnricher(
+        host=host,
+        transport=transport,
+        model_id="muse-spark-1.3",
+        base_url="https://api.meta.ai/v1",
+    )
+    enricher.note("wamid.IMG", "media-1", _CAPTION)
+    result = enricher.for_image("wamid.IMG")
+    assert result is not None
+    assert result.summary == prose
+    assert result.objects == ()
+    assert len(transport.calls) == 1
 
 
 def test_sam_failure_keeps_the_summary(monkeypatch):

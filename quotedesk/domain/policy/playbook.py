@@ -23,6 +23,7 @@ class JobTypePlay(BaseModel):
     key: str
     description: str = ""
     item_codes: tuple[str, ...] = ()
+    roles: tuple[str, ...] = ()
     pricing: str = ""
     installation: str = ""
     delivery: str = ""

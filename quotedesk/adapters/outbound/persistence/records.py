@@ -77,11 +77,11 @@ class CaseTables:
                         """
                         INSERT INTO case_fact (
                             fact_id, tenant_id, conversation_id, job_id, job_type, job_status,
-                            key, value, source, event_id, superseded_by, contested
+                            key, value, source, event_id, superseded_by, contested, state
                         )
                         VALUES (
                             :fact_id, :tenant_id, :conversation_id, :job_id, :job_type, :job_status,
-                            :key, :value, :source, :event_id, :superseded_by, :contested
+                            :key, :value, :source, :event_id, :superseded_by, :contested, :state
                         )
                         """
                     ),
@@ -98,6 +98,7 @@ class CaseTables:
                         "event_id": fact.event_id,
                         "superseded_by": fact.superseded_by,
                         "contested": fact.contested,
+                        "state": fact.state,
                     },
                 )
 
@@ -118,7 +119,7 @@ class CaseTables:
             connection.execute(
                 text(
                     """
-                    SELECT fact_id, job_id, job_type, job_status, key, value, source, event_id, superseded_by, contested
+                    SELECT fact_id, job_id, job_type, job_status, key, value, source, event_id, superseded_by, contested, state
                     FROM case_fact
                     WHERE conversation_id = :conversation_id
                     ORDER BY fact_id
@@ -141,6 +142,7 @@ class CaseTables:
                     value=fact.value,
                     source=fact.source,
                     event_id=fact.event_id,
+                    state=fact.state or "known",
                     superseded_by=fact.superseded_by,
                     contested=fact.contested,
                 )

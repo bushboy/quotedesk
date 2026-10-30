@@ -35,7 +35,7 @@
     {
       "id": "aqua-damaged",
       "business": "aquasure",
-      "reply": "We'll book an inspection. The installation is damaged, and it is not clear this is a simple tank replacement.",
+      "reply": "We'll book an inspection. The installation is damaged, and it is not clear this is a simple tank replacement. The visit fee is site visit.",
       "outcome": "inspection_offered",
       "expected_outcome": "inspection_offered",
       "outcome_match": true,
@@ -47,7 +47,7 @@
     {
       "id": "aqua-borehole",
       "business": "aquasure",
-      "reply": "A borehole needs a site visit. If you go ahead, the visit fee is credited against the work.",
+      "reply": "A borehole needs a site visit. If you go ahead, the visit fee is credited against the work. The visit fee is site visit.",
       "outcome": "inspection_offered",
       "expected_outcome": "inspection_offered",
       "outcome_match": true,
@@ -107,7 +107,7 @@
     {
       "id": "aqua-sloped",
       "business": "aquasure",
-      "reply": "This install needs a site visit before we can give you a price.",
+      "reply": "This install needs a site visit before we can give you a price. The visit fee is site visit.",
       "outcome": "inspection_offered",
       "expected_outcome": "inspection_offered",
       "outcome_match": true,
@@ -179,7 +179,7 @@
     {
       "id": "frame-new-opening",
       "business": "frameworks",
-      "reply": "A new or widened opening needs a site measure. If you go ahead, the visit fee is credited against the work.",
+      "reply": "A new or widened opening needs a site measure. If you go ahead, the visit fee is credited against the work. The visit fee is site measure.",
       "outcome": "inspection_offered",
       "expected_outcome": "inspection_offered",
       "outcome_match": true,
@@ -191,7 +191,7 @@
     {
       "id": "frame-upstairs",
       "business": "frameworks",
-      "reply": "This one needs a site measure before we can give you a price.",
+      "reply": "This one needs a site measure before we can give you a price. The visit fee is site measure.",
       "outcome": "inspection_offered",
       "expected_outcome": "inspection_offered",
       "outcome_match": true,
@@ -239,7 +239,7 @@
     {
       "id": "frame-unmatched",
       "business": "frameworks",
-      "reply": "We don't have a standard price for this job. A site measure is the next step.",
+      "reply": "We don't have a standard price for this job. A site measure is the next step. The visit fee is site measure.",
       "outcome": "inspection_offered",
       "expected_outcome": "inspection_offered",
       "outcome_match": true,

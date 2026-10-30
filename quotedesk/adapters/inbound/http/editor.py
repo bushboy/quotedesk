@@ -23,7 +23,9 @@ router = APIRouter()
 
 _WHOLE = re.compile(r"-?\d{1,6}")
 _NOT_A_NUMBER = "Type the deposit as a whole number, like 30."
-_ROW = re.compile(r"(code|name|price|remove)-(\d{1,3})")
+_ROW = re.compile(r"(code|name|price|remove|unit|role)-(\d{1,3})")
+_UNITS = {"each", "per m²", "per metre"}
+_ROLES = {"product", "frame", "hardware", "installation", "delivery", "inspection"}
 _CODE = re.compile(r"[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*")
 _PRICE = re.compile(r"\d{1,9}(?:\.\d{1,2})?")
 _NO_CODE = "Each priced item needs a code, like TANK-5000."
@@ -105,6 +107,8 @@ def _typed_rows(form: dict[str, str]) -> list[dict] | None:
             "name": form.get(f"name-{index}", "").strip(),
             "price": form.get(f"price-{index}", "").strip(),
             "remove": f"remove-{index}" in form,
+            "unit": form.get(f"unit-{index}", "").strip(),
+            "role": form.get(f"role-{index}", "").strip(),
         }
         for index in indexes
     ]
@@ -124,12 +128,16 @@ def _rate_rows(typed: list[dict], vat_inclusive: bool) -> tuple[tuple[DraftRateR
         elif _PRICE.fullmatch(price) is None:
             problems.append(_BAD_PRICE)
         else:
+            unit = row.get("unit") or "each"
+            role = row.get("role") or "product"
             rows.append(
                 DraftRateRow(
                     item_code=row["code"],
                     unit_price=Decimal(price),
                     vat_inclusive=vat_inclusive,
                     description=row["name"],
+                    unit=unit if unit in _UNITS else "each",
+                    role=role if role in _ROLES else "product",
                 )
             )
     return tuple(rows), list(dict.fromkeys(problems))

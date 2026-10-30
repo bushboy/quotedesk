@@ -21,7 +21,7 @@ from quotedesk.application.dto.tenant import TenantContext
 from quotedesk.domain.conversation.events import Conversation
 from quotedesk.domain.services.plan import StepKind
 from quotedesk.infrastructure.demo import WHEN, bundle_for, install
-from quotedesk.infrastructure.tenants import known_tenant
+from quotedesk.adapters.outbound.persistence.tenants import known_tenant
 
 ROOT = Path(__file__).resolve().parents[1]
 RESULTS = ROOT / "eval" / "results" / "small-set.json"

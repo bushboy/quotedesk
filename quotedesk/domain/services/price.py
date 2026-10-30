@@ -12,6 +12,9 @@ _LOW = "A fixed quote needs a higher confidence band."
 _UNKNOWN = "That item is not on the rate card."
 _QUANTITY = "A quantity must be greater than zero."
 
+PriceUnit = Literal["each", "per m²", "per metre"]
+PriceRole = Literal["product", "frame", "hardware", "installation", "delivery", "inspection"]
+
 
 class RateCardItem(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -19,6 +22,8 @@ class RateCardItem(BaseModel):
     item_code: str
     description: str
     unit_price: Money
+    unit: PriceUnit = "each"
+    role: PriceRole = "product"
 
 
 class RateCard(BaseModel):
@@ -41,6 +46,9 @@ class PriceFacts(BaseModel):
 
     items: tuple[RequestedItem, ...]
     discount_percent: Decimal
+    width_m: Decimal | None = None
+    length_m: Decimal | None = None
+    roles: tuple[PriceRole, ...] = ()
 
 
 class PricedLine(BaseModel):
@@ -72,10 +80,11 @@ def price(decision: Decision, facts: PriceFacts, rate_card: RateCard) -> PricedQ
         return _empty()
     if decision.outcome == Outcome.SITE_ASSESSMENT:
         return _empty(site_visit_fee=rate_card.site_visit_fee)
+    facts = _composed(facts, rate_card)
     if decision.outcome == Outcome.INDICATIVE_RANGE:
         if not facts.items:
             return _empty()
-        priced = tuple(_item(rate_card, requested.item_code).unit_price for requested in facts.items)
+        priced = tuple(_extended(rate_card, requested) for requested in facts.items)
         return _empty(
             price_type="range",
             range_min=min(priced, key=lambda amount: amount.amount),
@@ -83,6 +92,46 @@ def price(decision: Decision, facts: PriceFacts, rate_card: RateCard) -> PricedQ
         )
     lines = tuple(_line(rate_card, requested) for requested in facts.items)
     return _empty(price_type="fixed", lines=lines)
+
+
+def _composed(facts: PriceFacts, rate_card: RateCard) -> PriceFacts:
+    """Requested products, plus one line for each role the job adds, measured by the item's unit."""
+    chosen: list[RequestedItem] = []
+    seen: set[str] = set()
+    for requested in facts.items:
+        item = _find(rate_card, requested.item_code)
+        quantity = requested.quantity if item is None else _quantity(item, facts, requested.quantity)
+        chosen.append(RequestedItem(item_code=requested.item_code, quantity=quantity))
+        seen.add(requested.item_code)
+    for role in facts.roles:
+        if role == "product":
+            continue
+        for item in rate_card.items:
+            if item.role == role and item.item_code not in seen:
+                chosen.append(RequestedItem(item_code=item.item_code, quantity=_quantity(item, facts, Decimal("1"))))
+                seen.add(item.item_code)
+    return facts.model_copy(update={"items": tuple(chosen)})
+
+
+def _quantity(item: RateCardItem, facts: PriceFacts, requested: Decimal) -> Decimal:
+    if item.unit == "per m²" and facts.width_m is not None and facts.length_m is not None:
+        return facts.width_m * facts.length_m
+    if item.unit == "per metre" and facts.length_m is not None:
+        return facts.length_m
+    return requested
+
+
+def _extended(rate_card: RateCard, requested: RequestedItem) -> Money:
+    if requested.quantity <= 0:
+        raise PolicyViolation(code="policy.violation", sentence=_QUANTITY)
+    return _item(rate_card, requested.item_code).unit_price * requested.quantity
+
+
+def _find(rate_card: RateCard, item_code: str) -> RateCardItem | None:
+    for item in rate_card.items:
+        if item.item_code == item_code:
+            return item
+    return None
 
 
 def _line(rate_card: RateCard, requested: RequestedItem) -> PricedLine:

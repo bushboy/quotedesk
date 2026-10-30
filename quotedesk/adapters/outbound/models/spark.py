@@ -8,8 +8,10 @@ _log = logging.getLogger(__name__)
 from quotedesk.application.dto.agent import ModelReply, ToolCall, TurnPrompt
 from quotedesk.application.dto.tool_inputs import (
     AcceptQuoteInput,
+    BookInspectionInput,
     CheckAvailabilityInput,
     CreateDepositLinkInput,
+    EscalateToOwnerInput,
     GetQuoteInput,
     HoldSlotInput,
     RequestChangeInput,
@@ -29,6 +31,8 @@ _TOOL_TEXT = {
     "accept_quote": "Record that the customer accepts the current issued quote.",
     "create_deposit_link": "Return the deposit link for an accepted quote. The result is the only link.",
     "hold_slot": "Hold a day for a quote. The result says whether the day is held.",
+    "book_inspection": "Record an inspection for the planned step. The result has the fee and the earliest window.",
+    "escalate_to_owner": "Hand the case to the owner. Write a short summary of what the customer wants.",
 }
 _BOUND = frozenset({"conversation_id", "job_id", "quote_id", "system"})
 
@@ -59,6 +63,8 @@ _TOOLS = tuple(
         ("accept_quote", AcceptQuoteInput),
         ("create_deposit_link", CreateDepositLinkInput),
         ("hold_slot", HoldSlotInput),
+        ("book_inspection", BookInspectionInput),
+        ("escalate_to_owner", EscalateToOwnerInput),
     )
 )
 

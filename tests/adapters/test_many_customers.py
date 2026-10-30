@@ -189,7 +189,7 @@ def test_two_customers_get_their_own_quotes(monkeypatch):
         assert "no template" not in booked[-1]["body"].casefold()
         assert "borehole" in booked[-1]["body"].casefold()
         console = client.get("/console").text
-        assert "The quote needs a person." in console
+        assert "No priced rule matches, so the conversation is recorded for consultation." in console
         _post(client, "15551110001", "Yes please go ahead, how do I pay the deposit?")
         paid = _wait(client, "15551110001", "sandbox.payfast.example/deposit/")
         assert paid

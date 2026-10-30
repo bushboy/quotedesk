@@ -21,6 +21,7 @@ class TenantProfile(BaseModel):
     trade: str
     area: str
     about: str
+    phone_number_id: str = ""
 
 
 _AQUASURE = TenantProfile(
@@ -95,7 +96,7 @@ def _from_table(database_url: str, slug: str) -> TenantProfile | None:
                 connection.execute(
                     text(
                         """
-                        SELECT tenant_id, slug, display_name, trade, area, about
+                        SELECT tenant_id, slug, display_name, trade, area, about, phone_number_id
                         FROM tenant
                         WHERE slug = :slug
                         """
@@ -116,4 +117,28 @@ def _from_table(database_url: str, slug: str) -> TenantProfile | None:
         trade=row["trade"],
         area=row["area"],
         about=row["about"],
+        phone_number_id=row["phone_number_id"] or "",
     )
+
+
+def phone_directory(database_url: str) -> dict[str, UUID]:
+    """WhatsApp phone_number_id to tenant. An empty map means the table could not be read."""
+    database = create_engine(
+        database_url,
+        pool_pre_ping=True,
+        connect_args={"connect_timeout": 1},
+    )
+    try:
+        with database.connect() as connection:
+            rows = connection.execute(
+                text(
+                    """
+                    SELECT tenant_id, phone_number_id
+                    FROM tenant
+                    WHERE phone_number_id IS NOT NULL AND phone_number_id <> ''
+                    """
+                )
+            ).mappings()
+            return {row["phone_number_id"]: row["tenant_id"] for row in rows}
+    finally:
+        database.dispose()

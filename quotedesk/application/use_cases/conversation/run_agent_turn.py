@@ -27,8 +27,10 @@ from quotedesk.application.dto.agent import (
 from quotedesk.application.dto.tenant import TenantContext
 from quotedesk.application.dto.tool_inputs import (
     AcceptQuoteInput,
+    BookInspectionInput,
     CheckAvailabilityInput,
     CreateDepositLinkInput,
+    EscalateToOwnerInput,
     FactInput,
     GetQuoteInput,
     HoldSlotInput,
@@ -226,6 +228,12 @@ def close_batch(
 
 def _classify(text: str, answered: TurnPrompt) -> TurnOutcome:
     for payload in answered.tool_payloads:
+        if payload.name == "escalate_to_owner" and not payload.body.get("error"):
+            return TurnOutcome.ESCALATED
+        if payload.name == "book_inspection" and not payload.body.get("error"):
+            if payload.body.get("status") == "booked":
+                return TurnOutcome.INSPECTION_BOOKED
+            return TurnOutcome.INSPECTION_OFFERED
         outcome = payload.body.get("outcome")
         if outcome in (Outcome.ESCALATION.value, "escalation"):
             return TurnOutcome.ESCALATED
@@ -298,6 +306,8 @@ class RunAgentTurn:
         enricher=None,
         business: BusinessView | None = None,
         cases: CaseFileRepository | None = None,
+        book_inspection=None,
+        escalate_to_owner=None,
     ) -> None:
         self._conversations = conversations
         self._sender = sender
@@ -326,6 +336,8 @@ class RunAgentTurn:
         self._seen: dict[str, ExtractionResult] = {}
         self._business = business or BusinessView()
         self._cases = cases
+        self._book = book_inspection
+        self._escalate = escalate_to_owner
         self._step = NextStep(kind=StepKind.ASK, sentence="What should I quote for you?")
         self._model_calls = 0
         self._bad_arguments = 0
@@ -405,7 +417,9 @@ class RunAgentTurn:
                 TurnOutcome.ESCALATED,
             )
         if not reply.tool_calls and not reply.text.strip():
-            return self._say_step(context, conversation, conversation_id, wa_id, batch, TurnFacts(), ())
+            payloads: list[ToolPayload] = []
+            self._ensure_plan(context, conversation_id, payloads)
+            return self._say_step(context, conversation, conversation_id, wa_id, batch, TurnFacts(), payloads)
         facts, answered = self._run_tools(context, reply, prompt, batch, conversation_id)
         text = reply.text
         needs_follow_up = bool(reply.tool_calls) and (not text.strip() or _payload_failed(answered))
@@ -449,6 +463,20 @@ class RunAgentTurn:
         if deposit_url and deposit_url not in text:
             text = f"{text.rstrip()} {deposit_url}".strip()
         text = _with_card(text, facts.card_link)
+        planned = _planned_sentence(self._step, answered)
+        if planned:
+            text = planned
+        if planned and (self._step.kind is StepKind.ESCALATE or _owner_took(answered.tool_payloads)):
+            return self._commit(
+                context,
+                conversation,
+                conversation_id,
+                wa_id,
+                batch,
+                text,
+                "escalated",
+                TurnOutcome.ESCALATED,
+            )
         if not text.strip() or (reply.tool_calls and not check_reply(text, facts).ok):
             if text.strip():
                 second = self._complete(answered)
@@ -458,16 +486,9 @@ class RunAgentTurn:
                     return self._say_step(context, conversation, conversation_id, wa_id, batch, facts, answered.tool_payloads)
             else:
                 return self._say_step(context, conversation, conversation_id, wa_id, batch, facts, answered.tool_payloads)
-        return self._commit(
-            context,
-            conversation,
-            conversation_id,
-            wa_id,
-            batch,
-            text,
-            "answered",
-            _classify(text, answered),
-        )
+        outcome = _classify(text, answered)
+        status = "escalated" if outcome is TurnOutcome.ESCALATED else "answered"
+        return self._commit(context, conversation, conversation_id, wa_id, batch, text, status, outcome)
 
     def _spoken(self, prompt: TurnPrompt) -> ModelReply | None:
         reply = self._complete(prompt)
@@ -610,10 +631,18 @@ class RunAgentTurn:
 
     def _fail(self, context: TenantContext, conversation_id: UUID, exc: BaseException) -> TurnOutcome:
         reason = f"{type(exc).__name__}: {exc}"
-        try:
-            self._handover.execute(context, conversation_id, reason=reason)
-        except Exception:
-            _log.exception("Handover during a failed turn did not record.")
+        recorded = False
+        if self._escalate is not None:
+            try:
+                self._escalate.execute(context, EscalateToOwnerInput(conversation_id=conversation_id, summary=reason))
+                recorded = True
+            except Exception:
+                _log.exception("The failed turn could not write the brief.")
+        if not recorded:
+            try:
+                self._handover.execute(context, conversation_id, reason=reason)
+            except Exception:
+                _log.exception("Handover during a failed turn did not record.")
         try:
             conversation = self._conversations.get(context.tenant_id, conversation_id)
         except Exception:
@@ -717,7 +746,8 @@ class RunAgentTurn:
         task = _task(self._conversations, context, conversation, self._policies)
         return (
             f"{task}\nThe next step is {self._step.kind.value}. {self._step.sentence} "
-            "Phrase that step. Do not choose a different step."
+            "Phrase that step. If the photo already estimates that fact, say the estimate and ask them to confirm it. "
+            "Do not choose a different step."
         )
 
     def _next(self, context: TenantContext, conversation_id: UUID) -> NextStep:
@@ -740,7 +770,10 @@ class RunAgentTurn:
             if bundle is not None:
                 playbook = bundle.playbook
                 policy = bundle.policy
-        return plan_next_step(case, playbook, policy)
+        from quotedesk.application.use_cases.tools.planner_inputs import planner_inputs
+
+        text, asked = planner_inputs(self._conversations, context.tenant_id, conversation_id, playbook)
+        return plan_next_step(case, playbook, policy, asked=asked, customer_text=text)
 
     def _case(self, context: TenantContext, conversation_id: UUID):
         if self._cases is None:
@@ -749,8 +782,10 @@ class RunAgentTurn:
 
     def _say_step(self, context, conversation, conversation_id, wa_id, batch, facts, payloads):
         sentence = _grounded(payloads, facts) or self._step.sentence
-        if self._step.kind is StepKind.ESCALATE:
+        owner = _owner_took(payloads)
+        if self._step.kind is StepKind.ESCALATE and not owner:
             self._handover.execute(context, conversation_id, reason=self._step.reason or "The next step is to escalate.")
+        if self._step.kind is StepKind.ESCALATE or owner:
             body = sentence or _HANDOVER
             return self._commit(context, conversation, conversation_id, wa_id, batch, body, "escalated", TurnOutcome.ESCALATED)
         body = _with_card(sentence, facts.card_link)
@@ -857,6 +892,7 @@ class RunAgentTurn:
                     provider_message_id=event.provider_message_id,
                     summary=result.summary,
                     objects=result.objects,
+                    notes=result.notes,
                 )
             )
         return tuple(rows)
@@ -946,6 +982,10 @@ class RunAgentTurn:
                 payloads.append(self._deposit_link(context, arguments))
             elif call.name == "hold_slot":
                 payloads.append(self._hold(context, arguments))
+            elif call.name == "book_inspection":
+                payloads.append(self._booked(context, arguments))
+            elif call.name == "escalate_to_owner":
+                payloads.append(self._escalated(context, arguments))
             else:
                 payloads.append(_refused(call.name))
             _log_tool(payloads[-1])
@@ -962,6 +1002,7 @@ class RunAgentTurn:
             )
             self._handover_escalation(context, conversation_id, payloads[-1])
             _log_tool(payloads[-1])
+        self._ensure_plan(context, conversation_id, payloads)
         task = self._task_for(context, stored) if stored is not None else prompt.task
         answered = prompt.model_copy(
             update={
@@ -983,6 +1024,37 @@ class RunAgentTurn:
             ),
             answered,
         )
+
+    def _ensure_plan(self, context: TenantContext, conversation_id: UUID, payloads: list) -> None:
+        if self._book is not None and self._step.kind is StepKind.INSPECTION:
+            if not any(item.name == "book_inspection" and not item.body.get("error") for item in payloads):
+                payloads.append(
+                    self._booked(
+                        context,
+                        {"conversation_id": conversation_id, "job_id": self._step.job_id, "summary": ""},
+                    )
+                )
+        if self._escalate is not None and self._step.kind is StepKind.ESCALATE:
+            if not any(item.name == "escalate_to_owner" and not item.body.get("error") for item in payloads):
+                payloads.append(self._escalated(context, {"conversation_id": conversation_id, "summary": ""}))
+
+    def _booked(self, context: TenantContext, arguments: dict) -> ToolPayload:
+        if self._book is None:
+            return _refused("book_inspection")
+        try:
+            result = self._book.execute(context, BookInspectionInput(**arguments))
+        except (CaseNotFound, ValidationError, ModelError) as error:
+            return ToolPayload(name="book_inspection", body={"error": getattr(error, "sentence", str(error))})
+        return ToolPayload(name="book_inspection", body=_body(result))
+
+    def _escalated(self, context: TenantContext, arguments: dict) -> ToolPayload:
+        if self._escalate is None:
+            return _refused("escalate_to_owner")
+        try:
+            result = self._escalate.execute(context, EscalateToOwnerInput(**arguments))
+        except (CaseNotFound, ValidationError, ModelError) as error:
+            return ToolPayload(name="escalate_to_owner", body={"error": getattr(error, "sentence", str(error))})
+        return ToolPayload(name="escalate_to_owner", body=_body(result))
 
     def _should_quote(self, payloads: list[ToolPayload]) -> bool:
         if self._step.kind is not StepKind.QUOTE:
@@ -1321,7 +1393,7 @@ def _tool_outcome(payload: ToolPayload) -> str:
 
 def _bound(name: str, arguments: dict, step: NextStep) -> dict:
     bound = dict(arguments)
-    if name == "update_case" and not str(bound.get("job_id") or "").strip() and step.job_id:
+    if name in ("update_case", "book_inspection") and not str(bound.get("job_id") or "").strip() and step.job_id:
         bound["job_id"] = step.job_id
     return bound
 
@@ -1384,7 +1456,24 @@ def _exchanges(reply: ModelReply, payloads: list[ToolPayload]) -> tuple[dict, ..
     return tuple(rows)
 
 
+def _owner_took(payloads) -> bool:
+    return any(getattr(item, "name", None) == "escalate_to_owner" and not item.body.get("error") for item in payloads)
+
+
+def _planned_sentence(step: NextStep, prompt: TurnPrompt) -> str | None:
+    if step.kind is StepKind.INSPECTION:
+        return _named_sentence(prompt, "book_inspection")
+    if step.kind is StepKind.ESCALATE:
+        return _named_sentence(prompt, "escalate_to_owner")
+    return None
+
+
 def _grounded(payloads, facts: TurnFacts) -> str | None:
+    for item in payloads:
+        if item.name in ("book_inspection", "escalate_to_owner") and not item.body.get("error"):
+            sentence = item.body.get("sentence")
+            if isinstance(sentence, str) and sentence.strip():
+                return sentence
     for item in payloads:
         if item.name != "get_quote" or item.body.get("error"):
             continue
@@ -1519,7 +1608,7 @@ def _event_uuid(provider_message_id: str) -> UUID:
 
 
 def _on_conversation(name: str, arguments: dict, conversation_id: UUID) -> dict:
-    if name not in ("update_case", "get_quote"):
+    if name not in ("update_case", "get_quote", "book_inspection", "escalate_to_owner"):
         return arguments
     bound = dict(arguments)
     bound["conversation_id"] = conversation_id

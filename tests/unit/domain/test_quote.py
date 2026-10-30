@@ -57,6 +57,8 @@ def legal_pairs():
         (QuoteState.SITE_ASSESSMENT_OFFERED, QuoteState.PENDING_APPROVAL),
         (QuoteState.ESCALATED, QuoteState.PENDING_APPROVAL),
         (QuoteState.ESCALATED, QuoteState.EXPIRED),
+        (QuoteState.ESCALATED, QuoteState.REVISED),
+        (QuoteState.EXPIRED, QuoteState.REVISED),
     )
 
 
@@ -157,6 +159,21 @@ def test_issued_version_is_immutable():
     assert quote.current.expiry == EXPIRY
 
 
+def test_escalated_and_expired_quotes_open_a_new_version():
+    _bind()
+    for state in (QuoteState.ESCALATED, QuoteState.EXPIRED):
+        quote = arrive(state).revise(
+            Outcome.FIXED_OFFER,
+            line_items=(tank(),),
+            clauses=(),
+            expiry=EXPIRY,
+            at=AT_LATER,
+        )
+        assert quote.version(1).state is QuoteState.REVISED
+        assert quote.current.number == 2
+        assert quote.current.state is QuoteState.ISSUED
+
+
 def test_new_version_revises_the_previous():
     _bind()
     quote = revised()
@@ -193,7 +210,7 @@ def test_illegal_transitions():
 def test_every_legal_transition():
     _bind()
     pairs = legal_pairs()
-    assert len(pairs) == 23
+    assert len(pairs) == 25
     for source, target in pairs:
         quote = arrive(source)
         moved = quote.transition(quote.current.number, target, at=AT)

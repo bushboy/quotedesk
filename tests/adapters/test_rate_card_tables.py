@@ -10,7 +10,7 @@ from quotedesk.adapters.outbound.persistence.rate_cards import RateCardTables
 from quotedesk.domain.services.price import RateCard, RateCardItem
 from quotedesk.domain.shared.money import Money
 from quotedesk.infrastructure.db import engine
-from quotedesk.infrastructure.rate_cards import StoredRateCards
+from quotedesk.adapters.outbound.persistence.stored_rate_cards import StoredRateCards
 
 URL = "postgresql+psycopg://quotedesk:quotedesk@127.0.0.1:5432/quotedesk"
 AQUASURE = UUID("11111111-1111-4111-8111-111111111111")

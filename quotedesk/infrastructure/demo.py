@@ -23,8 +23,11 @@ from quotedesk.application.use_cases.editor.publish_policy import PublishPolicy
 from quotedesk.application.use_cases.operator.approve_exception import ApproveException
 from quotedesk.application.use_cases.operator.list_pending import ListPending
 from quotedesk.application.use_cases.operator.reject_exception import RejectException
+from quotedesk.application.use_cases.tools.book_inspection import BookInspection
 from quotedesk.application.use_cases.tools.check_availability import CheckAvailability
+from quotedesk.application.use_cases.tools.escalate_to_owner import EscalateToOwner
 from quotedesk.application.use_cases.tools.get_quote import GetQuote
+from quotedesk.application.use_cases.tools.notify_owner import NotifyOwner
 from quotedesk.application.use_cases.tools.request_change import RequestChange
 from quotedesk.application.use_cases.tools.update_case import UpdateCase
 from quotedesk.domain.case.case_file import CaseFile
@@ -34,7 +37,8 @@ from quotedesk.domain.quotes.quote import Quote
 from quotedesk.domain.quotes.schedule import ScheduleSettings
 from quotedesk.domain.services.price import RateCard
 from quotedesk.domain.shared.ids import PolicyVersionId, QuoteId
-from quotedesk.infrastructure.tenants import TenantProfile, known_tenant
+from quotedesk.adapters.outbound.persistence.commercial import MemoryInspections, MemoryMail, MemoryNotices
+from quotedesk.adapters.outbound.persistence.tenants import TenantProfile, known_tenant
 
 TENANT_A = UUID("11111111-1111-4111-8111-111111111111")
 CONVERSATION = UUID("33333333-3333-4333-8333-333333333333")
@@ -256,12 +260,14 @@ class Policies:
     def __init__(self, bundle: PublishedPolicy, rate_cards=None) -> None:
         self.bundle = bundle
         self.rate_cards = rate_cards
+        self.bundles: dict[UUID, PublishedPolicy] = {}
+        self.active: UUID | None = None
         self.versions: dict[str, PublishedPolicy] = {bundle.policy.version.value: bundle}
         self.drafts: dict[UUID, PolicyDraft] = {}
         self.publishes: dict[tuple[UUID, str], PolicyVersionId] = {}
 
     def published(self, tenant_id: UUID) -> PublishedPolicy:
-        return self.bundle
+        return self.bundles.get(tenant_id, self.bundle)
 
     def draft(self, tenant_id: UUID) -> PolicyDraft | None:
         return self.drafts.get(tenant_id)
@@ -273,7 +279,9 @@ class Policies:
         return self.versions.get(version_id.value)
 
     def save_published(self, tenant_id: UUID, bundle: PublishedPolicy) -> None:
-        self.bundle = bundle
+        self.bundles[tenant_id] = bundle
+        if self.active is None or tenant_id == self.active:
+            self.bundle = bundle
         self.versions[bundle.policy.version.value] = bundle
         if self.rate_cards is not None:
             self.rate_cards.save(tenant_id, bundle.rate_card)
@@ -594,8 +602,8 @@ def _frameworks_bundle() -> PublishedPolicy:
             vat_inclusive=True,
             site_visit_fee=Money("750.00"),
             items=(
-                RateCardItem(item_code="SHEET-ECO", description="Economy sheeting", unit_price=Money("180.00")),
-                RateCardItem(item_code="SHEET-POLY", description="Polycarbonate sheeting", unit_price=Money("260.00")),
+                RateCardItem(item_code="SHEET-ECO", description="Economy sheeting", unit_price=Money("180.00"), unit="per m²", role="product"),
+                RateCardItem(item_code="SHEET-POLY", description="Polycarbonate sheeting", unit_price=Money("260.00"), unit="per m²", role="product"),
             ),
         ),
         clause_policy=ClausePolicy(
@@ -653,6 +661,8 @@ def policy_draft(bundle: PublishedPolicy, discount_cap_percent: Decimal) -> Poli
                 unit_price=item.unit_price.amount,
                 vat_inclusive=vat_inclusive,
                 description=item.description,
+                unit=item.unit,
+                role=item.role,
             )
             for item in bundle.rate_card.items
         ),
@@ -731,6 +741,9 @@ def install(
     links=None,
     capacity=None,
     handovers=None,
+    inspections=None,
+    notices=None,
+    bundles=None,
 ) -> None:
     """`live` runs on wall-clock time with a short quiet window, for a person at the chat page.
 
@@ -744,7 +757,7 @@ def install(
     from quotedesk.application.use_cases.tools.accept_quote import AcceptQuote
     from quotedesk.application.use_cases.tools.create_deposit_link import CreateDepositLink
     from quotedesk.application.use_cases.tools.hold_slot import HoldSlot
-    from quotedesk.infrastructure.commercial import (
+    from quotedesk.adapters.outbound.persistence.commercial import (
         IssuedCodes,
         MemoryAcceptances,
         MemoryCapacity,
@@ -763,6 +776,8 @@ def install(
     links = links or MemoryLinks()
     capacity = capacity or MemoryCapacity()
     handovers = handovers or MemoryHandovers()
+    inspections = inspections or MemoryInspections()
+    notices = notices or MemoryNotices()
     holds = MemoryHolds()
     outbox = Outbox()
     if sender is None:
@@ -774,6 +789,9 @@ def install(
     receive = ReceiveInboundEvent(conversations, sender, Media(), Ordinary(), clock)
     catalog = Catalog(published.playbook)
     policies = Policies(published, rate_cards)
+    policies.active = profile.tenant_id
+    policies.bundles = dict(bundles or {})
+    policies.bundles[profile.tenant_id] = published
     policies.save_draft(
         profile.tenant_id,
         policy_draft(published, _caps().for_tenant(profile.tenant_id).discount_cap_percent),
@@ -782,6 +800,17 @@ def install(
     lookup = QuoteLookup(unit)
     quoted = Remembering(GetQuote(cases, policies, unit, clock, ids, codes))
     handover = HandoverToHuman(cases, handovers, clock)
+    book = BookInspection(cases, policies, capacity, _schedule_settings(), clock, inspections, unit, conversations)
+    escalate = EscalateToOwner(
+        cases,
+        conversations,
+        policies,
+        handovers,
+        inspections,
+        NotifyOwner(notices, sender, MemoryMail()),
+        clock,
+        quotes=unit,
+    )
     turn = RunAgentTurn(
         conversations,
         sender,
@@ -810,6 +839,8 @@ def install(
             about=profile.about,
         ),
         cases=cases,
+        book_inspection=book,
+        escalate_to_owner=escalate,
     )
     app.state.tenant_id = profile.tenant_id
     app.state.tenant = profile
@@ -826,6 +857,7 @@ def install(
     app.state.status = GetQuoteStatus(lookup, codes if codes is not None else Codes())
     app.state.quotes = lookup
     app.state.handovers = handovers
+    app.state.inspections = inspections
     app.state.codes = codes
     app.state.policies = policies
     app.state.list_pending = ListPending(lookup, unit, _caps())
@@ -848,8 +880,10 @@ def install(
             break
 
     def run_turn() -> None:
-        context = TenantContext(tenant_id=app.state.tenant_id)
-        for conversation_id in conversations.ids(app.state.tenant_id):
-            turn.execute(context, conversation_id)
+        tenants = getattr(app.state, "tenant_ids", None) or (app.state.tenant_id,)
+        for tenant_id in tenants:
+            context = TenantContext(tenant_id=tenant_id)
+            for conversation_id in conversations.ids(tenant_id):
+                turn.execute(context, conversation_id)
 
     app.state.run_turn = run_turn

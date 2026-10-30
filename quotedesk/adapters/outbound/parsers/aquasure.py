@@ -12,6 +12,8 @@ from quotedesk.domain.policy.playbook import (
     JobTypePlay,
 )
 from quotedesk.domain.policy.rules import Outcome, Policy, PolicyRule
+from quotedesk.domain.policy.when import published_when
+from quotedesk.domain.services.decide import parse_when
 from quotedesk.domain.shared.ids import PolicyVersionId, RuleId
 
 
@@ -30,6 +32,7 @@ def load_policy(path: Path) -> Policy:
                 outcome=Outcome(rule["outcome"]),
                 customer_template=rule["customer_template"],
                 reason=rule["reason"],
+                when=parse_when(rule.get("when")) or published_when(rule["rule_id"]),
             )
             for rule in raw["rules"]
         ),
@@ -62,6 +65,7 @@ def _job(raw: dict) -> JobTypePlay:
         key=raw["key"],
         description=str(raw.get("description") or ""),
         item_codes=tuple(raw.get("item_codes") or ()),
+        roles=tuple(str(role) for role in raw.get("roles") or ()),
         pricing=str(raw.get("pricing") or ""),
         installation=str(raw.get("installation") or ""),
         delivery=str(raw.get("delivery") or ""),

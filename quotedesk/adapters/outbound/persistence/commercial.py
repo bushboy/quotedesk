@@ -8,6 +8,8 @@ import secrets
 from datetime import datetime, timezone
 from uuid import UUID
 
+from quotedesk.domain.quotes.inspection import Inspection, InspectionStatus
+
 from sqlalchemy import text
 
 from quotedesk.adapters.outbound.persistence.records import bind_tenant
@@ -338,3 +340,153 @@ class StoredHandovers:
             HandoverNote(conversation_id=row.conversation_id, reason=row.reason, brief=row.brief, at=row.at)
             for row in rows
         )
+
+
+class MemoryInspections:
+    def __init__(self) -> None:
+        self._rows: dict[tuple[UUID, UUID], Inspection] = {}
+
+    def save(self, tenant_id: UUID, inspection: Inspection) -> None:
+        self._rows[(tenant_id, inspection.conversation_id)] = inspection
+
+    def for_conversation(self, tenant_id: UUID, conversation_id: UUID) -> tuple[Inspection, ...]:
+        found = self._rows.get((tenant_id, conversation_id))
+        return () if found is None else (found,)
+
+    def list(self, tenant_id: UUID) -> tuple[Inspection, ...]:
+        return tuple(item for (stored, _), item in self._rows.items() if stored == tenant_id)
+
+
+class MemoryNotices:
+    def __init__(self) -> None:
+        self._sent: set[tuple[UUID, UUID]] = set()
+
+    def already(self, tenant_id: UUID, conversation_id: UUID) -> bool:
+        return (tenant_id, conversation_id) in self._sent
+
+    def record(self, tenant_id: UUID, conversation_id: UUID, channel: str) -> None:
+        self._sent.add((tenant_id, conversation_id))
+
+
+class MemoryMail:
+    def __init__(self) -> None:
+        self.sent: list[tuple[str, str]] = []
+
+    def send(self, address: str, body: str) -> None:
+        self.sent.append((address, body))
+
+
+class StoredInspections:
+    def __init__(self, engine) -> None:
+        self._engine = engine
+
+    def save(self, tenant_id: UUID, inspection: Inspection) -> None:
+        with self._engine.begin() as connection:
+            bind_tenant(connection, tenant_id)
+            connection.execute(
+                text("DELETE FROM inspection WHERE tenant_id = :tenant_id AND conversation_id = :conversation_id"),
+                {"tenant_id": tenant_id, "conversation_id": inspection.conversation_id},
+            )
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO inspection (
+                        tenant_id, inspection_id, conversation_id, job_id, address, rule_id, fee,
+                        window_start, window_end, status, summary, at
+                    )
+                    VALUES (
+                        :tenant_id, :inspection_id, :conversation_id, :job_id, :address, :rule_id, :fee,
+                        :window_start, :window_end, :status, :summary, :at
+                    )
+                    """
+                ),
+                {
+                    "tenant_id": tenant_id,
+                    "inspection_id": inspection.inspection_id,
+                    "conversation_id": inspection.conversation_id,
+                    "job_id": inspection.job_id,
+                    "address": inspection.address,
+                    "rule_id": inspection.rule_id,
+                    "fee": inspection.fee,
+                    "window_start": inspection.window_start,
+                    "window_end": inspection.window_end,
+                    "status": inspection.status.value,
+                    "summary": inspection.summary,
+                    "at": inspection.at,
+                },
+            )
+
+    def for_conversation(self, tenant_id: UUID, conversation_id: UUID) -> tuple[Inspection, ...]:
+        return tuple(item for item in self.list(tenant_id) if item.conversation_id == conversation_id)
+
+    def list(self, tenant_id: UUID) -> tuple[Inspection, ...]:
+        with self._engine.begin() as connection:
+            bind_tenant(connection, tenant_id)
+            rows = connection.execute(
+                text(
+                    """
+                    SELECT inspection_id, conversation_id, job_id, address, rule_id, fee,
+                           window_start, window_end, status, summary, at
+                    FROM inspection
+                    WHERE tenant_id = :tenant_id
+                    ORDER BY at
+                    """
+                ),
+                {"tenant_id": tenant_id},
+            )
+        return tuple(_inspection(tenant_id, row) for row in rows)
+
+
+class StoredNotices:
+    def __init__(self, engine) -> None:
+        self._engine = engine
+
+    def already(self, tenant_id: UUID, conversation_id: UUID) -> bool:
+        with self._engine.begin() as connection:
+            bind_tenant(connection, tenant_id)
+            row = connection.execute(
+                text(
+                    """
+                    SELECT channel FROM owner_notice
+                    WHERE tenant_id = :tenant_id AND conversation_id = :conversation_id
+                    """
+                ),
+                {"tenant_id": tenant_id, "conversation_id": conversation_id},
+            ).one_or_none()
+        return row is not None
+
+    def record(self, tenant_id: UUID, conversation_id: UUID, channel: str) -> None:
+        with self._engine.begin() as connection:
+            bind_tenant(connection, tenant_id)
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO owner_notice (tenant_id, conversation_id, channel, at)
+                    VALUES (:tenant_id, :conversation_id, :channel, :at)
+                    ON CONFLICT (tenant_id, conversation_id) DO NOTHING
+                    """
+                ),
+                {
+                    "tenant_id": tenant_id,
+                    "conversation_id": conversation_id,
+                    "channel": channel,
+                    "at": datetime.now(timezone.utc),
+                },
+            )
+
+
+def _inspection(tenant_id: UUID, row) -> Inspection:
+    return Inspection(
+        inspection_id=row.inspection_id,
+        tenant_id=tenant_id,
+        conversation_id=row.conversation_id,
+        job_id=row.job_id,
+        address=row.address,
+        rule_id=row.rule_id,
+        fee=row.fee,
+        window_start=row.window_start,
+        window_end=row.window_end,
+        status=InspectionStatus(row.status),
+        summary=row.summary,
+        at=row.at,
+    )

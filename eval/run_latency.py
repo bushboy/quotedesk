@@ -23,7 +23,7 @@ from quotedesk.domain.conversation.events import Conversation
 from quotedesk.infrastructure.config import get_settings
 from quotedesk.infrastructure.container import _model
 from quotedesk.infrastructure.demo import WHEN, bundle_for, install
-from quotedesk.infrastructure.tenants import known_tenant
+from quotedesk.adapters.outbound.persistence.tenants import known_tenant
 
 RESULTS = ROOT / "eval" / "results" / "latency.json"
 

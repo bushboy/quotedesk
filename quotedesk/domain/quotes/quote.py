@@ -24,6 +24,7 @@ class QuoteState(str, Enum):
     PENDING_APPROVAL = "PENDING_APPROVAL"
     ISSUED = "ISSUED"
     SITE_ASSESSMENT_OFFERED = "SITE_ASSESSMENT_OFFERED"
+    INSPECTION_BOOKED = "INSPECTION_BOOKED"
     ESCALATED = "ESCALATED"
     WAITING_FOR_DEPOSIT = "WAITING_FOR_DEPOSIT"
     DEPOSIT_PAID = "DEPOSIT_PAID"
@@ -69,12 +70,15 @@ _LEGAL: dict[QuoteState, frozenset[QuoteState]] = {
     QuoteState.DEPOSIT_PAID: frozenset({QuoteState.BOOKING_CONFIRMED, QuoteState.EXPIRED}),
     QuoteState.SITE_ASSESSMENT_OFFERED: frozenset(
         {
+            QuoteState.INSPECTION_BOOKED,
             QuoteState.EXPIRED,
             QuoteState.REVISED,
             QuoteState.PENDING_APPROVAL,
         }
     ),
-    QuoteState.ESCALATED: frozenset({QuoteState.PENDING_APPROVAL, QuoteState.EXPIRED}),
+    QuoteState.INSPECTION_BOOKED: frozenset({QuoteState.EXPIRED, QuoteState.REVISED}),
+    QuoteState.ESCALATED: frozenset({QuoteState.PENDING_APPROVAL, QuoteState.EXPIRED, QuoteState.REVISED}),
+    QuoteState.EXPIRED: frozenset({QuoteState.REVISED}),
 }
 
 _FROM_OUTCOME = {
@@ -117,6 +121,11 @@ class QuoteVersion(BaseModel):
     range_max: Money | None = None
     deposit: Money | None = None
     site_visit_fee: Money | None = None
+    outcome: str = ""
+    rule_id: str = ""
+    reasons: tuple[str, ...] = ()
+    policy_version: str = ""
+    facts_used: tuple[str, ...] = ()
 
 
 def _expiry(value: Any) -> date:
@@ -201,6 +210,26 @@ class Quote(BaseModel):
                 }
             )
         )
+
+    def record_decision(
+        self,
+        *,
+        outcome: str,
+        rule_id: str,
+        reasons: tuple[str, ...],
+        policy_version: str,
+        facts_used: tuple[str, ...],
+    ) -> "Quote":
+        updated = self.current.model_copy(
+            update={
+                "outcome": outcome,
+                "rule_id": rule_id,
+                "reasons": tuple(reasons),
+                "policy_version": policy_version,
+                "facts_used": tuple(facts_used),
+            }
+        )
+        return self._replace(updated)
 
     def revise(
         self,
