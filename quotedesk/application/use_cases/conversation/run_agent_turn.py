@@ -11,15 +11,16 @@ from pydantic import ValidationError as ModelError
 from quotedesk.application.dto.agent import (
     BusinessView,
     CaseView,
+    ExtractionResult,
     Handover,
     HandoverNote,
     ModelReply,
-    ExtractionResult,
     PromptExtraction,
     PromptFact,
     PromptMessage,
     PromptRateItem,
     ToolPayload,
+    TurnOutcome,
     TurnPrompt,
 )
 from quotedesk.application.dto.tenant import TenantContext
@@ -34,6 +35,8 @@ from quotedesk.application.dto.tool_inputs import (
     UpdateCaseInput,
 )
 from quotedesk.application.errors import CaseNotFound, ModelTimeout, QuoteNotFound, TenantRequired
+from quotedesk.application.prompts import PLATFORM_TASK as AGENT_TASK
+from quotedesk.application.prompts import render_task
 from quotedesk.application.ports.agent import AgentModel, ConversationLock
 from quotedesk.application.ports.gate import ChannelSender
 from quotedesk.application.ports.repositories import CaseFileRepository, ConversationRepository
@@ -65,69 +68,14 @@ def _log_model_reply(model, reply: ModelReply) -> None:
     _log.info("Handler %s response text=%s tools=%s", type(model).__name__, reply.text, tools)
 
 
-AGENT_TASK = (
-    "You are the owner, texting on WhatsApp. Read the conversation and answer what they just said.\n"
-    "A hello gets a short polite reply. When a detail is missing, ask one question. Do not stay silent.\n"
-    "When they have not chosen an item, offer the descriptions on the rate card and ask which one they want. Do not state a price.\n"
-    "Lead the conversation to one outcome. Ask the one question that decides it.\n"
-    "When the facts for a priced job are known, call get_quote in that same turn. Say the result from that call. "
-    "Do not stop after only recording the conversation.\n"
-    "If it cannot be quoted, call get_quote and use its customer_template.\n"
-    "Record facts they stated with update_case. Use the latest message id as event_id and source customer_text.\n"
-    "A new job on update_case sets job_type.\n"
-    "Do not write required_fields, agreement, measurement, media_usable, rate_card, unit_price, outcome, or clause_text.\n"
-    "Call get_quote when the case can be priced. When they ask how soon, call check_availability and answer with its turnaround. "
-    "That is working days after the deposit, not a reserved day. "
-    "When they accept or ask how to pay the deposit, call accept_quote and then create_deposit_link. Say the link.\n"
-    "When they ask to book a day and a quote exists, call hold_slot with that quote id and the job type. Say its sentence.\n"
-    "Call request_change when they ask to change a quote, using the quote id from an earlier payload.\n"
-    "When the reply depends on a tool, return the tool calls and no text.\n"
-    "When you can greet them or ask a question, return the text and no tool call.\n"
-    "When tool_payloads is filled, write the reply from those payloads. Do not invent a second total.\n"
-    "Use each extraction with the message it names.\n"
-    "When the photo and the customer disagree, ask one question.\n"
-    "A size that appears only in an extraction is not customer_stated.\n"
-    "The business in the prompt is who you speak for. Use its name, and do not mention another business."
-)
-WATER_HINTS = (
-    "This business installs and replaces water tanks.\n"
-    "When they have not stated a tank size, offer the tank descriptions on the rate card and ask which one they want. Do not state a price.\n"
-    "When the tank size is known and the job is a new installation or a swap, call get_quote in that same turn. "
-    "Record size_litres and job as replacement or new_system. The result is an indicative range. Say range_min and range_max, and use the word range. "
-    "Do not stop after only recording the conversation.\n"
-    "A fixed quote still needs a simple replacement: size_litres, size_source customer_stated, existing_level_base true, job replacement, and item_codes for that size.\n"
-    "If the installation is damaged and they have not confirmed a simple tank swap, record installation_damaged true and simple_swap false, then call get_quote. That books an inspection.\n"
-    "If it cannot be quoted and it is not that inspection, call get_quote. Tell them their message is recorded for further consultation and they will be contacted.\n"
-    "A tank replacement sets job_type to replacement."
-)
-FRAME_HINTS = (
-    "This business builds carports and replaces sheeting.\n"
-    "When they have not chosen a sheet, offer the descriptions on the rate card and ask which one they want. Do not state a price.\n"
-    "When they give a size, record width_m and length_m in metres, and record the chosen sheet as item_codes.\n"
-    "When the width and length are known, including from an earlier message, call get_quote in that same turn. "
-    "The result is an indicative range. Say range_min and range_max, and use the word range.\n"
-    "Do not reply that you will record the choice. If the size is still missing, ask for the width and length.\n"
-    "A fixed quote still needs an existing opening, a stated size, a standard size, and a chosen finish.\n"
-    "A new or widened opening, work above the ground floor, or more than one opening is a site measure. Use the customer_template.\n"
-    "A carport job sets job_type to carport."
-)
-
-
-def _task(conversations, context: TenantContext, conversation, business: BusinessView) -> str:
-    task = task_for(business)
+def _task(conversations, context: TenantContext, conversation, policies) -> str:
+    book = None
+    if policies is not None:
+        published = policies.published(context.tenant_id)
+        if published is not None and published.playbook.populated():
+            book = published.playbook
     known = _known_name(conversations, context.tenant_id, conversation.conversation_id)
-    if not known:
-        return task
-    return f"{task}\nThe customer's name is {known}. Use that name."
-
-
-def task_for(business: BusinessView) -> str:
-    trade = business.trade.casefold()
-    if "water tank" in trade:
-        return f"{AGENT_TASK}\n{WATER_HINTS}"
-    if "carport" in trade or "sheeting" in trade:
-        return f"{AGENT_TASK}\n{FRAME_HINTS}"
-    return AGENT_TASK
+    return render_task(book, known or None)
 
 
 NAME_ASK = "What name should I use for you?"
@@ -230,10 +178,13 @@ def _known_name(conversations, tenant_id, conversation_id: UUID) -> str | None:
 
 _VIDEO = "Got your video, having a look."
 _HANDOVER = "I'll ask someone from the business to pick this up. You can keep sending details here."
+_ACK = "Thanks, I've added that for the team."
+_NUDGE = "Answer the customer in one sentence."
 _PHRASE = "can i speak to a person?"
 _PHRASE_REASON = "Can I speak to a person?"
 _TIMEOUT_REASON = "model timeout"
 _UNAVAILABLE = "That tool is not available."
+_BLOCKED_WHILE_HELD = frozenset({"get_quote", "request_change", "hold_slot", "create_deposit_link"})
 _DROPPED = frozenset({"required_fields", "agreement", "measurement", "media_usable", "rate_card"})
 _THRESHOLD = Decimal("0.80")
 _SOURCES = frozenset({"customer_stated", "reference_object", "photo_inferred"})
@@ -252,6 +203,27 @@ def close_batch(
     if now - start < window:
         return None
     return tuple(event for event in ordered if event.at - start <= window)
+
+
+def _classify(text: str, answered: TurnPrompt) -> TurnOutcome:
+    for payload in answered.tool_payloads:
+        outcome = payload.body.get("outcome")
+        if outcome in (Outcome.ESCALATION.value, "escalation"):
+            return TurnOutcome.ESCALATED
+        if outcome in (Outcome.SITE_ASSESSMENT.value, "site_assessment"):
+            return TurnOutcome.INSPECTION_OFFERED
+        if outcome in (
+            Outcome.FIXED_OFFER.value,
+            Outcome.INDICATIVE_RANGE.value,
+            "fixed_offer",
+            "indicative_range",
+        ):
+            return TurnOutcome.QUOTED
+        if payload.name == "get_quote" and payload.body.get("card_link"):
+            return TurnOutcome.QUOTED
+    if "?" in text:
+        return TurnOutcome.ASKED
+    return TurnOutcome.ANSWERED
 
 
 class HandoverToHuman:
@@ -329,6 +301,8 @@ class RunAgentTurn:
         self.enricher = enricher
         self._closed: set[str] = set()
         self._change_key: str | None = None
+        self._active_tenant = None
+        self._active_conversation = None
         self._seen: dict[str, ExtractionResult] = {}
         self._business = business or BusinessView()
 
@@ -336,106 +310,378 @@ class RunAgentTurn:
         """Messages already stored before this process started are not answered again."""
         self._closed.update(provider_message_ids)
 
-    def execute(self, context: TenantContext | None, conversation_id: UUID) -> None:
+    def execute(self, context: TenantContext | None, conversation_id: UUID) -> TurnOutcome | None:
         if context is None:
             raise TenantRequired()
         if not self._lock.acquire(conversation_id):
-            return
+            return None
         try:
-            self._change_key = None
-            conversation = self._conversations.get(context.tenant_id, conversation_id)
-            if conversation is None:
-                return
-            pending = tuple(
-                event for event in conversation.events if event.provider_message_id not in self._closed
-            )
-            batch = close_batch(pending, window=self._window, now=self._clock.now())
-            if batch is None:
-                return
-            wa_id = _wa_id(self._conversations, context.tenant_id, conversation_id)
-            remember_name(self._conversations, context.tenant_id, conversation_id, wa_id, batch)
-            prompt = self._prompt(context, conversation)
-            if _unfinished_video(batch, self._conversations.messages(context.tenant_id, conversation_id)):
-                _log.info("Turn handled by video acknowledgement")
-                self._speak(context, conversation_id, wa_id, _VIDEO)
-                self._close(batch)
-                return
-            if _PHRASE in "\n".join(event.body for event in batch).casefold():
-                _log.info("Turn handled by handover")
-                self._handover.execute(context, conversation_id, reason=_PHRASE_REASON)
-                self._speak(context, conversation_id, wa_id, _HANDOVER)
-                self._close(batch)
-                return
-            _log.info("Turn handled by %s", type(self._model).__name__)
-            reply = self._complete(prompt)
-            if reply is None:
-                self._handover.execute(context, conversation_id, reason=_TIMEOUT_REASON)
-                self._speak(context, conversation_id, wa_id, _HANDOVER)
-                self._close(batch)
-                return
-            if not reply.tool_calls and not reply.text.strip():
-                _log.info("Turn produced no front-end reply")
-                self._close(batch)
-                return
-            facts, answered = self._run_tools(context, reply, prompt, batch, conversation_id)
-            text = reply.text
-            needs_follow_up = bool(reply.tool_calls) and (not text.strip() or _payload_failed(answered))
-            if needs_follow_up:
-                spoken = self._complete(answered)
-                if spoken is None:
-                    self._handover.execute(context, conversation_id, reason=_TIMEOUT_REASON)
-                    self._speak(context, conversation_id, wa_id, _HANDOVER)
-                    self._close(batch)
-                    return
-                if spoken.tool_calls and _payload_failed(answered):
-                    facts, answered = self._run_tools(context, spoken, answered, batch, conversation_id)
-                text = spoken.text
-                if not text.strip():
-                    if not spoken.tool_calls:
-                        _log.info("Turn produced no front-end reply")
-                        self._close(batch)
-                        return
-                    follow = self._complete(answered)
-                    if follow is None:
-                        self._handover.execute(context, conversation_id, reason=_TIMEOUT_REASON)
-                        self._speak(context, conversation_id, wa_id, _HANDOVER)
-                        self._close(batch)
-                        return
-                    if not follow.text.strip():
-                        _log.info("Turn produced no front-end reply")
-                        self._close(batch)
-                        return
-                    text = follow.text
-            elif reply.text.strip():
-                heard = _availability_sentence(answered) or _named_sentence(answered, "hold_slot")
-                if heard and heard not in text:
-                    text = heard
-            deposit_url = _named_sentence(answered, "create_deposit_link")
-            if deposit_url and deposit_url not in text:
-                text = f"{text.rstrip()} {deposit_url}".strip()
-            priced = _indicative_reply(answered)
-            if priced and not _states_indicative(text, priced):
-                text = priced
-            elif _fabrication(self._business) and "?" not in text:
-                question = _carport_question(answered)
-                heard = _customer_template(answered)
-                if question:
-                    text = question
-                elif heard and _recording(text):
-                    text = heard
-            text = _with_card(text, facts.card_link)
-            if reply.tool_calls and not check_reply(text, facts).ok:
-                second = self._model.complete(answered)
-                _log_model_reply(self._model, second)
-                if second.text and check_reply(second.text, facts).ok:
-                    text = second.text
-                else:
-                    _log.info("Checked reply replaced the model text")
-                    text = _REFUSAL
-            self._speak(context, conversation_id, wa_id, text)
-            self._close(batch)
+            return self._run(context, conversation_id)
+        except Exception as exc:
+            _log.exception("Turn failed closed.")
+            return self._fail(context, conversation_id, exc)
         finally:
             self._lock.release(conversation_id)
+
+    def _run(self, context: TenantContext, conversation_id: UUID) -> TurnOutcome | None:
+        conversation = self._conversations.get(context.tenant_id, conversation_id)
+        if conversation is None:
+            return None
+        if self._deliver_unsent(context, conversation_id):
+            conversation = self._conversations.get(context.tenant_id, conversation_id) or conversation
+        self._active_tenant = context.tenant_id
+        self._active_conversation = conversation_id
+        pending = tuple(
+            event for event in conversation.events if event.status == "pending"
+        )
+        batch = close_batch(pending, window=self._window, now=self._clock.now())
+        if batch is None:
+            return None
+        claimed = self._claim(context, conversation_id, batch)
+        if claimed is None:
+            return None
+        batch = claimed
+        wa_id = _wa_id(self._conversations, context.tenant_id, conversation_id)
+        if self._held(context, conversation_id):
+            return self._acknowledge_held(context, conversation, conversation_id, wa_id, batch)
+        remember_name(self._conversations, context.tenant_id, conversation_id, wa_id, batch)
+        prompt = self._prompt(context, conversation)
+        if _unfinished_video(batch, self._conversations.messages(context.tenant_id, conversation_id)):
+            _log.info("Turn handled by video acknowledgement")
+            return self._commit(
+                context, conversation, conversation_id, wa_id, batch, _VIDEO, "answered", TurnOutcome.ANSWERED
+            )
+        if _PHRASE in "\n".join(event.body for event in batch).casefold():
+            _log.info("Turn handled by handover")
+            self._handover.execute(context, conversation_id, reason=_PHRASE_REASON)
+            return self._commit(
+                context,
+                conversation,
+                conversation_id,
+                wa_id,
+                batch,
+                _HANDOVER,
+                "escalated",
+                TurnOutcome.ESCALATED,
+            )
+        _log.info("Turn handled by %s", type(self._model).__name__)
+        reply = self._spoken(prompt)
+        if reply is None:
+            self._handover.execute(context, conversation_id, reason=_TIMEOUT_REASON)
+            return self._commit(
+                context,
+                conversation,
+                conversation_id,
+                wa_id,
+                batch,
+                _HANDOVER,
+                "escalated",
+                TurnOutcome.ESCALATED,
+            )
+        if not reply.tool_calls and not reply.text.strip():
+            _log.info("Turn produced no front-end reply")
+            self._handover.execute(context, conversation_id, reason="The turn produced no reply.")
+            return self._commit(
+                context,
+                conversation,
+                conversation_id,
+                wa_id,
+                batch,
+                _HANDOVER,
+                "escalated",
+                TurnOutcome.ESCALATED,
+            )
+        facts, answered = self._run_tools(context, reply, prompt, batch, conversation_id)
+        text = reply.text
+        needs_follow_up = bool(reply.tool_calls) and (not text.strip() or _payload_failed(answered))
+        if needs_follow_up:
+            spoken = self._spoken(answered)
+            if spoken is None:
+                self._handover.execute(context, conversation_id, reason=_TIMEOUT_REASON)
+                return self._commit(
+                    context,
+                    conversation,
+                    conversation_id,
+                    wa_id,
+                    batch,
+                    _HANDOVER,
+                    "escalated",
+                    TurnOutcome.ESCALATED,
+                )
+            if spoken.tool_calls and _payload_failed(answered):
+                facts, answered = self._run_tools(context, spoken, answered, batch, conversation_id)
+            text = spoken.text
+            if not text.strip():
+                if not spoken.tool_calls:
+                    _log.info("Turn produced no front-end reply")
+                    self._handover.execute(context, conversation_id, reason="The turn produced no reply.")
+                    return self._commit(
+                        context,
+                        conversation,
+                        conversation_id,
+                        wa_id,
+                        batch,
+                        _HANDOVER,
+                        "escalated",
+                        TurnOutcome.ESCALATED,
+                    )
+                follow = self._spoken(answered)
+                if follow is None:
+                    self._handover.execute(context, conversation_id, reason=_TIMEOUT_REASON)
+                    return self._commit(
+                        context,
+                        conversation,
+                        conversation_id,
+                        wa_id,
+                        batch,
+                        _HANDOVER,
+                        "escalated",
+                        TurnOutcome.ESCALATED,
+                    )
+                if not follow.text.strip():
+                    _log.info("Turn produced no front-end reply")
+                    self._handover.execute(context, conversation_id, reason="The turn produced no reply.")
+                    return self._commit(
+                        context,
+                        conversation,
+                        conversation_id,
+                        wa_id,
+                        batch,
+                        _HANDOVER,
+                        "escalated",
+                        TurnOutcome.ESCALATED,
+                    )
+                text = follow.text
+        elif reply.text.strip():
+            heard = _availability_sentence(answered) or _named_sentence(answered, "hold_slot")
+            if heard and heard not in text:
+                text = heard
+        deposit_url = _named_sentence(answered, "create_deposit_link")
+        if deposit_url and deposit_url not in text:
+            text = f"{text.rstrip()} {deposit_url}".strip()
+        priced = _indicative_reply(answered)
+        if priced and not _states_indicative(text, priced):
+            text = priced
+        elif _fabrication(self._business) and "?" not in text:
+            question = _carport_question(answered)
+            heard = _customer_template(answered)
+            if question:
+                text = question
+            elif heard and _recording(text):
+                text = heard
+        text = _with_card(text, facts.card_link)
+        if reply.tool_calls and not check_reply(text, facts).ok:
+            second = self._model.complete(answered)
+            _log_model_reply(self._model, second)
+            if second.text and check_reply(second.text, facts).ok:
+                text = second.text
+            else:
+                _log.info("Checked reply replaced the model text")
+                self._handover.execute(context, conversation_id, reason="The reply did not match the quote.")
+                return self._commit(
+                    context,
+                    conversation,
+                    conversation_id,
+                    wa_id,
+                    batch,
+                    _HANDOVER,
+                    "escalated",
+                    TurnOutcome.ESCALATED,
+                )
+        return self._commit(
+            context,
+            conversation,
+            conversation_id,
+            wa_id,
+            batch,
+            text,
+            "answered",
+            _classify(text, answered),
+        )
+
+    def _spoken(self, prompt: TurnPrompt) -> ModelReply | None:
+        reply = self._complete(prompt)
+        if reply is None or reply.tool_calls or reply.text.strip():
+            return reply
+        nudged = prompt.model_copy(update={"task": (prompt.task + "\n" + _NUDGE).strip()})
+        return self._complete(nudged)
+
+    def _claim(self, context: TenantContext, conversation_id: UUID, batch: tuple) -> tuple | None:
+        ids = tuple(event.provider_message_id for event in batch)
+        claimer = getattr(self._conversations, "claim_pending", None)
+        if claimer is None:
+            return batch
+        got = tuple(claimer(context.tenant_id, conversation_id, ids))
+        if set(got) != set(ids):
+            return None
+        return batch
+
+    def _held(self, context: TenantContext, conversation_id: UUID) -> bool:
+        reader = getattr(self._conversations, "escalation_held", None)
+        if reader is None:
+            return False
+        return bool(reader(context.tenant_id, conversation_id))
+
+    def _acknowledge_held(self, context, conversation, conversation_id, wa_id, batch) -> TurnOutcome:
+        prompt = self._prompt(context, conversation)
+        reply = self._spoken(prompt)
+        if reply is not None and reply.tool_calls:
+            allowed = tuple(call for call in reply.tool_calls if call.name == "update_case")
+            if allowed:
+                filtered = reply.model_copy(update={"tool_calls": allowed, "text": ""})
+                self._run_tools(context, filtered, prompt, batch, conversation_id)
+        latest = batch[-1].body
+        try:
+            self._handover.execute(context, conversation_id, reason=f"Added while waiting: {latest}")
+        except Exception:
+            _log.exception("The held conversation could not refresh the brief.")
+        return self._commit(
+            context,
+            conversation,
+            conversation_id,
+            wa_id,
+            batch,
+            _ACK,
+            "answered",
+            TurnOutcome.ANSWERED,
+        )
+
+    def _deliver_unsent(self, context: TenantContext, conversation_id: UUID) -> bool:
+        reader = getattr(self._conversations, "unsent", None)
+        if reader is None:
+            return False
+        found = reader(context.tenant_id, conversation_id)
+        if not found:
+            return False
+        batch_id, body = found
+        wa_id = _wa_id(self._conversations, context.tenant_id, conversation_id) or ""
+        self._send_named(wa_id, body)
+        finish = getattr(self._conversations, "finish_outbound", None)
+        if finish is not None:
+            finish(context.tenant_id, batch_id)
+        conversation = self._conversations.get(context.tenant_id, conversation_id)
+        if conversation is not None:
+            ids = set(batch_id.split("|"))
+            pending = tuple(
+                event
+                for event in conversation.events
+                if event.provider_message_id in ids and event.status in ("pending", "claimed")
+            )
+            if pending:
+                self._settle(context, conversation, pending, "answered", TurnOutcome.ANSWERED)
+        return True
+
+    def _commit(
+        self,
+        context: TenantContext,
+        conversation,
+        conversation_id: UUID,
+        wa_id: str,
+        batch: tuple,
+        body: str,
+        status: str,
+        outcome: TurnOutcome,
+    ) -> TurnOutcome:
+        fresh = self._conversations.get(context.tenant_id, conversation_id) or conversation
+        named = with_name(self._conversations, context.tenant_id, wa_id, body)
+        batch_id = "|".join(event.provider_message_id for event in batch)
+        reserve = getattr(self._conversations, "reserve_outbound", None)
+        action = "send"
+        if reserve is not None:
+            action = reserve(context.tenant_id, batch_id, conversation_id, self._clock.now(), named)
+        self._settle(context, fresh, batch, status, outcome)
+        if action == "send":
+            self._send_named(wa_id, named)
+            if reserve is None:
+                record = getattr(self._conversations, "record_reply", None)
+                if record is not None:
+                    record(context.tenant_id, conversation_id, self._clock.now(), named)
+            finish = getattr(self._conversations, "finish_outbound", None)
+            if finish is not None and reserve is not None:
+                finish(context.tenant_id, batch_id)
+        if status == "escalated":
+            hold = getattr(self._conversations, "hold_escalation", None)
+            if hold is not None:
+                hold(context.tenant_id, conversation_id)
+        self._clear_change_key(context, conversation_id)
+        return outcome
+
+    def _settle(self, context: TenantContext, conversation, batch: tuple, status: str, outcome: TurnOutcome) -> None:
+        ids = {event.provider_message_id for event in batch}
+        log = tuple(
+            event.model_copy(update={"status": status, "outcome": outcome.value})
+            if event.provider_message_id in ids
+            else event
+            for event in conversation.log
+        )
+        self._conversations.save(context.tenant_id, conversation.model_copy(update={"log": log}))
+        self._closed.update(ids)
+
+    def _clear_change_key(self, context: TenantContext, conversation_id: UUID) -> None:
+        saver = getattr(self._conversations, "save_change_key", None)
+        if saver is not None:
+            saver(context.tenant_id, conversation_id, None)
+        self._change_key = None
+
+    def _send_named(self, wa_id: str, body: str) -> None:
+        buttons = ("Accept quote",) if "/card/" in body and "deposit/" not in body else ()
+        try:
+            self._sender.send(wa_id, body, buttons=buttons, image_url=None)
+        except TypeError:
+            self._sender.send(wa_id, body)
+
+    def _dispatch(self, context: TenantContext, conversation_id: UUID, wa_id: str, body: str, *, reserved: bool) -> None:
+        named = body if reserved else with_name(self._conversations, context.tenant_id, wa_id, body)
+        self._send_named(wa_id, named)
+        if not reserved:
+            record = getattr(self._conversations, "record_reply", None)
+            if record is not None:
+                record(context.tenant_id, conversation_id, self._clock.now(), named)
+
+    def _fail(self, context: TenantContext, conversation_id: UUID, exc: BaseException) -> TurnOutcome:
+        reason = f"{type(exc).__name__}: {exc}"
+        try:
+            self._handover.execute(context, conversation_id, reason=reason)
+        except Exception:
+            _log.exception("Handover during a failed turn did not record.")
+        try:
+            conversation = self._conversations.get(context.tenant_id, conversation_id)
+        except Exception:
+            conversation = None
+        try:
+            wa_id = _wa_id(self._conversations, context.tenant_id, conversation_id) or ""
+        except Exception:
+            wa_id = ""
+        if conversation is None:
+            try:
+                self._dispatch(context, conversation_id, wa_id, _HANDOVER, reserved=False)
+            except Exception:
+                _log.exception("The failed turn could not speak.")
+            return TurnOutcome.ESCALATED
+        pending = tuple(event for event in conversation.events if event.status in ("pending", "claimed"))
+        if not pending:
+            try:
+                self._dispatch(context, conversation_id, wa_id, _HANDOVER, reserved=False)
+            except Exception:
+                _log.exception("The failed turn could not speak.")
+            hold = getattr(self._conversations, "hold_escalation", None)
+            if hold is not None:
+                hold(context.tenant_id, conversation_id)
+            return TurnOutcome.ESCALATED
+        try:
+            return self._commit(
+                context,
+                conversation,
+                conversation_id,
+                wa_id,
+                pending,
+                _HANDOVER,
+                "escalated",
+                TurnOutcome.ESCALATED,
+            )
+        except Exception:
+            _log.exception("The failed turn could not settle.")
+            return TurnOutcome.ESCALATED
 
     def _complete(self, prompt: TurnPrompt) -> ModelReply | None:
         try:
@@ -463,7 +709,7 @@ class RunAgentTurn:
             rate_card=self._rate_card(context),
             extractions=self._extractions(context, conversation.conversation_id, ordered[-20:], kinds),
             business=self._business,
-            task=_task(self._conversations, context, conversation, self._business),
+            task=_task(self._conversations, context, conversation, self._policies),
         )
 
     def _trail(self, context: TenantContext, conversation, kinds: dict[str, str]) -> tuple[PromptMessage, ...]:
@@ -568,7 +814,12 @@ class RunAgentTurn:
         conversation_id: UUID,
         event: ConversationEvent,
     ) -> ExtractionResult | None:
-        cached = self._seen.get(event.provider_message_id)
+        cached = None
+        getter = getattr(self._conversations, "enrichment", None)
+        if getter is not None and self._active_tenant is not None:
+            cached = getter(self._active_tenant, event.provider_message_id)
+        if cached is None:
+            cached = self._seen.get(event.provider_message_id)
         if cached is not None:
             return cached
         if self.enricher is None:
@@ -576,7 +827,11 @@ class RunAgentTurn:
         result = self.enricher.for_image(event.provider_message_id)
         if result is None:
             return None
-        self._seen[event.provider_message_id] = result
+        saver = getattr(self._conversations, "save_enrichment", None)
+        if saver is not None and self._active_tenant is not None:
+            saver(self._active_tenant, event.provider_message_id, result)
+        else:
+            self._seen[event.provider_message_id] = result
         if event.extraction_id is None:
             conversation = self._conversations.get(context.tenant_id, conversation_id)
             if conversation is not None:
@@ -793,9 +1048,20 @@ class RunAgentTurn:
             return raw
         if self._ids is None:
             return raw
-        if self._change_key is None:
-            self._change_key = self._ids.next_idempotency_key()
-        raw["idempotency_key"] = self._change_key
+        getter = getattr(self._conversations, "change_key", None)
+        key = None
+        if getter is not None and self._active_conversation is not None and self._active_tenant is not None:
+            key = getter(self._active_tenant, self._active_conversation)
+        if key is None:
+            key = self._change_key
+        if key is None:
+            key = self._ids.next_idempotency_key()
+            saver = getattr(self._conversations, "save_change_key", None)
+            if saver is not None and self._active_conversation is not None and self._active_tenant is not None:
+                saver(self._active_tenant, self._active_conversation, key)
+            else:
+                self._change_key = key
+        raw["idempotency_key"] = key
         return raw
 
     def _write_confidence(

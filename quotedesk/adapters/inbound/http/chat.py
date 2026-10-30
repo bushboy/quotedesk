@@ -65,8 +65,10 @@ def _environment() -> Environment:
     return Environment(loader=FileSystemLoader(_TEMPLATES), autoescape=select_autoescape(["html"]))
 
 
-@router.get("/chat", response_class=HTMLResponse)
-def chat(request: Request, wa_id: str | None = None) -> HTMLResponse:
+@router.get("/chat", response_class=HTMLResponse, response_model=None)
+def chat(request: Request, wa_id: str | None = None) -> HTMLResponse | Response:
+    if getattr(request.app.state, "store_status", "postgres") == "down":
+        return Response(status_code=503)
     explicit = bool(wa_id) and _WA_ID.fullmatch(wa_id) is not None
     active = wa_id if explicit else _PINNED
     numbers = _CLIENTS if active in _CLIENTS else (active, *_CLIENTS)
@@ -114,5 +116,7 @@ def download(request: Request, media_id: str) -> Response:
 
 @router.post("/sim/reset", response_model=None)
 def reset(request: Request) -> Response:
+    if getattr(request.app.state, "store_status", "postgres") == "down":
+        return Response(status_code=503)
     request.app.state.reset()
     return Response(status_code=204)

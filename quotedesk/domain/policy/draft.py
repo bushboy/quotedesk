@@ -1,6 +1,8 @@
 from decimal import Decimal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
+
+from quotedesk.domain.policy.playbook import BusinessPlaybook
 
 
 class PolicyError(BaseModel):
@@ -54,3 +56,4 @@ class PolicyDraft(BaseModel):
     required_facts: tuple[RequiredFact, ...]
     rules: tuple[DraftRule, ...]
     settings: tuple[str, ...]
+    playbook: BusinessPlaybook = Field(default_factory=BusinessPlaybook)

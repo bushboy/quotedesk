@@ -5,6 +5,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from quotedesk.infrastructure.tenants import known_tenant, unknown_tenant_sentence
 
+StoreKind = Literal["postgres", "memory"]
+_STORE = "STORE is postgres or memory."
+
 _REQUIRED = "DATABASE_URL is required."
 _SPARK_KEY = "META_API_KEY is required when MODEL is spark."
 _SPARK_MODEL = "SPARK_MODEL_ID is required when MODEL is spark."
@@ -44,6 +47,7 @@ class Settings(BaseSettings):
     baseten_model_id: str = ""
     baseten_image_model_id: str = ""
     tenant: str = "aquasure"
+    store: StoreKind = "postgres"
 
 
 def get_settings() -> Settings:
@@ -85,6 +89,9 @@ def get_settings() -> Settings:
         known_tenant(tenant)
     except ValueError as exc:
         raise SettingsError(_TENANT) from exc
+    store = os.environ.get("STORE", "postgres")
+    if store not in ("postgres", "memory"):
+        raise SettingsError(_STORE)
     return Settings(
         database_url=url,
         model=model,
@@ -98,4 +105,5 @@ def get_settings() -> Settings:
         baseten_model_id=baseten_model_id,
         baseten_image_model_id=baseten_image_model_id,
         tenant=tenant,
+        store=store,
     )

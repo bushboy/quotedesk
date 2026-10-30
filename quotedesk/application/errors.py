@@ -26,3 +26,8 @@ class QuoteNotFound(ApplicationError):
 class ModelTimeout(ApplicationError):
     def __init__(self) -> None:
         super().__init__(code="model.timeout", sentence="The model did not answer in time.")
+
+
+class ToolArgumentsInvalid(ApplicationError):
+    def __init__(self) -> None:
+        super().__init__(code="tool.arguments", sentence="The tool arguments could not be read.")

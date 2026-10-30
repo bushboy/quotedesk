@@ -10,7 +10,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
 from urllib.parse import parse_qs
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -36,6 +36,7 @@ _ACTIONS = ("approved", "rejected")
 _MAX_FORM = 32768
 _SAST = timezone(timedelta(hours=2))
 _SNIPPET = 80
+_SENT_SNIPPET = 160
 _LIST_LIMIT = 20
 _KINDS = {"image": "Photo", "audio": "Voice note", "video": "Video"}
 
@@ -77,6 +78,25 @@ def total(lines) -> Money:
     return amount
 
 
+def quote_amount(version) -> str:
+    """The figure on the activity row. A range quote has no line items."""
+    if version.lines:
+        return rand(total(version.lines))
+    low = version.range_min
+    high = version.range_max
+    if low is not None and high is not None:
+        if low == high:
+            return rand(low)
+        return f"{rand(low)} to {rand(high)}"
+    if low is not None:
+        return rand(low)
+    if high is not None:
+        return rand(high)
+    if version.site_visit_fee is not None:
+        return rand(version.site_visit_fee)
+    return rand(Money("0"))
+
+
 async def read_form(request: Request) -> dict[str, str]:
     body = (await request.body())[:_MAX_FORM].decode("utf-8", errors="replace")
     return {key: values[0] for key, values in parse_qs(body, keep_blank_values=True).items()}
@@ -107,6 +127,21 @@ async def approve(request: Request) -> HTMLResponse | RedirectResponse:
 @router.post("/console/reject", response_model=None)
 async def reject(request: Request) -> HTMLResponse | RedirectResponse:
     return _decide(request, await read_form(request), "rejected")
+
+
+@router.post("/console/release", response_model=None)
+async def release(request: Request) -> RedirectResponse:
+    form = await read_form(request)
+    raw = form.get("conversation_id", "").strip()
+    try:
+        conversation_id = UUID(raw)
+    except ValueError:
+        return RedirectResponse("/console#handovers", status_code=303)
+    store = request.app.state.conversations
+    release_hold = getattr(store, "release_escalation", None)
+    if release_hold is not None:
+        release_hold(request.app.state.tenant_id, conversation_id)
+    return RedirectResponse("/console#handovers", status_code=303)
 
 
 def _decide(request: Request, form: dict[str, str], action: str) -> HTMLResponse | RedirectResponse:
@@ -192,6 +227,25 @@ def _contact_label(state, conversation_id) -> str:
     return number
 
 
+def _sent_line(state, conversation_id, quote_id: str) -> str:
+    """The message that carried this quote. Later notes, such as a deposit link, stay off this row."""
+    replies = getattr(state.conversations, "replies", None)
+    if replies is None:
+        return ""
+    card = f"/card/{quote_id}"
+    chosen = ""
+    for _at, body in replies(state.tenant_id, conversation_id):
+        text = (body or "").strip()
+        if card in text:
+            chosen = text
+            break
+        if quote_id in text:
+            chosen = text
+    if len(chosen) <= _SENT_SNIPPET:
+        return chosen
+    return chosen[: _SENT_SNIPPET - 1].rstrip() + "…"
+
+
 def _snippet(message) -> str:
     text = (message.body or message.transcript or "").strip()
     label = _KINDS.get(message.kind)
@@ -215,8 +269,11 @@ def sent_quotes(state) -> list[dict]:
                 "version": current.number,
                 "state": current.state,
                 "total": total(current.lines),
+                "amount": quote_amount(current),
+                "deposit": None if current.deposit is None else rand(current.deposit),
                 "at": current.at,
                 "contact": _contact_label(state, conversation_id),
+                "sent": _sent_line(state, conversation_id, quote.quote_id.value),
             }
         )
     floor = datetime.min.replace(tzinfo=timezone.utc)

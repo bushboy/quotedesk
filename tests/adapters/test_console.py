@@ -6,7 +6,8 @@ from uuid import UUID
 
 from fastapi.testclient import TestClient
 
-from quotedesk.adapters.inbound.http.console import percent, rand
+from quotedesk.adapters.inbound.http.console import percent, quote_amount, rand
+from quotedesk.application.dto.agent import HandoverNote
 from quotedesk.application.dto.changes import ChangeRecord
 from quotedesk.application.dto.inbound import InboundMessage
 from quotedesk.application.dto.tool_outputs import RequestChangeResult
@@ -60,7 +61,7 @@ def seed(app, quote_id: str, conversation: UUID) -> Quote:
 
 def _client(monkeypatch) -> TestClient:
     monkeypatch.delenv("DATABASE_URL", raising=False)
-    app = create_app(Settings(database_url="postgresql://quotedesk:quotedesk@127.0.0.1:1/quotedesk", model="script"))
+    app = create_app(Settings(database_url="postgresql://quotedesk:quotedesk@127.0.0.1:1/quotedesk", model="script", store="memory"))
     return TestClient(app)
 
 
@@ -250,6 +251,32 @@ def test_activity_lists_contacts_and_quotes_that_went_out(monkeypatch):
     assert "R 4 250.00" in activity
 
 
+def test_a_range_quote_shows_the_range_not_zero(monkeypatch):
+    client = _client(monkeypatch)
+    quote = Quote.open(QuoteId("QD-2000"), EXPIRY)
+    quote = quote.set_terms(
+        1,
+        price_type="range",
+        range_min=Money("12600.00"),
+        range_max=Money("18200.00"),
+        deposit=Money("3780.00"),
+        site_visit_fee=None,
+    )
+    quote = quote.issue(Outcome.INDICATIVE_RANGE, version=1, at=ISSUED_AT)
+    quote = quote.transition(1, QuoteState.WAITING_FOR_DEPOSIT, at=ISSUED_AT)
+    client.app.state.unit.committed[(TENANT_A, FIRST)] = quote
+
+    quotes = _plain(_activity(_text(client.get("/console")))).split("Quotes sent", 1)[1]
+
+    assert "QD-2000" in quotes
+    assert "Waiting for deposit" in quotes
+    assert "R 12 600.00 to R 18 200.00" in quotes
+    assert "Deposit R 3 780.00" in quotes
+    assert "R 0.00" not in quotes
+    same = quote.current.model_copy(update={"range_max": Money("12600.00")})
+    assert quote_amount(same) == "R 12 600.00"
+
+
 def test_activity_reads_contacts_the_store_has_saved(monkeypatch):
     client = _client(monkeypatch)
     at = datetime(2026, 10, 28, 12, 1, tzinfo=timezone.utc)
@@ -300,6 +327,42 @@ def test_a_quote_shows_the_contact_it_was_sent_to(monkeypatch):
     assert "Lerato · +27821234567" in quotes
 
 
+def test_a_sent_quote_shows_the_message_the_customer_received(monkeypatch):
+    client = _client(monkeypatch)
+    quote = Quote.open(QuoteId("QD-2000"), EXPIRY)
+    quote = quote.set_terms(
+        1,
+        price_type="range",
+        range_min=Money("12600.00"),
+        range_max=Money("12600.00"),
+        deposit=Money("3780.00"),
+        site_visit_fee=None,
+    )
+    quote = quote.issue(Outcome.INDICATIVE_RANGE, version=1, at=ISSUED_AT)
+    quote = quote.transition(1, QuoteState.WAITING_FOR_DEPOSIT, at=ISSUED_AT)
+    client.app.state.unit.committed[(TENANT_A, FIRST)] = quote
+    client.app.state.conversations.record_reply(
+        TENANT_A,
+        FIRST,
+        ISSUED_AT,
+        "The indicative range is R 12600.00. /card/QD-2000?code=6233",
+    )
+    client.app.state.conversations.record_reply(
+        TENANT_A,
+        FIRST,
+        ISSUED_AT,
+        "I'll accept that quote and get your deposit link ready. https://sandbox.payfast.example/deposit/QD-2000",
+    )
+
+    page = _text(client.get("/console"))
+    quotes = _plain(_activity(page)).split("Quotes sent", 1)[1]
+
+    assert "The indicative range is R 12600.00. /card/QD-2000?code=6233" in quotes
+    assert 'class="money">Quote <span class="amount">R 12 600.00</span>' in page
+    assert 'class="money">Deposit <span class="amount">R 3 780.00</span>' in page
+    assert "deposit link" not in quotes
+
+
 def test_activity_is_empty_before_anyone_writes(monkeypatch):
     activity = _activity(_text(_client(monkeypatch).get("/console")))
     assert "No customer has been in touch yet." in activity
@@ -311,3 +374,18 @@ def test_the_console_is_one_page_with_no_tabs(monkeypatch):
     assert "<nav" not in page
     assert 'id="policy"' in page
     assert 'action="/editor/publish"' in page
+
+
+def test_the_owner_can_release_a_held_conversation(monkeypatch):
+    client = _client(monkeypatch)
+    client.app.state.conversations.hold_escalation(TENANT_A, FIRST)
+    client.app.state.handovers.append(
+        TENANT_A,
+        HandoverNote(conversation_id=FIRST, reason="The turn produced no reply.", brief="replacement", at=ISSUED_AT),
+    )
+    page = _text(client.get("/console"))
+    assert 'action="/console/release"' in page
+    assert str(FIRST) in page
+    response = client.post("/console/release", data={"conversation_id": str(FIRST)}, follow_redirects=False)
+    assert response.status_code == 303
+    assert not client.app.state.conversations.escalation_held(TENANT_A, FIRST)

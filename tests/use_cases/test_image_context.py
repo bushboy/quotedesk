@@ -1,5 +1,9 @@
-from quotedesk.application.dto.agent import BusinessView, ExtractionResult, ModelReply
-from quotedesk.application.use_cases.conversation.run_agent_turn import AGENT_TASK, WATER_HINTS, task_for
+from pathlib import Path
+
+from quotedesk.adapters.outbound.parsers.aquasure import load_playbook
+from quotedesk.application.dto.agent import ExtractionResult, ModelReply
+from quotedesk.application.prompts import render_task
+from quotedesk.application.use_cases.conversation.run_agent_turn import AGENT_TASK
 from tests.use_cases.test_photo_turn import (
     CAPTION,
     IMAGE,
@@ -57,16 +61,18 @@ def test_caption_stays_on_the_message_and_the_summary_is_separate():
     assert "tank" not in AGENT_TASK.casefold()
 
 
-def test_water_hints_follow_the_trade():
-    water = BusinessView(name="AquaSure", trade="water tanks and pumps")
-    frames = BusinessView(name="FrameWorks", trade="carports and sheeting")
-    hinted = task_for(water)
+def test_water_hints_follow_the_published_playbook():
+    aqua = load_playbook(Path("seeds/aquasure.yaml"))
+    frames = load_playbook(Path("seeds/frameworks.yaml"))
+    hinted = render_task(aqua)
     assert hinted.startswith(AGENT_TASK)
-    assert WATER_HINTS in hinted
+    assert aqua.guidance in hinted
+    assert "```business" in hinted
     assert "tank size" in hinted
-    assert "width_m" in task_for(frames)
-    assert "tank" not in task_for(frames).casefold()
-    assert task_for(BusinessView()) == AGENT_TASK
+    framed = render_task(frames)
+    assert "width_m" in framed
+    assert "tank" not in framed.casefold()
+    assert render_task(None) == AGENT_TASK
 
 
 def test_two_images_are_two_rows():

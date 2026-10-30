@@ -44,6 +44,9 @@ async def webhook(request: Request, background: BackgroundTasks) -> Response:
     except ValueError:
         _log.warning("WhatsApp webhook rejected: body was not JSON")
         return Response(status_code=400)
+    if getattr(request.app.state, "store_status", "postgres") == "down":
+        _log.warning("WhatsApp webhook refused: the store is down")
+        return Response(status_code=503)
     context = TenantContext(tenant_id=request.app.state.tenant_id)
     messages = inbound_messages(payload, request.app.state.conversation_id)
     if not messages:

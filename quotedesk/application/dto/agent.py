@@ -1,8 +1,18 @@
 from datetime import datetime
+from enum import Enum
 from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
+
+
+class TurnOutcome(str, Enum):
+    ASKED = "asked"
+    QUOTED = "quoted"
+    INSPECTION_OFFERED = "inspection_offered"
+    INSPECTION_BOOKED = "inspection_booked"
+    ESCALATED = "escalated"
+    ANSWERED = "answered"
 
 from quotedesk.domain.case.case_file import CaseFile
 from quotedesk.domain.services.confidence import RecordedMask

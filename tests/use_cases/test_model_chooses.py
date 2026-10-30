@@ -7,7 +7,7 @@ from tests.use_cases.test_typed_turn import (
     CONTEXT,
     EVENT,
     QUOTE,
-    REFUSAL,
+    HANDOVER,
     TENANT,
     WA,
     at,
@@ -53,7 +53,8 @@ def test_unstructured_words_are_answered_by_the_model():
     say(conversations, CUSTOMER)
     turn.execute(CONTEXT, CONVERSATION)
     first = model.prompts[0]
-    assert first.task == AGENT_TASK
+    assert first.task.startswith(AGENT_TASK)
+    assert "```business" in first.task
     assert "Do not stay silent." in first.task
     assert first.messages[-1].body == CUSTOMER
     assert CHOSEN not in first.task
@@ -96,5 +97,5 @@ def test_a_chosen_sentence_with_the_wrong_total_is_refused():
     conversations, _, sender, _, turn = harness(model)
     say(conversations, CUSTOMER)
     turn.execute(CONTEXT, CONVERSATION)
-    assert sender.sent == [(WA, REFUSAL)]
+    assert sender.sent == [(WA, HANDOVER)]
     assert all("R 3 000" not in body for _, body in sender.sent)

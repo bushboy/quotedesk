@@ -3,6 +3,7 @@
 These classes set the tenant for the transaction, then read and write.
 """
 
+from datetime import datetime
 from uuid import UUID
 
 from sqlalchemy import text
@@ -166,10 +167,12 @@ class ConversationTables:
                 text(
                     """
                     INSERT INTO conversation_event (
-                        conversation_id, tenant_id, provider_message_id, at, body, transcript_id, extraction_id, arrival
+                        conversation_id, tenant_id, provider_message_id, at, body,
+                        transcript_id, extraction_id, arrival, status, outcome
                     )
                     VALUES (
-                        :conversation_id, :tenant_id, :provider_message_id, :at, :body, :transcript_id, :extraction_id, :arrival
+                        :conversation_id, :tenant_id, :provider_message_id, :at, :body,
+                        :transcript_id, :extraction_id, :arrival, :status, :outcome
                     )
                     """
                 ),
@@ -182,6 +185,8 @@ class ConversationTables:
                     "transcript_id": event.transcript_id,
                     "extraction_id": event.extraction_id,
                     "arrival": arrival,
+                    "status": event.status,
+                    "outcome": event.outcome,
                 },
             )
 
@@ -205,11 +210,13 @@ class ConversationTables:
                 body=event.body,
                 transcript_id=event.transcript_id,
                 extraction_id=event.extraction_id,
+                status=event.status,
+                outcome=event.outcome,
             )
             for event in connection.execute(
                 text(
                     """
-                    SELECT provider_message_id, at, body, transcript_id, extraction_id
+                    SELECT provider_message_id, at, body, transcript_id, extraction_id, status, outcome
                     FROM conversation_event
                     WHERE conversation_id = :conversation_id
                     ORDER BY at, arrival
@@ -219,6 +226,213 @@ class ConversationTables:
             )
         )
         return Conversation(conversation_id=conversation_id, log=events)
+
+    def claim_pending(
+        self,
+        connection: Connection,
+        tenant_id: UUID,
+        conversation_id: UUID,
+        ids: tuple[str, ...],
+    ) -> tuple[str, ...]:
+        bind_tenant(connection, tenant_id)
+        rows = connection.execute(
+            text(
+                """
+                SELECT provider_message_id
+                FROM conversation_event
+                WHERE conversation_id = :conversation_id
+                  AND status = 'pending'
+                  AND provider_message_id = ANY(:ids)
+                FOR UPDATE SKIP LOCKED
+                """
+            ),
+            {"conversation_id": conversation_id, "ids": list(ids)},
+        ).all()
+        claimed = tuple(row.provider_message_id for row in rows)
+        if set(claimed) != set(ids):
+            return claimed
+        if claimed:
+            connection.execute(
+                text(
+                    """
+                    UPDATE conversation_event
+                    SET status = 'claimed'
+                    WHERE conversation_id = :conversation_id
+                      AND provider_message_id = ANY(:ids)
+                    """
+                ),
+                {"conversation_id": conversation_id, "ids": list(claimed)},
+            )
+        return claimed
+
+    def release_claims(self, connection: Connection, tenant_id: UUID) -> None:
+        bind_tenant(connection, tenant_id)
+        connection.execute(
+            text(
+                """
+                UPDATE conversation_event
+                SET status = 'pending'
+                WHERE tenant_id = :tenant_id AND status = 'claimed'
+                """
+            ),
+            {"tenant_id": tenant_id},
+        )
+
+    def hold_escalation(self, connection: Connection, tenant_id: UUID, conversation_id: UUID, held: bool) -> None:
+        bind_tenant(connection, tenant_id)
+        if not hold_conversation(connection, tenant_id, conversation_id):
+            return
+        connection.execute(
+            text(
+                """
+                UPDATE conversation
+                SET escalated = :held
+                WHERE tenant_id = :tenant_id AND conversation_id = :conversation_id
+                """
+            ),
+            {"tenant_id": tenant_id, "conversation_id": conversation_id, "held": held},
+        )
+
+    def escalation_held(self, connection: Connection, tenant_id: UUID, conversation_id: UUID) -> bool:
+        bind_tenant(connection, tenant_id)
+        row = connection.execute(
+            text(
+                """
+                SELECT escalated FROM conversation
+                WHERE tenant_id = :tenant_id AND conversation_id = :conversation_id
+                """
+            ),
+            {"tenant_id": tenant_id, "conversation_id": conversation_id},
+        ).one_or_none()
+        return bool(row.escalated) if row is not None else False
+
+    def save_enrichment(self, connection: Connection, tenant_id: UUID, message_id: str, payload: str) -> None:
+        bind_tenant(connection, tenant_id)
+        connection.execute(
+            text(
+                """
+                INSERT INTO enrichment (tenant_id, provider_message_id, payload)
+                VALUES (:tenant_id, :message_id, :payload)
+                ON CONFLICT (tenant_id, provider_message_id) DO UPDATE SET payload = EXCLUDED.payload
+                """
+            ),
+            {"tenant_id": tenant_id, "message_id": message_id, "payload": payload},
+        )
+
+    def enrichment(self, connection: Connection, tenant_id: UUID, message_id: str) -> str | None:
+        bind_tenant(connection, tenant_id)
+        row = connection.execute(
+            text(
+                """
+                SELECT payload FROM enrichment
+                WHERE tenant_id = :tenant_id AND provider_message_id = :message_id
+                """
+            ),
+            {"tenant_id": tenant_id, "message_id": message_id},
+        ).one_or_none()
+        return None if row is None else row.payload
+
+    def reserve_outbound(
+        self,
+        connection: Connection,
+        tenant_id: UUID,
+        batch_id: str,
+        conversation_id: UUID,
+        at: datetime,
+        body: str,
+    ) -> str:
+        bind_tenant(connection, tenant_id)
+        inserted = connection.execute(
+            text(
+                """
+                INSERT INTO assistant_reply (tenant_id, conversation_id, at, body, batch_id, send_status)
+                VALUES (:tenant_id, :conversation_id, :at, :body, :batch_id, 'unsent')
+                ON CONFLICT (tenant_id, batch_id) WHERE batch_id IS NOT NULL DO NOTHING
+                RETURNING send_status
+                """
+            ),
+            {
+                "tenant_id": tenant_id,
+                "conversation_id": conversation_id,
+                "at": at,
+                "body": body,
+                "batch_id": batch_id,
+            },
+        ).first()
+        if inserted is not None:
+            return "send"
+        row = connection.execute(
+            text(
+                """
+                SELECT send_status FROM assistant_reply
+                WHERE tenant_id = :tenant_id AND batch_id = :batch_id
+                """
+            ),
+            {"tenant_id": tenant_id, "batch_id": batch_id},
+        ).one()
+        return "skip" if row.send_status == "sent" else "send"
+
+    def finish_outbound(self, connection: Connection, tenant_id: UUID, batch_id: str) -> None:
+        bind_tenant(connection, tenant_id)
+        connection.execute(
+            text(
+                """
+                UPDATE assistant_reply
+                SET send_status = 'sent'
+                WHERE tenant_id = :tenant_id AND batch_id = :batch_id
+                """
+            ),
+            {"tenant_id": tenant_id, "batch_id": batch_id},
+        )
+
+    def unsent(self, connection: Connection, tenant_id: UUID, conversation_id: UUID) -> tuple[str, str] | None:
+        bind_tenant(connection, tenant_id)
+        row = connection.execute(
+            text(
+                """
+                SELECT batch_id, body FROM assistant_reply
+                WHERE tenant_id = :tenant_id
+                  AND conversation_id = :conversation_id
+                  AND send_status = 'unsent'
+                ORDER BY reply_id
+                LIMIT 1
+                """
+            ),
+            {"tenant_id": tenant_id, "conversation_id": conversation_id},
+        ).first()
+        if row is None or row.batch_id is None:
+            return None
+        return row.batch_id, row.body
+
+    def change_key(self, connection: Connection, tenant_id: UUID, conversation_id: UUID) -> str | None:
+        bind_tenant(connection, tenant_id)
+        row = connection.execute(
+            text(
+                """
+                SELECT change_key FROM conversation
+                WHERE tenant_id = :tenant_id AND conversation_id = :conversation_id
+                """
+            ),
+            {"tenant_id": tenant_id, "conversation_id": conversation_id},
+        ).one_or_none()
+        if row is None:
+            return None
+        return row.change_key
+
+    def save_change_key(self, connection: Connection, tenant_id: UUID, conversation_id: UUID, key: str | None) -> None:
+        bind_tenant(connection, tenant_id)
+        if not hold_conversation(connection, tenant_id, conversation_id):
+            return
+        connection.execute(
+            text(
+                """
+                UPDATE conversation
+                SET change_key = :key
+                WHERE tenant_id = :tenant_id AND conversation_id = :conversation_id
+                """
+            ),
+            {"tenant_id": tenant_id, "conversation_id": conversation_id, "key": key},
+        )
 
 
 class ScheduleTables:

@@ -20,7 +20,7 @@ CONVERSATION_ID = UUID("33333333-3333-4333-8333-333333333333")
 
 def _app(monkeypatch, **settings):
     monkeypatch.delenv("DATABASE_URL", raising=False)
-    return create_app(Settings(database_url=URL, **settings))
+    return create_app(Settings(database_url=URL, store="memory", **settings))
 
 
 def _payload(message: dict | None = None) -> dict:

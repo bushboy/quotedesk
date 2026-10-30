@@ -253,7 +253,7 @@ def test_run_agent_turn_calls_tools_then_checks_the_reply():
     assert quote.calls == 1
     assert good.sent == [("", "The total is R 4 250.")]
     bad, _, _ = run((ModelReply(text="The total is R 3 000.", tool_calls=tools()),))
-    assert bad.sent == [("", REFUSAL)]
+    assert bad.sent == [("", HANDOVER)]
     assert all("R 3 000" not in body for _, body in bad.sent)
     safe, _, _ = run(
         (

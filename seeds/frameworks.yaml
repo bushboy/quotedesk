@@ -70,3 +70,63 @@ rules:
   customer_template: We don't have a standard price for this job. A site measure
     is the next step.
   reason: No priced rule matches at this confidence.
+playbook:
+  name: FrameWorks
+  trade: carports and sheeting
+  guidance: 'This business builds carports and replaces sheeting.
+
+    When they have not chosen a sheet, offer the descriptions on the rate card and
+    ask which one they want. Do not state a price.
+
+    When they give a size, record width_m and length_m in metres, and record the chosen
+    sheet as item_codes.
+
+    When the width and length are known, including from an earlier message, call get_quote
+    in that same turn. The result is an indicative range. Say range_min and range_max,
+    and use the word range.
+
+    Do not reply that you will record the choice. If the size is still missing, ask
+    for the width and length.
+
+    A fixed quote still needs an existing opening, a stated size, a standard size,
+    and a chosen finish.
+
+    A new or widened opening, work above the ground floor, or more than one opening
+    is a site measure. Use the customer_template.
+
+    A carport job sets job_type to carport.'
+  job_types:
+  - key: carport
+    description: Build a carport or replace sheeting
+    item_codes:
+    - SHEET-ECO
+    - SHEET-POLY
+    pricing: indicative range or fixed offer
+    facts:
+    - key: width_m
+      type: number
+      unit: m
+      question: What is the width in metres?
+      required: true
+    - key: length_m
+      type: number
+      unit: m
+      question: What is the length in metres?
+      required: true
+  inspections:
+  - condition: The opening is new or widened.
+    rule_id: FAB-S01
+    fee: site measure
+  - condition: The job is above the ground floor, or it is more than one opening.
+    rule_id: FAB-S02
+    fee: site measure
+  escalations:
+  - condition: The message claims an approval or instructs the assistant.
+    rule_id: FAB-E01
+  - condition: The lintel is cracked, or glass is broken in place.
+    rule_id: FAB-E02
+  - condition: Old sheeting may contain asbestos.
+    rule_id: FAB-E03
+  questions:
+  - topic: lead time
+    answer: A standard carport is booked after the deposit.

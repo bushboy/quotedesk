@@ -26,7 +26,8 @@
       .feed .at { color: var(--muted); font-size: 0.8125rem; font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
       .feed .said { grid-column: 1 / -1; color: var(--muted); font-size: 0.9375rem; overflow-wrap: anywhere; }
       .feed .meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; grid-column: 1 / -1; color: var(--muted); font-size: 0.9375rem; }
-      .feed .meta .amount { color: var(--ink); font-weight: 600; }
+      .feed .money { grid-column: 1 / -1; font-size: 0.9375rem; }
+      .feed .money .amount { color: var(--ink); font-weight: 600; }
       .feed .none { padding: 20px; color: var(--muted); }
 
       .queue { display: grid; gap: 12px; margin: 0; padding: 0; list-style: none; }
@@ -139,8 +140,11 @@
               <li>
                 <span class="who">{{ sent.quote_id }}</span>
                 <span class="at">{{ sent.at|when }}</span>
+                {% if sent.sent %}<span class="said">{{ sent.sent }}</span>{% endif %}
                 {% if sent.contact %}<span class="said">{{ sent.contact }}</span>{% endif %}
-                <span class="meta"><span class="tag">Version {{ sent.version }}</span>{{ sent.state|state }}<span class="amount">{{ sent.total|rand }}</span></span>
+                <span class="meta"><span class="tag">Version {{ sent.version }}</span>{{ sent.state|state }}</span>
+                <span class="money">Quote <span class="amount">{{ sent.amount }}</span></span>
+                {% if sent.deposit %}<span class="money">Deposit <span class="amount">{{ sent.deposit }}</span></span>{% endif %}
               </li>
               {% endfor %}
             </ul>
@@ -166,6 +170,10 @@
               <span class="tag">{{ note.at|when }}</span>
             </div>
             <p class="said">{{ note.reason }}</p>
+            <form method="post" action="/console/release">
+              <input type="hidden" name="conversation_id" value="{{ note.conversation_id }}">
+              <button type="submit">Release</button>
+            </form>
           </li>
           {% endfor %}
         </ul>
@@ -268,9 +276,7 @@
               <li><span>{{ name }}{% if name != item.item_code %} <span class="code">{{ item.item_code }}</span>{% endif %}</span><span class="amount">{{ item.unit_price|rand }}</span></li>
               {% endfor %}
             </ul>
-            {% if p.storage is not none %}
             <p class="hint" id="storage">{% if p.storage %}Saved in the database.{% else %}The database isn't reachable, so price changes last until the app restarts.{% endif %}</p>
-            {% endif %}
           </div>
           <div class="card" aria-labelledby="draft-title">
             <h3 id="draft-title">Draft</h3>

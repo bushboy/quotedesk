@@ -107,7 +107,7 @@ def _quoted(prompt) -> str:
 
 def _app(monkeypatch, tenant="aquasure"):
     monkeypatch.delenv("DATABASE_URL", raising=False)
-    app = create_app(Settings(database_url=URL, tenant=tenant, model="script"))
+    app = create_app(Settings(database_url=URL, tenant=tenant, model="script", store="memory"))
     app.state.slot.model = Caller()
     return app
 

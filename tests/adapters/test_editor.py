@@ -29,7 +29,12 @@ EXCLUSION = Condition(
 
 def _client(monkeypatch) -> TestClient:
     monkeypatch.delenv("DATABASE_URL", raising=False)
-    app = create_app(Settings(database_url="postgresql://quotedesk:quotedesk@127.0.0.1:1/quotedesk", model="script"))
+    app = create_app(Settings(database_url="postgresql://quotedesk:quotedesk@127.0.0.1:1/quotedesk", model="script", store="memory"))
+    draft = app.state.policies.draft(TENANT_A)
+    if draft is not None and draft.playbook.job_types:
+        job = draft.playbook.job_types[0].model_copy(update={"item_codes": ("TANK-5000",)})
+        book = draft.playbook.model_copy(update={"job_types": (job,)})
+        app.state.policies.save_draft(TENANT_A, draft.model_copy(update={"playbook": book}))
     return TestClient(app)
 
 

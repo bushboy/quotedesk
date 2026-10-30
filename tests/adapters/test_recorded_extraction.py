@@ -13,6 +13,7 @@ DATABASE_URL = "postgresql://quotedesk:quotedesk@127.0.0.1:1/quotedesk"
 
 def _env(monkeypatch, **values: str) -> None:
     monkeypatch.setenv("DATABASE_URL", DATABASE_URL)
+    monkeypatch.setenv("STORE", "memory")
     for name in (
         "MODEL",
         "META_API_KEY",

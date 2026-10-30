@@ -50,6 +50,12 @@ class Conversations:
         self._by_sender: dict[tuple[UUID, str], UUID] = {}
         self._names: dict[tuple[UUID, str], str] = {}
         self._replies: list[tuple[UUID, UUID, datetime, str]] = []
+        self._claim_lock = threading.Lock()
+        self._enrichments: dict[tuple[UUID, str], object] = {}
+        self._outbound: dict[tuple[UUID, str], str] = {}
+        self._outbound_body: dict[tuple[UUID, str], tuple[UUID, datetime, str]] = {}
+        self._held: set[tuple[UUID, UUID]] = set()
+        self._change_keys: dict[tuple[UUID, UUID], str] = {}
 
     def get(self, tenant_id: UUID, conversation_id: UUID) -> Conversation | None:
         return self.rows.get((tenant_id, conversation_id))
@@ -86,6 +92,90 @@ class Conversations:
 
     def record_reply(self, tenant_id: UUID, conversation_id: UUID, at: datetime, body: str) -> None:
         self._replies.append((tenant_id, conversation_id, at, body))
+
+    def claim_pending(self, tenant_id: UUID, conversation_id: UUID, ids: tuple[str, ...]) -> tuple[str, ...]:
+        wanted = set(ids)
+        with self._claim_lock:
+            conversation = self.get(tenant_id, conversation_id)
+            if conversation is None:
+                return ()
+            ready = tuple(
+                event.provider_message_id
+                for event in conversation.log
+                if event.provider_message_id in wanted and event.status == "pending"
+            )
+            if set(ready) != wanted:
+                return ready
+            log = tuple(
+                event.model_copy(update={"status": "claimed"}) if event.provider_message_id in wanted else event
+                for event in conversation.log
+            )
+            self.save(tenant_id, conversation.model_copy(update={"log": log}))
+            return ready
+
+    def release_claims(self, tenant_id: UUID) -> None:
+        with self._claim_lock:
+            for (tenant, conversation_id), conversation in list(self.rows.items()):
+                if tenant != tenant_id:
+                    continue
+                if not any(event.status == "claimed" for event in conversation.log):
+                    continue
+                log = tuple(
+                    event.model_copy(update={"status": "pending"}) if event.status == "claimed" else event
+                    for event in conversation.log
+                )
+                self.rows[(tenant, conversation_id)] = conversation.model_copy(update={"log": log})
+
+    def hold_escalation(self, tenant_id: UUID, conversation_id: UUID) -> None:
+        self._held.add((tenant_id, conversation_id))
+
+    def release_escalation(self, tenant_id: UUID, conversation_id: UUID) -> None:
+        self._held.discard((tenant_id, conversation_id))
+
+    def escalation_held(self, tenant_id: UUID, conversation_id: UUID) -> bool:
+        return (tenant_id, conversation_id) in self._held
+
+    def save_enrichment(self, tenant_id: UUID, message_id: str, result) -> None:
+        self._enrichments[(tenant_id, message_id)] = result
+
+    def enrichment(self, tenant_id: UUID, message_id: str):
+        return self._enrichments.get((tenant_id, message_id))
+
+    def reserve_outbound(self, tenant_id: UUID, batch_id: str, conversation_id: UUID, at: datetime, body: str) -> str:
+        key = (tenant_id, batch_id)
+        state = self._outbound.get(key)
+        if state == "sent":
+            return "skip"
+        if state == "unsent":
+            return "send"
+        self._outbound[key] = "unsent"
+        self._outbound_body[key] = (conversation_id, at, body)
+        self._replies.append((tenant_id, conversation_id, at, body))
+        return "send"
+
+    def finish_outbound(self, tenant_id: UUID, batch_id: str) -> None:
+        key = (tenant_id, batch_id)
+        if key in self._outbound:
+            self._outbound[key] = "sent"
+
+    def unsent(self, tenant_id: UUID, conversation_id: UUID) -> tuple[str, str] | None:
+        for (tenant, batch_id), state in self._outbound.items():
+            if tenant != tenant_id or state != "unsent":
+                continue
+            stored_id, _at, body = self._outbound_body[(tenant, batch_id)]
+            if stored_id == conversation_id:
+                return batch_id, body
+        return None
+
+    def change_key(self, tenant_id: UUID, conversation_id: UUID) -> str | None:
+        return self._change_keys.get((tenant_id, conversation_id))
+
+    def save_change_key(self, tenant_id: UUID, conversation_id: UUID, key: str | None) -> None:
+        stored = (tenant_id, conversation_id)
+        if key is None:
+            self._change_keys.pop(stored, None)
+        else:
+            self._change_keys[stored] = key
 
     def transcript(self, tenant_id: UUID, wa_id: str) -> list[dict[str, str]]:
         conversation_id = self.find(tenant_id, wa_id)
@@ -326,7 +416,12 @@ class Ids:
 
 
 class Catalog:
+    def __init__(self, playbook=None) -> None:
+        self._playbook = playbook
+
     def required(self, job_type: str) -> tuple[str, ...]:
+        if self._playbook is not None and self._playbook.populated():
+            return self._playbook.required(job_type)
         if job_type == "replacement":
             return ("size_litres", "existing_level_base")
         return ()
@@ -478,7 +573,7 @@ def bundle_for(slug: str) -> PublishedPolicy:
 def _frameworks_bundle() -> PublishedPolicy:
     from pathlib import Path
 
-    from quotedesk.adapters.outbound.parsers.aquasure import load_policy
+    from quotedesk.adapters.outbound.parsers.aquasure import load_playbook, load_policy
     from quotedesk.domain.policy.clauses import ClausePolicy
     from quotedesk.domain.services.price import RateCard, RateCardItem
     from quotedesk.domain.shared.money import Money
@@ -501,13 +596,14 @@ def _frameworks_bundle() -> PublishedPolicy:
             settings={"deposit_percent": 30, "validity_days": 14},
             rate_card_codes=("SHEET-ECO", "SHEET-POLY"),
         ),
+        playbook=load_playbook(path),
     )
 
 
 def published_bundle() -> PublishedPolicy:
     from pathlib import Path
 
-    from quotedesk.adapters.outbound.parsers.aquasure import load_policy
+    from quotedesk.adapters.outbound.parsers.aquasure import load_playbook, load_policy
     from quotedesk.domain.policy.clauses import ClausePolicy
     from quotedesk.domain.services.price import RateCard, RateCardItem
     from quotedesk.domain.shared.money import Money
@@ -531,6 +627,7 @@ def published_bundle() -> PublishedPolicy:
             settings={"deposit_percent": 30, "validity_days": 14},
             rate_card_codes=("TANK-2500", "TANK-5000", "TANK-10000"),
         ),
+        playbook=load_playbook(path),
     )
 
 
@@ -559,6 +656,7 @@ def policy_draft(bundle: PublishedPolicy, discount_cap_percent: Decimal) -> Poli
         required_facts=(),
         rules=tuple(DraftRule(rule_id=rule.rule_id.value, enabled=True) for rule in bundle.policy.rules),
         settings=tuple(settings),
+        playbook=bundle.playbook,
     )
 
 
@@ -667,7 +765,7 @@ def install(
         slot.model = model
     clock = SystemClock() if live else TurnClock()
     receive = ReceiveInboundEvent(conversations, sender, Media(), Ordinary(), clock)
-    catalog = Catalog()
+    catalog = Catalog(published.playbook)
     policies = Policies(published, rate_cards)
     policies.save_draft(
         profile.tenant_id,
@@ -736,9 +834,10 @@ def install(
     )
 
     for conversation_id in conversations.ids(profile.tenant_id):
-        stored = conversations.get(profile.tenant_id, conversation_id)
-        if stored is not None:
-            turn.acknowledge(event.provider_message_id for event in stored.events)
+        release = getattr(conversations, "release_claims", None)
+        if release is not None:
+            release(profile.tenant_id)
+            break
 
     def run_turn() -> None:
         context = TenantContext(tenant_id=app.state.tenant_id)

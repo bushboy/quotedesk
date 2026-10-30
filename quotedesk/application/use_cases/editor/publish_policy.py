@@ -91,4 +91,5 @@ def _bundle(current: PublishedPolicy, draft: PolicyDraft, version: PolicyVersion
             settings=settings,
             rate_card_codes=codes,
         ),
+        playbook=draft.playbook if draft.playbook.populated() else current.playbook,
     )

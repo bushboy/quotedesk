@@ -35,7 +35,7 @@ def bundle() -> PublishedPolicy:
 
 
 def app():
-    application = create_app(Settings(database_url="postgresql://quotedesk:quotedesk@127.0.0.1:1/quotedesk"))
+    application = create_app(Settings(database_url="postgresql://quotedesk:quotedesk@127.0.0.1:1/quotedesk", store="memory"))
     install(application, bundle())
     return application
 

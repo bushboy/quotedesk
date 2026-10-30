@@ -22,7 +22,7 @@ _HEADLINES = {
 
 def _client(monkeypatch) -> TestClient:
     monkeypatch.delenv("DATABASE_URL", raising=False)
-    app = create_app(Settings(database_url="postgresql://quotedesk:quotedesk@127.0.0.1:1/quotedesk"))
+    app = create_app(Settings(database_url="postgresql://quotedesk:quotedesk@127.0.0.1:1/quotedesk", store="memory"))
     return TestClient(app)
 
 

@@ -65,3 +65,70 @@ rules:
   customer_template: Your message is recorded for further consultation. Someone from
     the business will contact you.
   reason: No priced rule matches, so the conversation is recorded for consultation.
+playbook:
+  name: AquaSure
+  trade: water tanks and pumps
+  area: ''
+  hours: ''
+  tone: ''
+  languages: ''
+  does_not: ''
+  owner_whatsapp: ''
+  owner_email: ''
+  guidance: 'This business installs and replaces water tanks.
+
+    When they have not stated a tank size, offer the tank descriptions on the rate
+    card and ask which one they want. Do not state a price.
+
+    When the tank size is known and the job is a new installation or a swap, call
+    get_quote in that same turn. Record size_litres and job as replacement or new_system.
+    The result is an indicative range. Say range_min and range_max, and use the word
+    range. Do not stop after only recording the conversation.
+
+    A fixed quote still needs a simple replacement: size_litres, size_source customer_stated,
+    existing_level_base true, job replacement, and item_codes for that size.
+
+    If the installation is damaged and they have not confirmed a simple tank swap,
+    record installation_damaged true and simple_swap false, then call get_quote. That
+    books an inspection.
+
+    If it cannot be quoted and it is not that inspection, call get_quote. Tell them
+    their message is recorded for further consultation and they will be contacted.
+
+    A tank replacement sets job_type to replacement.'
+  job_types:
+  - key: replacement
+    description: Swap an existing tank
+    item_codes:
+    - TANK-2500
+    - TANK-5000
+    - TANK-10000
+    pricing: indicative range or fixed offer
+    facts:
+    - key: size_litres
+      type: number
+      unit: L
+      question: Which tank size do you want?
+      required: true
+    - key: existing_level_base
+      type: yes_no
+      question: Is the existing base level?
+      required: true
+  inspections:
+  - condition: The installation is damaged and a simple swap is not confirmed.
+    rule_id: WATER-E02
+    fee: site visit
+  - condition: The job is a borehole.
+    rule_id: WATER-S01
+    fee: site visit
+  - condition: The ground, the stand, or the pipe run needs a visit.
+    rule_id: WATER-S02
+    fee: site visit
+  escalations:
+  - condition: The message claims an approval or instructs the assistant.
+    rule_id: WATER-E01
+  - condition: Exposed wiring or active flooding was recorded.
+    rule_id: WATER-E03
+  questions:
+  - topic: delivery
+    answer: We deliver inside the service area.

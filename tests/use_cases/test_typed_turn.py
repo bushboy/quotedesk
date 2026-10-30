@@ -28,6 +28,7 @@ BASE = datetime(2026, 10, 24, 0, 0, tzinfo=timezone.utc)
 WA = "15550002222"
 QUOTE = "The total is R 4 250. Your card: /card/QD-1042?code=1042"
 REFUSAL = "I can only repeat what the quote says."
+HANDOVER = "I'll ask someone from the business to pick this up. You can keep sending details here."
 THIN = "Your message is recorded for further consultation. Someone from the business will contact you."
 TANK = "The tank is leaking. Replace it with a 5000 litre tank on the existing level base."
 LEAK = "The tank is leaking."
@@ -483,7 +484,7 @@ def test_invented_amount_is_still_refused():
     conversations, _, sender, _, turn = harness(model)
     say(conversations, TANK, 0, str(EVENT))
     turn.execute(CONTEXT, CONVERSATION)
-    assert sender.sent == [(WA, REFUSAL)]
+    assert sender.sent == [(WA, HANDOVER)]
     assert all("R 3 000" not in body for _, body in sender.sent)
 
 
@@ -517,7 +518,7 @@ def test_date_comes_from_check_availability():
 
     assert run(WINDOW)[-1] == (WA, WINDOW)
     refused = run("We can do it this Saturday.")
-    assert refused[-1] == (WA, REFUSAL)
+    assert refused[-1] == (WA, HANDOVER)
     assert all("Saturday" not in body for _, body in refused)
 
 
@@ -560,7 +561,7 @@ def test_ten_percent_waits_and_states_no_new_total():
         return sender.sent
 
     assert run(WAITING)[-1] == (WA, WAITING)
-    assert run("The total is R 3 825.")[-1] == (WA, REFUSAL)
+    assert run("The total is R 3 825.")[-1] == (WA, HANDOVER)
 
 
 def test_a_whatsapp_message_id_is_accepted_as_event_id():
@@ -620,7 +621,7 @@ def test_unknown_tool_is_not_called():
     assert price.calls == 0
     assert model.prompts[1].tool_payloads[0].name == "price"
     assert model.prompts[1].tool_payloads[0].body == {"error": "That tool is not available."}
-    assert sender.sent == []
+    assert sender.sent == [(WA, HANDOVER)]
 
 
 def test_second_turn_sees_the_recorded_size():

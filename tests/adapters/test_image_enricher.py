@@ -27,7 +27,7 @@ def _refuse_socket(monkeypatch) -> None:
 
 def _app(monkeypatch):
     monkeypatch.delenv("DATABASE_URL", raising=False)
-    return create_app(Settings(database_url=_URL))
+    return create_app(Settings(database_url=_URL, store="memory"))
 
 
 def _payload(message: dict) -> dict:
@@ -198,6 +198,7 @@ def test_sam_failure_keeps_the_summary(monkeypatch):
 def test_install_uses_spark_for_images(monkeypatch):
     _refuse_socket(monkeypatch)
     monkeypatch.setenv("DATABASE_URL", _URL)
+    monkeypatch.setenv("STORE", "memory")
     for name in (
         "MODEL",
         "META_API_KEY",

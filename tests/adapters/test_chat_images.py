@@ -30,7 +30,7 @@ def _payload(message: dict) -> dict:
 
 def test_several_files_are_several_messages(monkeypatch):
     monkeypatch.delenv("DATABASE_URL", raising=False)
-    app = create_app(Settings(database_url=_URL))
+    app = create_app(Settings(database_url=_URL, store="memory"))
     client = TestClient(app)
     html = client.get("/chat").text
     assert 'id="file" accept="image/*,video/*" multiple' in html

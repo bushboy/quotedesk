@@ -2,7 +2,7 @@ from uuid import UUID
 
 from fastapi.testclient import TestClient
 
-from quotedesk.application.use_cases.conversation.run_agent_turn import task_for
+from quotedesk.application.prompts import render_task
 from quotedesk.infrastructure.config import Settings
 from quotedesk.infrastructure.main import create_app
 
@@ -13,8 +13,8 @@ _FRAMEWORKS = UUID("22222222-2222-4222-8222-222222222222")
 
 def test_the_process_starts_as_one_business(monkeypatch):
     monkeypatch.delenv("DATABASE_URL", raising=False)
-    aqua = create_app(Settings(database_url=_URL, tenant="aquasure"))
-    works = create_app(Settings(database_url=_URL, tenant="frameworks"))
+    aqua = create_app(Settings(database_url=_URL, tenant="aquasure", store="memory"))
+    works = create_app(Settings(database_url=_URL, tenant="frameworks", store="memory"))
     assert aqua.state.tenant_id == _AQUASURE
     assert works.state.tenant_id == _FRAMEWORKS
     assert aqua.state.tenant.display_name == "AquaSure"
@@ -25,5 +25,5 @@ def test_the_process_starts_as_one_business(monkeypatch):
     assert works.state.policies.published(_FRAMEWORKS).policy.version.value == "fab-policy-v1.0"
     assert aqua.state.turn._business.name == "AquaSure"
     assert works.state.turn._business.about.startswith("FrameWorks")
-    assert "tank size" in task_for(aqua.state.turn._business)
-    assert "tank" not in task_for(works.state.turn._business).casefold()
+    assert "tank size" in render_task(aqua.state.policies.published(_AQUASURE).playbook)
+    assert "tank" not in render_task(works.state.policies.published(_FRAMEWORKS).playbook).casefold()

@@ -1,8 +1,8 @@
 """Postgres stores for the live chat.
 
 The use cases keep calling the same ports. These classes open a transaction,
-set the tenant, and use the table adapters. A closed database leaves the
-in-memory app in place.
+set the tenant, and use the table adapters. A closed database returns nothing;
+the composition root does not replace it with memory.
 """
 
 import logging
@@ -29,7 +29,7 @@ def open_thread(database_url: str):
         if not thread.ready():
             return None
     except SQLAlchemyError:
-        _log.info("Conversation store source=memory (database not reachable)")
+        _log.info("Conversation store is not reachable")
         return None
     _log.info("Conversation store source=postgres")
     return thread
@@ -89,6 +89,10 @@ class StoredThread:
             )
             connection.execute(
                 text("DELETE FROM conversation WHERE tenant_id = :tenant_id"),
+                {"tenant_id": tenant_id},
+            )
+            connection.execute(
+                text("DELETE FROM enrichment WHERE tenant_id = :tenant_id"),
                 {"tenant_id": tenant_id},
             )
         self.unit.committed.clear()
@@ -393,6 +397,59 @@ class StoredConversations:
                 ),
                 {"tenant_id": tenant_id, "conversation_id": conversation_id, "at": at, "body": body},
             )
+
+    def claim_pending(self, tenant_id: UUID, conversation_id: UUID, ids: tuple[str, ...]) -> tuple[str, ...]:
+        with self._engine.begin() as connection:
+            return self._tables.claim_pending(connection, tenant_id, conversation_id, ids)
+
+    def release_claims(self, tenant_id: UUID) -> None:
+        with self._engine.begin() as connection:
+            self._tables.release_claims(connection, tenant_id)
+
+    def hold_escalation(self, tenant_id: UUID, conversation_id: UUID) -> None:
+        with self._engine.begin() as connection:
+            self._tables.hold_escalation(connection, tenant_id, conversation_id, True)
+
+    def release_escalation(self, tenant_id: UUID, conversation_id: UUID) -> None:
+        with self._engine.begin() as connection:
+            self._tables.hold_escalation(connection, tenant_id, conversation_id, False)
+
+    def escalation_held(self, tenant_id: UUID, conversation_id: UUID) -> bool:
+        with self._engine.begin() as connection:
+            return self._tables.escalation_held(connection, tenant_id, conversation_id)
+
+    def save_enrichment(self, tenant_id: UUID, message_id: str, result) -> None:
+        with self._engine.begin() as connection:
+            self._tables.save_enrichment(connection, tenant_id, message_id, result.model_dump_json())
+
+    def enrichment(self, tenant_id: UUID, message_id: str):
+        from quotedesk.application.dto.agent import ExtractionResult
+
+        with self._engine.begin() as connection:
+            payload = self._tables.enrichment(connection, tenant_id, message_id)
+        if payload is None:
+            return None
+        return ExtractionResult.model_validate_json(payload)
+
+    def reserve_outbound(self, tenant_id: UUID, batch_id: str, conversation_id: UUID, at: datetime, body: str) -> str:
+        with self._engine.begin() as connection:
+            return self._tables.reserve_outbound(connection, tenant_id, batch_id, conversation_id, at, body)
+
+    def finish_outbound(self, tenant_id: UUID, batch_id: str) -> None:
+        with self._engine.begin() as connection:
+            self._tables.finish_outbound(connection, tenant_id, batch_id)
+
+    def unsent(self, tenant_id: UUID, conversation_id: UUID) -> tuple[str, str] | None:
+        with self._engine.begin() as connection:
+            return self._tables.unsent(connection, tenant_id, conversation_id)
+
+    def change_key(self, tenant_id: UUID, conversation_id: UUID) -> str | None:
+        with self._engine.begin() as connection:
+            return self._tables.change_key(connection, tenant_id, conversation_id)
+
+    def save_change_key(self, tenant_id: UUID, conversation_id: UUID, key: str | None) -> None:
+        with self._engine.begin() as connection:
+            self._tables.save_change_key(connection, tenant_id, conversation_id, key)
 
     def replies(self, tenant_id: UUID, conversation_id: UUID) -> tuple[tuple[datetime, str], ...]:
         with self._engine.begin() as connection:

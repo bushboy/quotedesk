@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
+
+MessageStatus = Literal["pending", "claimed", "answered", "escalated", "failed"]
 
 from quotedesk.domain.shared.errors import PolicyViolation
 
@@ -19,6 +22,8 @@ class ConversationEvent(BaseModel):
     body: str
     transcript_id: str | None = None
     extraction_id: str | None = None
+    status: MessageStatus = "pending"
+    outcome: str | None = None
 
 
 class AppendResult(BaseModel):

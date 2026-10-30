@@ -3,6 +3,7 @@ import threading
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.responses import JSONResponse
 
 from quotedesk.adapters.inbound.http.card import router as card_router
 from quotedesk.adapters.inbound.http.chat import SimulatedMedia
@@ -18,7 +19,7 @@ from quotedesk.infrastructure.config import Settings, get_settings
 from quotedesk.infrastructure.demo import QuoteScript, bundle_for, install, with_rate_card
 from quotedesk.infrastructure.rate_cards import StoredRateCards
 from quotedesk.infrastructure.stored import open_thread
-from quotedesk.infrastructure.tenants import resolve_tenant
+from quotedesk.infrastructure.tenants import known_tenant, open_tenant
 
 _TICK_SECONDS = 0.25
 _log = logging.getLogger(__name__)
@@ -108,13 +109,32 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app = FastAPI(title="QuoteDesk", lifespan=_worker)
     app.state.settings = settings
     app.state.sim_media = SimulatedMedia()
-    profile, source = resolve_tenant(settings.database_url, settings.tenant)
+    app.state.store_status = "down"
+    memory = settings.store == "memory"
+    profile = known_tenant(settings.tenant)
+    source = "memory"
+    stored = None
+    rate_cards = None
+    if memory:
+        source = "memory"
+    else:
+        profile, source, tenant_up = open_tenant(settings.database_url, settings.tenant)
+        rate_cards = StoredRateCards(settings.database_url)
+        if tenant_up:
+            rate_cards.load(profile.tenant_id)
+        stored = open_thread(settings.database_url) if tenant_up else None
+        if stored is not None:
+            stored.conversations.tenant_id = profile.tenant_id
+        if not tenant_up or stored is None or not rate_cards.reachable:
+            source = "unavailable"
+    app.state.store_status = "down" if source == "unavailable" else ("memory" if memory else "postgres")
     _log.info(
-        "Active tenant slug=%s id=%s name=%s source=%s",
+        "Active tenant slug=%s id=%s name=%s source=%s store=%s",
         profile.slug,
         profile.tenant_id,
         profile.display_name,
         source,
+        app.state.store_status,
     )
     if settings.model == "script":
         _log.info("Model script")
@@ -127,34 +147,42 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             settings.baseten_image_model_id if settings.image_provider == "baseten" else settings.spark_model_id,
         )
 
-    rate_cards = StoredRateCards(settings.database_url)
-    stored = open_thread(settings.database_url)
-    if stored is not None:
-        stored.conversations.tenant_id = profile.tenant_id
+    if app.state.store_status == "down":
 
-    def start(*, clear: bool = False) -> None:
-        if clear and stored is not None:
-            stored.clear(profile.tenant_id)
-        install(
-            app,
-            with_rate_card(bundle_for(profile.slug), rate_cards.load(profile.tenant_id)),
-            model=_model(settings),
-            card_base="/card",
-            sender=_sender(settings),
-            live=True,
-            enricher=_enricher(settings, app.state.sim_media),
-            tenant=profile,
-            rate_cards=rate_cards,
-            **(stored.bind() if stored is not None else {}),
-        )
-        app.state.rate_cards = rate_cards
+        def start(*, clear: bool = False) -> None:
+            return None
 
-    start()
-    app.state.reset = lambda: start(clear=True)
+        app.state.run_turn = lambda: None
+        app.state.reset = lambda: None
+        app.state.tenant_id = profile.tenant_id
+    else:
+
+        def start(*, clear: bool = False) -> None:
+            if clear and stored is not None:
+                stored.clear(profile.tenant_id)
+            install(
+                app,
+                with_rate_card(bundle_for(profile.slug), None if rate_cards is None else rate_cards.load(profile.tenant_id)),
+                model=_model(settings),
+                card_base="/card",
+                sender=_sender(settings),
+                live=True,
+                enricher=_enricher(settings, app.state.sim_media),
+                tenant=profile,
+                rate_cards=rate_cards,
+                **(stored.bind() if stored is not None else {}),
+            )
+            app.state.rate_cards = rate_cards
+
+        start()
+        app.state.reset = lambda: start(clear=True)
 
     @app.get("/health")
-    def health() -> dict[str, str]:
-        return {"status": "ok"}
+    def health():
+        status = app.state.store_status
+        if status == "down":
+            return JSONResponse({"status": "unavailable", "store": "down"}, status_code=503)
+        return {"status": "ok", "store": status}
 
     app.include_router(quote_card_router)
     app.include_router(whatsapp_router)

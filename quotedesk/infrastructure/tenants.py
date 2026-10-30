@@ -55,17 +55,32 @@ def unknown_tenant_sentence() -> str:
     return _UNKNOWN
 
 
+def open_tenant(database_url: str, slug: str) -> tuple[TenantProfile, str, bool]:
+    """The business, where it was read from, and whether the database answered.
+
+    A missing row still returns the built-in profile. A closed database does not:
+    the third value is false, and the caller must not treat the built-in row as live.
+    """
+    builtin = known_tenant(slug)
+    try:
+        loaded = _from_table(database_url, slug)
+    except SQLAlchemyError:
+        return builtin, "unavailable", False
+    if loaded is None:
+        return builtin, "built-in", True
+    return loaded, "tenant table", True
+
+
 def resolve_tenant(database_url: str, slug: str) -> tuple[TenantProfile, str]:
     """The active business, and whether it came from the table or the built-in row.
 
     A missing table or a closed database keeps the built-in row for that slug.
     A row that is present wins, so an edit in the table is what the agent sees.
     """
-    builtin = known_tenant(slug)
-    loaded = _from_table(database_url, slug)
-    if loaded is None:
-        return builtin, "built-in"
-    return loaded, "tenant table"
+    profile, source, _reachable = open_tenant(database_url, slug)
+    if source == "unavailable":
+        return profile, "built-in"
+    return profile, source
 
 
 def _from_table(database_url: str, slug: str) -> TenantProfile | None:
@@ -90,8 +105,6 @@ def _from_table(database_url: str, slug: str) -> TenantProfile | None:
                 .mappings()
                 .first()
             )
-    except SQLAlchemyError:
-        return None
     finally:
         database.dispose()
     if row is None:
