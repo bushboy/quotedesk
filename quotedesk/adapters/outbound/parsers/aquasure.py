@@ -8,6 +8,7 @@ from quotedesk.domain.policy.playbook import (
     CommonQuestion,
     EscalationTrigger,
     FactDefinition,
+    FactOption,
     InspectionTrigger,
     JobTypePlay,
 )
@@ -64,6 +65,7 @@ def _job(raw: dict) -> JobTypePlay:
     return JobTypePlay(
         key=raw["key"],
         description=str(raw.get("description") or ""),
+        label=str(raw.get("label") or ""),
         item_codes=tuple(raw.get("item_codes") or ()),
         roles=tuple(str(role) for role in raw.get("roles") or ()),
         pricing=str(raw.get("pricing") or ""),
@@ -77,14 +79,34 @@ def _fact(raw: dict) -> FactDefinition:
     kind = str(raw.get("type") or "text").replace("/", "_")
     if kind not in ("number", "choice", "yes_no", "text"):
         kind = "text"
+    decides = str(raw.get("decides") or "price")
+    ease = str(raw.get("ease") or "easy")
+    unsure = str(raw.get("if_unsure") or "inspection")
+    minimum = raw.get("min_confidence")
     return FactDefinition(
         key=raw["key"],
         type=kind,
         unit=str(raw.get("unit") or ""),
-        allowed=tuple(raw.get("allowed") or ()),
+        allowed=tuple(str(item) for item in raw.get("allowed") or ()),
         question=str(raw.get("question") or ""),
         photo_can_answer=bool(raw.get("photo_can_answer") or False),
         required=bool(raw.get("required") or False),
+        label=str(raw.get("label") or ""),
+        options=tuple(_option(item) for item in raw.get("options") or ()),
+        look_for=str(raw.get("look_for") or ""),
+        min_confidence=None if minimum in (None, "") else Decimal(str(minimum)),
+        decides=decides if decides in ("price", "outcome", "both") else "price",
+        ease=ease if ease in ("easy", "needs_tape", "needs_expert") else "easy",
+        if_unsure=unsure if unsure in ("ask_photo", "range", "inspection", "photo_then_range") else "inspection",
+    )
+
+
+def _option(raw: dict) -> FactOption:
+    return FactOption(
+        value=str(raw["value"]),
+        label=str(raw.get("label") or raw["value"]),
+        hint=str(raw.get("hint") or ""),
+        item_codes=tuple(str(code) for code in raw.get("item_codes") or ()),
     )
 
 
@@ -93,6 +115,7 @@ def _inspection(raw: dict) -> InspectionTrigger:
         condition=str(raw.get("condition") or ""),
         rule_id=str(raw["rule_id"]),
         fee=str(raw.get("fee") or ""),
+        fee_item=str(raw.get("fee_item") or ""),
     )
 
 

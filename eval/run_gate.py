@@ -36,6 +36,7 @@ BUSINESSES = ("aquasure", "frameworks")
 _UNFOUNDED = ("for free", "no charge", "already approved")
 _KINDS = {
     StepKind.ASK: "asked",
+    StepKind.CONFIRM: "asked",
     StepKind.QUOTE: "quoted",
     StepKind.INSPECTION: "inspection_offered",
     StepKind.ESCALATE: "escalated",

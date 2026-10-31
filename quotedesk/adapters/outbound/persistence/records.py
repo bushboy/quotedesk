@@ -4,6 +4,7 @@ These classes set the tenant for the transaction, then read and write.
 """
 
 from datetime import datetime
+from decimal import Decimal
 from uuid import UUID
 
 from sqlalchemy import text
@@ -77,11 +78,13 @@ class CaseTables:
                         """
                         INSERT INTO case_fact (
                             fact_id, tenant_id, conversation_id, job_id, job_type, job_status,
-                            key, value, source, event_id, superseded_by, contested, state
+                            key, value, source, event_id, superseded_by, contested, state,
+                            status, evidence, confidence
                         )
                         VALUES (
                             :fact_id, :tenant_id, :conversation_id, :job_id, :job_type, :job_status,
-                            :key, :value, :source, :event_id, :superseded_by, :contested, :state
+                            :key, :value, :source, :event_id, :superseded_by, :contested, :state,
+                            :status, :evidence, :confidence
                         )
                         """
                     ),
@@ -99,6 +102,9 @@ class CaseTables:
                         "superseded_by": fact.superseded_by,
                         "contested": fact.contested,
                         "state": fact.state,
+                        "status": fact.status,
+                        "evidence": fact.evidence,
+                        "confidence": None if fact.confidence is None else str(fact.confidence),
                     },
                 )
 
@@ -119,7 +125,8 @@ class CaseTables:
             connection.execute(
                 text(
                     """
-                    SELECT fact_id, job_id, job_type, job_status, key, value, source, event_id, superseded_by, contested, state
+                    SELECT fact_id, job_id, job_type, job_status, key, value, source, event_id,
+                           superseded_by, contested, state, status, evidence, confidence
                     FROM case_fact
                     WHERE conversation_id = :conversation_id
                     ORDER BY fact_id
@@ -143,6 +150,9 @@ class CaseTables:
                     source=fact.source,
                     event_id=fact.event_id,
                     state=fact.state or "known",
+                    status=fact.status or "stated",
+                    evidence=fact.evidence or "",
+                    confidence=None if fact.confidence is None else Decimal(str(fact.confidence)),
                     superseded_by=fact.superseded_by,
                     contested=fact.contested,
                 )

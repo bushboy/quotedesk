@@ -12,6 +12,7 @@ from quotedesk.application.ports.repositories import CapacityRepository, CaseFil
 from quotedesk.application.ports.runtime import Clock
 from quotedesk.domain.policy.playbook import BusinessPlaybook
 from quotedesk.domain.policy.rules import Policy
+from quotedesk.domain.services.price import RateCard
 from quotedesk.domain.quotes.inspection import Inspection, InspectionStatus
 from quotedesk.domain.quotes.quote import QuoteState
 from quotedesk.domain.quotes.schedule import DepositState, ScheduleRequest, ScheduleSettings
@@ -50,13 +51,13 @@ class BookInspection:
         case = self._cases.get(context.tenant_id, data.conversation_id)
         if case is None:
             raise CaseNotFound()
-        playbook, policy = _published(self._policies, context.tenant_id)
+        playbook, policy, card = _published(self._policies, context.tenant_id)
         from quotedesk.application.use_cases.tools.planner_inputs import planner_inputs
 
         text, asked = planner_inputs(self._conversations, context.tenant_id, data.conversation_id, playbook)
         step = plan_next_step(case, playbook, policy, asked=asked, customer_text=text)
         rule_id = step.rule_id if step.kind is StepKind.INSPECTION else ""
-        fee = _fee(playbook, rule_id)
+        fee = _fee(playbook, rule_id, card)
         window = _window(self._capacity, self._settings, self._clock, context.tenant_id)
         status = InspectionStatus.BOOKED if data.confirm else InspectionStatus.OFFERED
         now = self._clock.now()
@@ -92,22 +93,45 @@ class BookInspection:
 def _published(policies, tenant_id):
     bundle = None if policies is None else policies.published(tenant_id)
     if bundle is None:
-        return BusinessPlaybook(), Policy(
-            version=PolicyVersionId("planner-policy-v1.0"),
-            rules=(),
-            rate_card_codes=(),
-            sam_score_threshold=Decimal("0"),
+        return (
+            BusinessPlaybook(),
+            Policy(
+                version=PolicyVersionId("planner-policy-v1.0"),
+                rules=(),
+                rate_card_codes=(),
+                sam_score_threshold=Decimal("0"),
+            ),
+            None,
         )
-    return bundle.playbook, bundle.policy
+    return bundle.playbook, bundle.policy, getattr(bundle, "rate_card", None)
 
 
-def _fee(playbook: BusinessPlaybook, rule_id: str) -> str:
+def _fee(playbook: BusinessPlaybook, rule_id: str, card: RateCard | None) -> str:
+    """The visit fee is the rate-card amount. The playbook label is not an amount."""
+    if card is None:
+        return ""
+    code = ""
     for trigger in playbook.inspections:
         if rule_id and trigger.rule_id == rule_id:
-            return trigger.fee
-    if playbook.inspections:
-        return playbook.inspections[0].fee
-    return ""
+            code = trigger.fee_item
+            break
+    if not code and playbook.inspections:
+        code = playbook.inspections[0].fee_item
+    if code:
+        for item in card.items:
+            if item.item_code == code:
+                return _rand(item.unit_price.amount)
+    return _rand(card.site_visit_fee.amount)
+
+
+def _rand(amount: Decimal) -> str:
+    quantized = amount.quantize(Decimal("0.01"))
+    whole, cents = f"{quantized:.2f}".split(".")
+    pieces: list[str] = []
+    while whole:
+        pieces.append(whole[-3:])
+        whole = whole[:-3]
+    return "R " + " ".join(reversed(pieces)) + "." + cents
 
 
 def _window(capacity, settings: ScheduleSettings, clock: Clock, tenant_id):

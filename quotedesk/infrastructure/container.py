@@ -58,17 +58,21 @@ def _enricher(settings: Settings, host):
     if settings.model != "spark":
         return RecordedEnricher()
     if settings.image_provider == "baseten":
-        return ImageEnricher(
-            host=host,
-            transport=SdkTransport(settings.baseten_api_key),
-            model_id=settings.baseten_image_model_id,
-            base_url=settings.baseten_base_url,
-        )
+        transport = SdkTransport(settings.baseten_api_key)
+        model_id = settings.baseten_image_model_id
+        base_url = settings.baseten_base_url
+    else:
+        transport = SdkTransport(settings.meta_api_key)
+        model_id = settings.spark_model_id
+        base_url = settings.meta_base_url
     return ImageEnricher(
         host=host,
-        transport=SdkTransport(settings.meta_api_key),
-        model_id=settings.spark_model_id,
-        base_url=settings.meta_base_url,
+        transport=transport,
+        model_id=model_id,
+        base_url=base_url,
+        segment_transport=SdkTransport(settings.meta_api_key),
+        sam_model_id=settings.sam_model_id,
+        sam_base_url=settings.meta_base_url,
     )
 
 
@@ -141,11 +145,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         _log.info("Model script")
     else:
         _log.info(
-            "Model agent provider=%s id=%s image provider=%s id=%s",
+            "Model agent provider=%s id=%s image provider=%s id=%s sam=%s",
             settings.agent_provider,
             settings.baseten_model_id if settings.agent_provider == "baseten" else settings.spark_model_id,
             settings.image_provider,
             settings.baseten_image_model_id if settings.image_provider == "baseten" else settings.spark_model_id,
+            settings.sam_model_id,
         )
 
     if app.state.store_status == "down":

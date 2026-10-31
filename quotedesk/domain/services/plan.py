@@ -7,12 +7,13 @@ from enum import Enum
 
 from pydantic import BaseModel, ConfigDict
 
-from quotedesk.domain.case.case_file import CaseFile, Job
+from quotedesk.domain.case.case_file import CaseFact, CaseFile, Job, price_ready, status_of
 from quotedesk.domain.case.facts import CaseFacts, ExtractionFacts, JobKind, SegmentationFacts
-from quotedesk.domain.policy.playbook import BusinessPlaybook
+from quotedesk.domain.policy.playbook import BusinessPlaybook, FactDefinition, FactOption
 from quotedesk.domain.policy.rules import Outcome, Policy
 from quotedesk.domain.services.confidence import ConfidenceChecks, SizeSource
 from quotedesk.domain.services.decide import decide
+from quotedesk.domain.services.finish import chosen_sheet
 from quotedesk.domain.shared.errors import PolicyViolation
 
 _ASK = "What should I quote for you?"
@@ -20,16 +21,36 @@ _QUOTE = "I'll price that from the rate card."
 _TWICE = "I've asked twice, so I won't ask again."
 _UNSURE = "You don't know that, so I won't ask again."
 _GREETING = re.compile(r"^(?:hi|hello|hey|good morning|good afternoon|good evening)\b", re.IGNORECASE)
-_ORDER = {"escalate": 0, "inspection": 1, "ask": 2, "quote": 3}
+_ORDER = {"escalate": 0, "inspection": 1, "confirm": 2, "ask": 3, "quote": 4}
+_DECIDES = {"outcome": 0, "both": 1, "price": 2}
+_EASE = {"easy": 0, "needs_tape": 1, "needs_expert": 2}
+_PHOTO = " Or send a photo and I'll tell you what I see."
 _CONFIDENCE = ("required_fields", "agreement", "measurement", "media_usable", "rate_card")
 _TRUE = frozenset({"true", "yes", "y"})
 
 
 class StepKind(str, Enum):
     ASK = "ask"
+    CONFIRM = "confirm"
     QUOTE = "quote"
     INSPECTION = "inspection"
     ESCALATE = "escalate"
+
+
+class Assumption(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    fact_key: str
+    fact_label: str
+    value_label: str
+    evidence: str = ""
+
+
+class Choice(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    label: str
+    hint: str = ""
 
 
 class NextStep(BaseModel):
@@ -38,9 +59,12 @@ class NextStep(BaseModel):
     kind: StepKind
     sentence: str
     job_id: str = ""
+    job_label: str = ""
     fact_key: str = ""
     reason: str = ""
     rule_id: str = ""
+    assumptions: tuple[Assumption, ...] = ()
+    choices: tuple[Choice, ...] = ()
 
 
 def plan_next_step(
@@ -63,12 +87,12 @@ def plan_next_step(
 def _opening(playbook: BusinessPlaybook) -> NextStep:
     if len(playbook.job_types) == 1:
         job = playbook.job_types[0]
-        for fact in job.facts:
+        for fact in _ranked(job.facts):
             if fact.required and fact.question.strip():
-                return NextStep(kind=StepKind.ASK, sentence=fact.question.strip(), job_id=job.key, fact_key=fact.key)
+                return _ask(job.key, _job_label(job), fact, False)
     if playbook.job_types:
-        names = ", ".join(job.key for job in playbook.job_types)
-        return NextStep(kind=StepKind.ASK, sentence=f"Which of these should I quote: {names}?", fact_key="job_type")
+        names = ", ".join(_job_label(job) for job in playbook.job_types[:4])
+        return NextStep(kind=StepKind.ASK, sentence=f"What can we help with: {names}?", fact_key="job_type")
     return NextStep(kind=StepKind.ASK, sentence=_ASK, fact_key="job_type")
 
 
@@ -80,37 +104,62 @@ def _job_step(
     asked: dict[str, int],
 ) -> NextStep:
     current = _current(case, job.job_id)
-    states = _states(case, job.job_id)
     play = next((item for item in playbook.job_types if item.key == (job.job_type or "")), None)
+    required = () if play is None else tuple(fact for fact in play.facts if fact.required)
     missing = None
     unknown = None
+    inferred: list[tuple[FactDefinition, CaseFact]] = []
+    seen = _has_photo(case)
     if play is not None:
-        for fact in play.facts:
-            if not fact.required:
+        for fact in _ranked(required):
+            active = case.active_fact(job.job_id, fact.key)
+            if fact.key == "sheet" and _sheet_known(current, fact) and (active is None or status_of(active) not in ("inferred", "unknown")):
                 continue
-            if states.get(fact.key) == "unknown":
+            if active is not None and status_of(active) == "unknown":
                 unknown = unknown or fact
                 continue
-            if not current.get(fact.key, "").strip() and missing is None:
-                missing = fact
-    decision = _decision(job, current, policy)
+            if active is not None and status_of(active) == "inferred":
+                if _confident(active, fact):
+                    inferred.append((fact, active))
+                elif missing is None:
+                    missing = fact
+                continue
+            if active is None or not active.value.strip():
+                if missing is None:
+                    missing = fact
+    decision = _decision(job, current, case, policy, () if play is None else _sheet_options(play))
     if decision is not None and not _fallback(decision.rule_id.value):
         step = _from_decision(decision, job.job_id)
         if step.kind in (StepKind.ESCALATE, StepKind.INSPECTION):
             return step
+    if inferred:
+        return _confirm(job.job_id, _job_label(play) if play is not None else "", inferred[:3])
     if missing is not None and asked.get(missing.key, 0) < 2:
-        question = missing.question.strip() or _ASK
-        return NextStep(
-            kind=StepKind.ASK,
-            sentence=question,
-            job_id=job.job_id,
-            fact_key=missing.key,
-        )
+        return _ask(job.job_id, _job_label(play) if play is not None else "", missing, seen)
     if missing is not None or unknown is not None:
-        return _stop(playbook, job.job_id, missing or unknown, missing is not None)
+        pending = missing or unknown
+        if _ranges(pending, seen) and decision is not None:
+            return _from_decision(decision, job.job_id)
+        return _unsure(playbook, job.job_id, pending, missing is not None, seen, asked)
+    if play is not None and not _ready(case, job, play, current):
+        return NextStep(kind=StepKind.ASK, sentence=_ASK, job_id=job.job_id)
     if decision is None:
         return NextStep(kind=StepKind.QUOTE, sentence=_QUOTE, job_id=job.job_id)
     return _from_decision(decision, job.job_id)
+
+
+def _unsure(playbook: BusinessPlaybook, job_id: str, fact, twice: bool, seen: bool, asked: dict[str, int]) -> NextStep:
+    mode = getattr(fact, "if_unsure", "inspection")
+    if mode in ("ask_photo", "photo_then_range") and not seen and asked.get(fact.key, 0) < 2:
+        return NextStep(
+            kind=StepKind.ASK,
+            sentence="A photo of that would help.",
+            job_id=job_id,
+            fact_key=fact.key,
+        )
+    if mode == "range" or (mode == "photo_then_range" and seen):
+        return NextStep(kind=StepKind.QUOTE, sentence=_QUOTE, job_id=job_id)
+    return _stop(playbook, job_id, fact, twice)
 
 
 def _stop(playbook: BusinessPlaybook, job_id: str, fact, twice: bool) -> NextStep:
@@ -134,14 +183,14 @@ def _stop(playbook: BusinessPlaybook, job_id: str, fact, twice: bool) -> NextSte
 
 def _phrase(step: NextStep, playbook: BusinessPlaybook, text: str) -> NextStep:
     outside = _outside(playbook, text)
-    if outside and step.kind in (StepKind.ASK, StepKind.QUOTE):
+    if outside and step.kind in (StepKind.ASK, StepKind.CONFIRM, StepKind.QUOTE):
         return NextStep(
             kind=StepKind.ESCALATE,
             sentence=outside,
             job_id=step.job_id,
             reason="This is outside what the business does.",
         )
-    if step.kind is not StepKind.ASK or not text.strip():
+    if step.kind not in (StepKind.ASK, StepKind.CONFIRM) or not text.strip():
         return step
     folded = text.casefold()
     for question in playbook.questions:
@@ -151,6 +200,90 @@ def _phrase(step: NextStep, playbook: BusinessPlaybook, text: str) -> NextStep:
     if _GREETING.match(text.strip()) and playbook.hours.strip():
         return step.model_copy(update={"sentence": f"{playbook.hours.strip()} {step.sentence}".strip()})
     return step
+
+
+def _ranked(facts: tuple[FactDefinition, ...]) -> tuple[FactDefinition, ...]:
+    ordered = sorted(enumerate(facts), key=lambda pair: (_DECIDES[pair[1].decides], _EASE[pair[1].ease], pair[0]))
+    return tuple(fact for _, fact in ordered)
+
+
+def _job_label(job) -> str:
+    if job is None:
+        return ""
+    if job.label.strip():
+        return job.label.strip()
+    if job.description.strip():
+        return job.description.strip()
+    return job.key.replace("_", " ")
+
+
+def _ask(job_id: str, job_label: str, fact: FactDefinition, seen: bool) -> NextStep:
+    options = fact.options or tuple(FactOption(value=item, label=item) for item in fact.allowed)
+    shown = options[:4]
+    lines = [fact.question.strip() or _ASK]
+    for index, option in enumerate(shown, start=1):
+        hint = f" – {option.hint}" if option.hint else ""
+        lines.append(f"{index}. {option.label}{hint}")
+    sentence = "\n".join(lines)
+    if fact.photo_can_answer and not seen:
+        photo = _PHOTO.strip()
+        sentence = f"{sentence}\n{photo}" if shown else f"{sentence} {_PHOTO.strip()}"
+    return NextStep(
+        kind=StepKind.ASK,
+        sentence=sentence,
+        job_id=job_id,
+        job_label=job_label,
+        fact_key=fact.key,
+        choices=tuple(Choice(label=option.label, hint=option.hint) for option in shown),
+    )
+
+
+def _confirm(job_id: str, job_label: str, pairs: list[tuple[FactDefinition, CaseFact]]) -> NextStep:
+    assumptions = tuple(
+        Assumption(
+            fact_key=fact.key,
+            fact_label=fact.label or fact.question or fact.key,
+            value_label=_value_label(fact, active.value),
+            evidence=active.evidence,
+        )
+        for fact, active in pairs
+    )
+    parts = []
+    for item in assumptions:
+        why = f" ({item.evidence})" if item.evidence else ""
+        parts.append(f"{item.fact_label} looks like {item.value_label}{why}")
+    sentence = "From what I can see, " + ", and ".join(parts) + ". Is that right?"
+    return NextStep(
+        kind=StepKind.CONFIRM,
+        sentence=sentence,
+        job_id=job_id,
+        job_label=job_label,
+        fact_key=assumptions[0].fact_key,
+        assumptions=assumptions,
+    )
+
+
+def _value_label(fact: FactDefinition, value: str) -> str:
+    for option in fact.options:
+        if option.value == value:
+            return option.label
+    return value
+
+
+def _confident(active: CaseFact, fact: FactDefinition) -> bool:
+    if active.confidence is None:
+        return False
+    if fact.min_confidence is None:
+        return True
+    return active.confidence >= fact.min_confidence
+
+
+def _has_photo(case: CaseFile) -> bool:
+    for job in case.jobs:
+        for fact in job.facts:
+            if fact.source in ("photo_extraction", "video_extraction"):
+                return True
+    return False
 
 
 def _outside(playbook: BusinessPlaybook, text: str) -> str | None:
@@ -163,20 +296,38 @@ def _outside(playbook: BusinessPlaybook, text: str) -> str | None:
     return None
 
 
-def _states(case: CaseFile, job_id: str) -> dict[str, str]:
-    found: dict[str, str] = {}
-    for fact in case.facts(job_id):
-        if fact.superseded_by is not None or fact.contested or fact.key in found:
+def _ready(case: CaseFile, job: Job, play, current: dict[str, str]) -> bool:
+    keys = []
+    for fact in play.facts:
+        if not fact.required:
             continue
-        found[fact.key] = fact.state
-    return found
+        if fact.key == "sheet" and _sheet_known(current, fact):
+            continue
+        keys.append(fact.key)
+    return price_ready(case, job.job_id, tuple(keys))
 
 
-def _decision(job: Job, current: dict[str, str], policy: Policy):
+def _ranges(fact, seen: bool) -> bool:
+    mode = getattr(fact, "if_unsure", "inspection")
+    return mode == "range" or (mode == "photo_then_range" and seen)
+
+
+def _sheet_options(job):
+    for fact in job.facts:
+        if fact.key == "sheet":
+            return fact.options
+    return ()
+
+
+def _sheet_known(current: dict[str, str], fact: FactDefinition) -> bool:
+    return chosen_sheet(current, fact.options) is not None
+
+
+def _decision(job: Job, current: dict[str, str], case: CaseFile, policy: Policy, options=()):
     if not policy.rules:
         return None
     try:
-        return decide(_case_facts(job, current), _extraction(current), SegmentationFacts(), policy)
+        return decide(_case_facts(job, current, case, options), _extraction(current), SegmentationFacts(), policy)
     except PolicyViolation:
         return None
 
@@ -221,14 +372,14 @@ def _current(case: CaseFile, job_id: str) -> dict[str, str]:
     return values
 
 
-def _case_facts(job: Job, current: dict[str, str]) -> CaseFacts:
+def _case_facts(job: Job, current: dict[str, str], case: CaseFile, options=()) -> CaseFacts:
     size = _whole(current.get("size_litres"))
     source = current.get("size_source")
     if source not in ("photo_inferred", "customer_stated", "reference_object") and size is not None:
         source = "customer_stated"
     opening = current.get("opening")
     return CaseFacts(
-        checks=_checks(current),
+        checks=_checks(current, case.facts(job.job_id) if job.job_id else ()),
         job=_job_kind(current.get("job_type") or job.job_type),
         customer_text=current.get("customer_text"),
         size_litres=size,
@@ -240,10 +391,10 @@ def _case_facts(job: Job, current: dict[str, str]) -> CaseFacts:
         new_tank_and_pump=_flag(current, "new_tank_and_pump"),
         sloped_ground=_flag(current, "sloped_ground"),
         pipe_run_unknown=_flag(current, "pipe_run_unknown"),
-        item_codes=_codes(current.get("item_codes")),
+        item_codes=_sheet_codes(current, options),
         width_m=_decimal(current.get("width_m")),
         length_m=_decimal(current.get("length_m")),
-        finish=current.get("finish"),
+        finish=_finish(current, options),
         opening=opening if opening in ("existing", "new", "widened") else None,
         above_ground_floor=_flag(current, "above_ground_floor"),
         multi_unit=_flag(current, "multi_unit"),
@@ -253,14 +404,19 @@ def _case_facts(job: Job, current: dict[str, str]) -> CaseFacts:
     )
 
 
-def _checks(current: dict[str, str]) -> ConfidenceChecks:
+def _checks(current: dict[str, str], facts: tuple[CaseFact, ...] = ()) -> ConfidenceChecks:
+    photo = any(
+        fact.source in ("photo_extraction", "video_extraction") and fact.superseded_by is None and not fact.contested
+        for fact in facts
+    )
     if all(key not in current for key in _CONFIDENCE):
+        met = not photo
         return ConfidenceChecks(
-            required_fields=True,
-            agreement=True,
-            measurement=True,
-            media_usable=True,
-            rate_card=True,
+            required_fields=met,
+            agreement=met,
+            measurement=met,
+            media_usable=met,
+            rate_card=met,
         )
     return ConfidenceChecks(
         required_fields=_flag(current, "required_fields"),
@@ -307,6 +463,23 @@ def _codes(raw: str | None) -> tuple[str, ...]:
     if raw is None or raw.strip() == "":
         return ()
     return tuple(part.strip() for part in raw.split(",") if part.strip())
+
+
+def _sheet_codes(current: dict[str, str], options) -> tuple[str, ...]:
+    found = chosen_sheet(current, options)
+    if found is not None:
+        return (found.code,)
+    return _codes(current.get("item_codes"))
+
+
+def _finish(current: dict[str, str], options) -> str | None:
+    stated = current.get("finish")
+    if stated is not None and stated.strip():
+        return stated
+    found = chosen_sheet(current, options)
+    if found is not None:
+        return found.label
+    return None
 
 
 def _job_kind(raw: str | None) -> JobKind:

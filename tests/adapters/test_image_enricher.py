@@ -2,6 +2,7 @@ import base64
 import json
 import socket
 import time
+from decimal import Decimal
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -144,19 +145,27 @@ def test_a_real_jpeg_is_accepted_and_webp_is_refused(monkeypatch):
     assert [row["body"] for row in rows].count(_FILE) == 2
 
 
+def _sam_response(score: str, *, extra: str = "") -> dict:
+    line = (
+        f"<0f>0<|box;x1=10;y1=12;x2=40;y2=50;w=80;h=60;c={score}|>"
+        f"<|mask;x=0;y=0;c={score};data=4,4,!abcd|>{extra}"
+    )
+    return {"output": [{"type": "message", "content": [{"type": "output_text", "text": line}]}]}
+
+
 def test_spark_extraction_reads_the_bytes_once(monkeypatch):
     _refuse_socket(monkeypatch)
     recorded = json.loads((_ROOT / "fixtures" / "extraction" / "tank-on-base.json").read_text(encoding="utf-8"))
     recorded = {**recorded, "unit_price": "4250.00", "size_litres": "5000", "outcome": "fixed_offer"}
-    masks = json.loads((_ROOT / "fixtures" / "sam" / "tank_success.json").read_text(encoding="utf-8"))
     blob = b"\xff\xd8\xff\xd9"
     host = _Host({"media-1": ("image/jpeg", blob)})
-    transport = _Transport([recorded, masks])
+    transport = _Transport([recorded, _sam_response("0.91")])
     enricher = ImageEnricher(
         host=host,
         transport=transport,
         model_id="muse-spark-1.3",
         base_url="https://api.meta.ai/v1",
+        sam_model_id="sam-3.1",
     )
     enricher.note("wamid.IMG", "media-1", _CAPTION)
     result = enricher.for_image("wamid.IMG")
@@ -170,14 +179,21 @@ def test_spark_extraction_reads_the_bytes_once(monkeypatch):
     assert "metres" in extracts[0]["instructions"]
     assert "unit_price" not in dumped
     assert base64.b64encode(blob).decode("ascii") in dumped
-    segment = transport.calls[1][1]
-    assert "image segmentation" in segment["instructions"]
-    assert "South Africa" in segment["instructions"]
+    url, segment = transport.calls[1]
+    assert url == "https://api.meta.ai/v1/responses"
+    assert segment["model"] == "sam-3.1"
+    assert "instructions" not in segment
+    assert segment["metadata"] == {"include_confidence": "true", "mask_encoding": "one_bit"}
+    prompt = segment["input"][0]["content"][0]
+    assert prompt == {"type": "input_text", "text": "tank"}
     assert base64.b64encode(blob).decode("ascii") in json.dumps(segment)
     assert result is not None and again == result
     assert result.summary == "A tank on a level base."
     assert result.objects == ("tank",)
-    assert result.notes == ("A tank on a level base.",)
+    assert result.notes == ()
+    assert result.sam_error is False
+    assert result.masks[0].label == "tank"
+    assert result.masks[0].score == Decimal("0.91")
     assert host.reads == ["media-1"]
     assert len(transport.calls) == 2
 
@@ -205,6 +221,54 @@ def test_a_description_in_the_envelope_is_kept(monkeypatch):
     assert len(transport.calls) == 1
 
 
+def test_each_object_is_one_sam_call(monkeypatch):
+    _refuse_socket(monkeypatch)
+    recorded = {
+        "summary": "A tank on a base.",
+        "objects": ["tank", "base", "tank"],
+        "blur": False,
+        "darkness": False,
+        "wrong_subject": False,
+    }
+    host = _Host({"media-1": ("image/jpeg", b"\xff\xd8\xff\xd9")})
+    transport = _Transport([recorded, _sam_response("0.91"), _sam_response("0.40")])
+    enricher = ImageEnricher(
+        host=host,
+        transport=transport,
+        model_id="muse-spark-1.3",
+        base_url="https://api.meta.ai/v1",
+    )
+    enricher.note("wamid.IMG", "media-1", _CAPTION)
+    result = enricher.for_image("wamid.IMG")
+    prompts = [body["input"][0]["content"][0]["text"] for _, body in transport.calls[1:]]
+    assert prompts == ["tank", "base"]
+    assert result is not None
+    assert [(mask.label, mask.score) for mask in result.masks] == [
+        ("tank", Decimal("0.91")),
+        ("base", Decimal("0.40")),
+    ]
+
+
+def test_no_sam_match_keeps_the_summary(monkeypatch):
+    _refuse_socket(monkeypatch)
+    recorded = json.loads((_ROOT / "fixtures" / "extraction" / "tank-on-base.json").read_text(encoding="utf-8"))
+    empty = {"output": [{"type": "message", "content": [{"type": "output_text", "text": ""}]}]}
+    host = _Host({"media-1": ("image/jpeg", b"\xff\xd8\xff\xd9")})
+    transport = _Transport([recorded, empty])
+    enricher = ImageEnricher(
+        host=host,
+        transport=transport,
+        model_id="muse-spark-1.3",
+        base_url="https://api.meta.ai/v1",
+    )
+    enricher.note("wamid.IMG", "media-1", _CAPTION)
+    result = enricher.for_image("wamid.IMG")
+    assert result is not None
+    assert result.sam_error is False
+    assert result.masks == ()
+    assert result.summary == "A tank on a level base."
+
+
 def test_sam_failure_keeps_the_summary(monkeypatch):
     _refuse_socket(monkeypatch)
     recorded = json.loads((_ROOT / "fixtures" / "extraction" / "tank-on-base.json").read_text(encoding="utf-8"))
@@ -221,6 +285,7 @@ def test_sam_failure_keeps_the_summary(monkeypatch):
     result = enricher.for_image("wamid.IMG")
     assert result is not None
     assert result.sam_error is True
+    assert result.sam_sentence == "The segmenter did not return a result."
     assert result.masks == ()
     assert result.summary == "A tank on a level base."
 
@@ -240,6 +305,7 @@ def test_install_uses_spark_for_images(monkeypatch):
         "BASETEN_BASE_URL",
         "BASETEN_MODEL_ID",
         "BASETEN_IMAGE_MODEL_ID",
+        "SAM_MODEL_ID",
     ):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("MODEL", "spark")
@@ -247,4 +313,8 @@ def test_install_uses_spark_for_images(monkeypatch):
     monkeypatch.setenv("SPARK_MODEL_ID", "muse-spark-1.3")
     app = create_app(get_settings())
     assert isinstance(app.state.slot.model, SparkTurn)
-    assert isinstance(app.state.turn.enricher, ImageEnricher)
+    enricher = app.state.turn.enricher
+    assert isinstance(enricher, ImageEnricher)
+    assert enricher._sam_model_id == "sam-3.1"
+    assert enricher._sam_url == "https://api.meta.ai/v1/responses"
+    assert enricher._model_id == "muse-spark-1.3"

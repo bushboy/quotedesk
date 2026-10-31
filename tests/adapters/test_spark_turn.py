@@ -98,6 +98,7 @@ def _spark_env(monkeypatch, **values: str) -> None:
         "BASETEN_BASE_URL",
         "BASETEN_MODEL_ID",
         "BASETEN_IMAGE_MODEL_ID",
+        "SAM_MODEL_ID",
     ):
         monkeypatch.delenv(name, raising=False)
     for name, value in values.items():
@@ -290,12 +291,16 @@ def test_baseten_can_host_the_agent_and_the_image_read(monkeypatch):
         BASETEN_BASE_URL="https://inference.example/v1",
         BASETEN_MODEL_ID="zai-org/GLM-5.3",
         BASETEN_IMAGE_MODEL_ID="vision-slug",
+        META_API_KEY="test-key",
+        SAM_MODEL_ID="sam-3.1",
     )
     app = create_app(get_settings())
     assert app.state.slot.model._base_url == "https://inference.example/v1"
     assert app.state.slot.model._model_id == "zai-org/GLM-5.3"
     assert app.state.turn.enricher._url == "https://inference.example/v1/responses"
     assert app.state.turn.enricher._model_id == "vision-slug"
+    assert app.state.turn.enricher._sam_url == "https://api.meta.ai/v1/responses"
+    assert app.state.turn.enricher._sam_model_id == "sam-3.1"
 
     _spark_env(
         monkeypatch,
@@ -311,6 +316,20 @@ def test_baseten_can_host_the_agent_and_the_image_read(monkeypatch):
     assert mixed.state.slot.model._base_url == "https://inference.baseten.co/v1"
     assert mixed.state.turn.enricher._url == "https://api.meta.ai/v1/responses"
     assert mixed.state.turn.enricher._model_id == "muse-spark-1.3"
+    assert mixed.state.turn.enricher._sam_model_id == "sam-3.1"
+
+    _spark_env(
+        monkeypatch,
+        MODEL="spark",
+        AGENT_PROVIDER="baseten",
+        IMAGE_PROVIDER="baseten",
+        BASETEN_API_KEY="test-key",
+        BASETEN_MODEL_ID="zai-org/GLM-5.3",
+        META_API_KEY="",
+    )
+    with pytest.raises(SettingsError) as missing_sam_key:
+        get_settings()
+    assert str(missing_sam_key.value) == "META_API_KEY is required when MODEL is spark."
 
     _spark_env(monkeypatch, MODEL="script", AGENT_PROVIDER="baseten", IMAGE_PROVIDER="baseten")
     script_app = create_app(get_settings())

@@ -22,6 +22,7 @@ def test_settings_read_from_env(monkeypatch):
         "BASETEN_BASE_URL",
         "BASETEN_MODEL_ID",
         "BASETEN_IMAGE_MODEL_ID",
+        "SAM_MODEL_ID",
     ):
         monkeypatch.delenv(name, raising=False)
     with pytest.raises(SettingsError) as missing:
@@ -44,7 +45,11 @@ def test_settings_read_from_env(monkeypatch):
     assert get_settings().model == "spark"
     assert get_settings().agent_provider == "meta"
     assert get_settings().image_provider == "meta"
+    assert get_settings().sam_model_id == "sam-3.1"
     assert get_settings().tenant == "aquasure"
+    monkeypatch.setenv("SAM_MODEL_ID", "sam-3.1-preview")
+    assert get_settings().sam_model_id == "sam-3.1-preview"
+    monkeypatch.setenv("SAM_MODEL_ID", "")
     monkeypatch.setenv("TENANT", "no-such-business")
     with pytest.raises(SettingsError) as unknown:
         get_settings()

@@ -5,6 +5,7 @@ from quotedesk.application.errors import CaseNotFound, TenantRequired
 from quotedesk.application.ports.repositories import CaseFileRepository, JobCatalog
 from quotedesk.application.ports.runtime import IdGenerator
 from quotedesk.domain.case.case_file import CaseFile
+from quotedesk.domain.services.finish import sheet_choice
 from quotedesk.domain.shared.errors import PolicyViolation, ValidationError
 
 _TYPE = "A new job names its type."
@@ -76,6 +77,7 @@ class UpdateCase:
             case = case.add_job(data.job_id, data.job_type)
         job = _find(case, data.job_id)
         assert job is not None
+        recorded = {fact.key for fact in data.facts}
         for fact in data.facts:
             if fact.key in _CONFIDENCE and not data.system:
                 continue
@@ -99,6 +101,18 @@ class UpdateCase:
                 fact.source,
                 fact.event_id,
             )
+            for key, linked in _priced(fact.key, value, _defined(self._catalog, job.job_type or "")):
+                if key in recorded:
+                    continue
+                recorded.add(key)
+                case = case.record_fact(
+                    data.job_id,
+                    self._ids.next_fact_id(),
+                    key,
+                    linked,
+                    fact.source,
+                    fact.event_id,
+                )
         self._cases.save(context.tenant_id, case)
         job = _find(case, data.job_id)
         assert job is not None
@@ -152,6 +166,24 @@ def _normalise(key: str, value: str, job_type: str, catalog, system: bool, sourc
     if digits == "" or digits == ".":
         raise ValidationError(code="fact.number", sentence=_UNKNOWN)
     return digits
+
+
+def _priced(key: str, value: str, defined: dict) -> tuple[tuple[str, str], ...]:
+    """A named finish is the rate-card item on that choice."""
+    sheet = defined.get("sheet")
+    if sheet is None or key not in ("sheet", "finish", "item_codes"):
+        return ()
+    found = sheet_choice(value, sheet.options)
+    if found is None:
+        return ()
+    pairs = []
+    if key != "item_codes":
+        pairs.append(("item_codes", found.code))
+    if key != "finish":
+        pairs.append(("finish", found.label))
+    if key != "sheet":
+        pairs.append(("sheet", found.value))
+    return tuple(pairs)
 
 
 def _defined(catalog, job_type: str) -> dict:

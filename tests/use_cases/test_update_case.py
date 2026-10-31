@@ -220,7 +220,7 @@ def test_update_case_flags_contradiction():
         UpdateCaseInput(
             conversation_id=CONVERSATION,
             job_id="tank",
-            facts=(fact("position", "ground level", "photo_extraction"),),
+            facts=(fact("position", "ground level", "voice_transcript"),),
         ),
     )
     facts = cases.case.facts("tank")

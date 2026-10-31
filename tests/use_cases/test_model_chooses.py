@@ -97,5 +97,5 @@ def test_a_chosen_sentence_with_the_wrong_total_is_refused():
     conversations, _, sender, _, turn = harness(model)
     say(conversations, CUSTOMER)
     turn.execute(CONTEXT, CONVERSATION)
-    assert sender.sent == [(WA, "We can send a fixed quote for this replacement. /card/QD-1042?code=1042")]
+    assert sender.sent == [(WA, "We can send a fixed quote for this replacement. The total is R 4250.00. /card/QD-1042?code=1042")]
     assert all("R 3 000" not in body for _, body in sender.sent)

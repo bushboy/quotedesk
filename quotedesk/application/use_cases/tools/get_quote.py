@@ -17,6 +17,7 @@ from quotedesk.domain.policy.rules import Decision, Outcome
 from quotedesk.domain.quotes.quote import Quote, QuoteLine
 from quotedesk.domain.services.confidence import ConfidenceChecks, SizeSource
 from quotedesk.domain.services.decide import decide
+from quotedesk.domain.services.finish import chosen_sheet
 from quotedesk.domain.services.price import PriceFacts, PricedQuote, RequestedItem, price
 from quotedesk.domain.services.schedule import civil_date
 from quotedesk.domain.services.select_clauses import select_clauses
@@ -156,7 +157,7 @@ _RANK = {
 
 
 def _quote_job(case: CaseFile, job, bundle):
-    case_facts, extraction = _facts(case, job)
+    case_facts, extraction = _facts(case, job, bundle.playbook, bundle.rate_card)
     decision = decide(case_facts, extraction, SegmentationFacts(), bundle.policy)
     priced = price(decision, _price_facts(case_facts, bundle.rate_card, bundle.playbook), bundle.rate_card)
     return decision, case_facts, priced
@@ -184,7 +185,7 @@ def _combine(quoted, priced: PricedQuote) -> PricedQuote:
     )
 
 
-def _facts(case: CaseFile, job) -> tuple[CaseFacts, ExtractionFacts]:
+def _facts(case: CaseFile, job, playbook=None, rate_card=None) -> tuple[CaseFacts, ExtractionFacts]:
     values = {
         fact.key: fact.value
         for fact in case.facts(job.job_id)
@@ -205,8 +206,7 @@ def _facts(case: CaseFile, job) -> tuple[CaseFacts, ExtractionFacts]:
     stand = values.get("stand_condition")
     width = _decimal(values.get("width_m"))
     length = _decimal(values.get("length_m"))
-    finish = values.get("finish")
-    codes = _codes(values.get("item_codes"))
+    codes, finish = _chosen(values, job.job_type or values.get("job_type"), playbook, rate_card)
     opening = values.get("opening")
     stated = _size_source(case, job.job_id)
     case_facts = CaseFacts(
@@ -307,6 +307,28 @@ def _job_type(raw: str | None) -> str | None:
     if raw in ("carport", "window", "door", "shutter"):
         return raw
     return None
+
+
+def _sheet_options(playbook, job_type: str | None):
+    if playbook is None or not job_type:
+        return ()
+    for job in playbook.job_types:
+        if job.key == job_type:
+            for fact in job.facts:
+                if fact.key == "sheet":
+                    return fact.options
+    return ()
+
+
+def _chosen(values: dict[str, str], job_type: str | None, playbook, rate_card):
+    descriptions = () if rate_card is None else tuple((item.item_code, item.description) for item in rate_card.items)
+    found = chosen_sheet(values, _sheet_options(playbook, job_type), descriptions)
+    finish = values.get("finish")
+    if found is None:
+        return _codes(values.get("item_codes")), finish
+    if finish is None or not str(finish).strip():
+        finish = found.label
+    return (found.code,), finish
 
 
 def _codes(raw: str | None) -> tuple[str, ...]:

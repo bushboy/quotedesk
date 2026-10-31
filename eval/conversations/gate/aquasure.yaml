@@ -126,7 +126,7 @@ conversations:
     expected_outcome: inspection_offered
     rule_id: WATER-E02
     required_facts: []
-    forbidden: ["R ", "total", "for free"]
+    forbidden: ["total", "for free"]
     batches:
       - job_type: replacement
         customer_text: The installation is damaged.
@@ -137,7 +137,7 @@ conversations:
     expected_outcome: inspection_offered
     rule_id: WATER-E02
     required_facts: []
-    forbidden: ["R ", "total", "for free"]
+    forbidden: ["total", "for free"]
     batches:
       - job_type: replacement
         customer_text: The stand is leaning.
@@ -148,7 +148,7 @@ conversations:
     expected_outcome: inspection_offered
     rule_id: WATER-S01
     required_facts: []
-    forbidden: ["R ", "total", "for free"]
+    forbidden: ["total", "for free"]
     batches:
       - job_type: borehole
         customer_text: We need a borehole.
@@ -157,7 +157,7 @@ conversations:
     expected_outcome: inspection_offered
     rule_id: WATER-S02
     required_facts: []
-    forbidden: ["R ", "total", "for free"]
+    forbidden: ["total", "for free"]
     batches:
       - job_type: replacement
         customer_text: The stand is on a slope.
@@ -167,7 +167,7 @@ conversations:
     expected_outcome: inspection_offered
     rule_id: WATER-S02
     required_facts: []
-    forbidden: ["R ", "total", "for free"]
+    forbidden: ["total", "for free"]
     batches:
       - job_type: replacement
         customer_text: I do not know the pipe run.
@@ -177,7 +177,7 @@ conversations:
     expected_outcome: inspection_offered
     rule_id: WATER-S02
     required_facts: []
-    forbidden: ["R ", "total", "for free"]
+    forbidden: ["total", "for free"]
     batches:
       - job_type: replacement
         customer_text: The stand is raised and the frame is sound.

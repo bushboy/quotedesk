@@ -1,3 +1,4 @@
+from decimal import Decimal
 from uuid import UUID
 
 from quotedesk.domain.case.case_file import CaseFact, CaseFile, Job
@@ -76,14 +77,45 @@ def test_two_active_facts_for_one_key_rejected():
     )
 
 
-def test_contradiction_is_stored_not_resolved():
+def test_a_stated_value_replaces_an_inference():
+    case = opened().add_job("tank", "replacement")
+    case = case.record_fact("tank", FIRST, "size_litres", "2500", "photo_extraction", EVENT, confidence=Decimal("0.9"))
+    assert case.active_fact("tank", "size_litres").status == "inferred"
+    case = case.record_fact("tank", SECOND, "size_litres", "5000", "customer_text", EVENT)
+    assert case.contradictions == ()
+    current = case.active_fact("tank", "size_litres")
+    assert current is not None
+    assert current.value == "5000"
+    assert current.status == "stated"
+
+
+def test_an_inference_does_not_replace_a_stated_value():
     case = opened().add_job("tank", "replacement")
     case = case.record_fact("tank", FIRST, "position", "roof", "customer_text", EVENT)
     case = case.record_fact("tank", SECOND, "position", "ground level", "photo_extraction", EVENT)
+    assert case.contradictions == ()
+    assert case.current("tank", "position") == "roof"
+    assert len(case.facts("tank")) == 1
+
+
+def test_two_stated_sources_that_disagree_are_contested():
+    case = opened().add_job("tank", "replacement")
+    case = case.record_fact("tank", FIRST, "position", "roof", "customer_text", EVENT)
+    case = case.record_fact("tank", SECOND, "position", "ground level", "voice_transcript", EVENT)
     assert len(case.contradictions) == 1
     values = {item.value for item in case.facts("tank")}
     assert values == {"roof", "ground level"}
-    assert all(item.superseded_by is None for item in case.facts("tank"))
+
+
+def test_confirming_an_inference_makes_it_price_ready():
+    from quotedesk.domain.case.case_file import price_ready
+
+    case = opened().add_job("tank", "replacement")
+    case = case.record_fact("tank", FIRST, "size_litres", "5000", "photo_extraction", EVENT, confidence=Decimal("0.82"))
+    assert price_ready(case, "tank", ("size_litres",)) is False
+    case = case.confirm("tank", "size_litres", SECOND, EVENT)
+    assert case.active_fact("tank", "size_litres").status == "confirmed"
+    assert price_ready(case, "tank", ("size_litres",)) is True
 
 
 def test_detect_contradiction_when_values_agree():

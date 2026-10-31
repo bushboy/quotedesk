@@ -12,7 +12,7 @@ from quotedesk.adapters.outbound.persistence.tenants import CATALOGUE, known_ten
 from quotedesk.infrastructure.config import SettingsError, get_settings
 
 ROOT = Path(__file__).resolve().parents[2]
-DOORS = ROOT / "eval" / "conversations" / "kingdom-doors.yaml"
+DOORS = ROOT / "eval" / "conversations" / "oakmere.yaml"
 
 
 def test_each_served_business_has_a_release_set():
@@ -53,7 +53,7 @@ def test_a_business_without_three_passes_has_no_live_number():
     assert live_number_allowed([]) is False
 
 
-def test_kingdom_doors_is_written_before_it_is_served():
+def test_oakmere_is_written_before_it_is_served():
     text = DOORS.read_text(encoding="utf-8")
     document = yaml.safe_load(text)
     assert document["served"] is False
@@ -61,15 +61,15 @@ def test_kingdom_doors_is_written_before_it_is_served():
     assert 20 <= len(document["conversations"]) <= 30
     situations = "\n".join(item["situation"] for item in document["conversations"])
     assert "R " not in situations
-    assert "kingdom" not in {profile.slug for profile in CATALOGUE}
+    assert "oakmere" not in {profile.slug for profile in CATALOGUE}
     with pytest.raises(ValueError, match="aquasure or frameworks"):
-        known_tenant("kingdom-doors")
+        known_tenant("oakmere")
 
 
-def test_kingdom_doors_is_not_a_tenant(monkeypatch):
+def test_oakmere_is_not_a_tenant(monkeypatch):
     monkeypatch.setenv("DATABASE_URL", "postgresql://quotedesk:quotedesk@127.0.0.1:1/quotedesk")
     monkeypatch.setenv("MODEL", "script")
-    monkeypatch.setenv("TENANT", "kingdom-doors")
+    monkeypatch.setenv("TENANT", "oakmere")
     with pytest.raises(SettingsError, match="aquasure or frameworks"):
         get_settings()
 

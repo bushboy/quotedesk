@@ -258,9 +258,10 @@ def test_a_stated_carport_size_prices_the_chosen_sheet():
         },
         bundle=bundle,
     )
-    assert result.rule_id.value == "FAB-R02"
-    assert result.range_min == Money("297500.00")
-    assert result.range_max == Money("297500.00")
+    assert result.rule_id.value == "FAB-F02"
+    assert result.price_type == "fixed"
+    assert [line.item_code for line in result.lines] == ["SHEET-ECO"]
+    assert result.total == Money("297500.00")
     assert result.deposit == Money("89250.00")
 
 

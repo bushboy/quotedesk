@@ -1,3 +1,4 @@
+from decimal import Decimal
 from typing import Any, Literal
 from uuid import UUID
 
@@ -13,6 +14,9 @@ FactSource = Literal[
     "owner",
 ]
 FactState = Literal["known", "unknown"]
+FactStatus = Literal["stated", "inferred", "confirmed", "contested", "unknown"]
+_INFERRED_SOURCES = frozenset({"photo_extraction", "video_extraction"})
+_READY = frozenset({"stated", "confirmed"})
 JobStatus = Literal["gathering", "quoted", "held", "closed"]
 
 _EVENT = "A fact names the event it came from."
@@ -32,6 +36,9 @@ class CaseFact(BaseModel):
     source: FactSource
     event_id: UUID
     state: FactState = "known"
+    status: FactStatus = "stated"
+    evidence: str = ""
+    confidence: Decimal | None = None
     superseded_by: UUID | None = None
     contested: bool = False
 
@@ -75,10 +82,16 @@ class CaseFile(BaseModel):
         event_id: UUID | None,
         *,
         state: FactState = "known",
+        status: FactStatus | None = None,
+        evidence: str = "",
+        confidence: Decimal | None = None,
     ) -> "CaseFile":
         if event_id is None:
             raise ValidationError(code="fact.event_required", sentence=_EVENT)
         job = self._job(job_id)
+        chosen = status or derived_status(source, state)
+        if state == "unknown":
+            chosen = "unknown"
         new = CaseFact(
             fact_id=fact_id,
             job_id=job_id,
@@ -87,31 +100,31 @@ class CaseFile(BaseModel):
             source=source,
             event_id=event_id,
             state=state,
+            status=chosen,
+            evidence=evidence,
+            confidence=confidence,
         )
-        active = next(
-            (
-                fact
-                for fact in job.facts
-                if fact.key == key and fact.superseded_by is None and not fact.contested
-            ),
-            None,
-        )
+        active = self.active_fact(job_id, key)
         if active is None:
             return self._write(job_id, job.facts + (new,))
+        active_status = status_of(active)
+        new_status = status_of(new)
+        if active_status in _READY and new_status == "inferred":
+            return self
+        if active_status == "inferred" and new_status in _READY:
+            return self._replace(job_id, job.facts, active, new)
         from quotedesk.domain.case.contradictions import detect_contradiction
 
         found = detect_contradiction(active, new)
         if found is None:
-            replaced = tuple(
-                fact.model_copy(update={"superseded_by": fact_id}) if fact.fact_id == active.fact_id else fact
-                for fact in job.facts
-            )
-            return self._write(job_id, replaced + (new,))
+            return self._replace(job_id, job.facts, active, new)
         contested = tuple(
-            fact.model_copy(update={"contested": True}) if fact.fact_id == active.fact_id else fact
+            fact.model_copy(update={"contested": True, "status": "contested"})
+            if fact.fact_id == active.fact_id
+            else fact
             for fact in job.facts
         )
-        stored = new.model_copy(update={"contested": True})
+        stored = new.model_copy(update={"contested": True, "status": "contested"})
         return self._write(job_id, contested + (stored,), self.contradictions + (found,))
 
     def start_over(self, job_id: str) -> "CaseFile":
@@ -121,6 +134,29 @@ class CaseFile(BaseModel):
             for job in self.jobs
         )
         return self.model_copy(update={"jobs": jobs})
+
+    def confirm(self, job_id: str, key: str, fact_id: UUID, event_id: UUID) -> "CaseFile":
+        """A yes on a confirm step. The inferred value becomes confirmed."""
+        active = self.active_fact(job_id, key)
+        if active is None or status_of(active) != "inferred":
+            return self
+        confirmed = active.model_copy(
+            update={
+                "fact_id": fact_id,
+                "event_id": event_id,
+                "status": "confirmed",
+                "state": "known",
+                "superseded_by": None,
+                "contested": False,
+            }
+        )
+        return self._replace(job_id, self._job(job_id).facts, active, confirmed)
+
+    def active_fact(self, job_id: str, key: str) -> CaseFact | None:
+        for fact in self.facts(job_id):
+            if fact.key == key and fact.superseded_by is None and not fact.contested:
+                return fact
+        return None
 
     def current(self, job_id: str, key: str) -> str:
         matched = [fact for fact in self.facts(job_id) if fact.key == key]
@@ -140,6 +176,13 @@ class CaseFile(BaseModel):
                 return job
         raise PolicyViolation(code="policy.violation", sentence=_JOB)
 
+    def _replace(self, job_id: str, facts: tuple[CaseFact, ...], active: CaseFact, new: CaseFact) -> "CaseFile":
+        replaced = tuple(
+            fact.model_copy(update={"superseded_by": new.fact_id}) if fact.fact_id == active.fact_id else fact
+            for fact in facts
+        )
+        return self._write(job_id, replaced + (new,))
+
     def _write(
         self,
         job_id: str,
@@ -154,6 +197,35 @@ class CaseFile(BaseModel):
         if contradictions is not None:
             update["contradictions"] = contradictions
         return self.model_copy(update=update)
+
+
+def derived_status(source: FactSource, state: FactState) -> FactStatus:
+    if state == "unknown":
+        return "unknown"
+    if source in _INFERRED_SOURCES:
+        return "inferred"
+    return "stated"
+
+
+def status_of(fact: CaseFact) -> FactStatus:
+    if fact.contested or fact.status == "contested":
+        return "contested"
+    if fact.state == "unknown" or fact.status == "unknown":
+        return "unknown"
+    if fact.status in ("inferred", "confirmed"):
+        return fact.status
+    if fact.source in _INFERRED_SOURCES:
+        return "inferred"
+    return "stated"
+
+
+def price_ready(case: CaseFile, job_id: str, required: tuple[str, ...]) -> bool:
+    """A quote needs every required fact stated or confirmed. An inference is not enough."""
+    for key in required:
+        fact = case.active_fact(job_id, key)
+        if fact is None or status_of(fact) not in _READY or not fact.value.strip():
+            return False
+    return True
 
 
 def _require_one_current(jobs: Any) -> None:

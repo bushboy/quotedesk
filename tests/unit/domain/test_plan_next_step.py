@@ -1,3 +1,4 @@
+from decimal import Decimal
 from pathlib import Path
 from uuid import UUID, uuid4
 
@@ -31,14 +32,17 @@ def test_a_missing_fact_asks_that_facts_question_for_either_business():
     aqua = plan_next_step(tank, AQUA, aquasure_policy())
     assert aqua.kind is StepKind.ASK
     assert aqua.fact_key == "size_litres"
-    assert aqua.sentence == "Which tank size do you want?"
+    assert aqua.sentence.startswith("Which tank size do you want?")
+    assert "5000 L tank" in aqua.sentence
+    assert "replacement" not in aqua.sentence
 
     span = CaseFile.open(CONVERSATION, TENANT).add_job("bay", "carport")
     span = span.record_fact("bay", uuid4(), "width_m", "6", "customer_text", EVENT)
     frames = plan_next_step(span, FRAMES, _empty_policy())
     assert frames.kind is StepKind.ASK
-    assert frames.fact_key == "length_m"
-    assert frames.sentence == "What is the length in metres?"
+    assert frames.fact_key == "sheet"
+    assert frames.sentence.startswith("Which roof would you like?")
+    assert "Economy sheeting" in frames.sentence
     assert "tank" not in frames.sentence.casefold()
 
 
@@ -132,3 +136,50 @@ def test_a_safety_rule_beats_a_missing_fact():
     escalated = plan_next_step(wiring, AQUA, aquasure_policy())
     assert escalated.kind is StepKind.ESCALATE
     assert escalated.rule_id == "WATER-E03"
+
+
+def test_the_opening_lists_job_labels():
+    extra = AQUA.job_types[0].model_copy(update={"key": "borehole", "description": "", "label": "A borehole", "facts": ()})
+    book = AQUA.model_copy(update={"job_types": (AQUA.job_types[0], extra)})
+    step = plan_next_step(CaseFile.open(CONVERSATION, TENANT), book, aquasure_policy())
+    assert step.kind is StepKind.ASK
+    assert step.sentence == "What can we help with: Swap an existing tank, A borehole?"
+    assert "replacement" not in step.sentence
+    assert "borehole" not in step.sentence.casefold().split(", ")[0]
+
+
+def test_a_confident_photo_is_confirmed_before_another_question():
+    tank = CaseFile.open(CONVERSATION, TENANT).add_job("tank", "replacement")
+    tank = tank.record_fact(
+        "tank",
+        uuid4(),
+        "size_litres",
+        "5000",
+        "photo_extraction",
+        EVENT,
+        confidence=Decimal("0.82"),
+        evidence="about 1.8 m tall",
+    )
+    step = plan_next_step(tank, AQUA, aquasure_policy())
+    assert step.kind is StepKind.CONFIRM
+    assert "5000 L tank" in step.sentence
+    assert "about 1.8 m tall" in step.sentence
+    assert step.sentence.endswith("Is that right?")
+    assert step.assumptions[0].evidence == "about 1.8 m tall"
+
+
+def test_a_low_confidence_photo_is_asked_with_the_choices():
+    tank = CaseFile.open(CONVERSATION, TENANT).add_job("tank", "replacement")
+    tank = tank.record_fact(
+        "tank",
+        uuid4(),
+        "size_litres",
+        "5000",
+        "photo_extraction",
+        EVENT,
+        confidence=Decimal("0.40"),
+    )
+    step = plan_next_step(tank, AQUA, aquasure_policy())
+    assert step.kind is StepKind.ASK
+    assert step.fact_key == "size_litres"
+    assert "5000 L tank" in step.sentence

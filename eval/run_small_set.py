@@ -30,6 +30,7 @@ _LITRES = re.compile(r"(\d+)\s*litre")
 _SPAN = re.compile(r"(\d+(?:\.\d+)?)\s*m?\s*(?:by|x)\s*(\d+(?:\.\d+)?)", re.IGNORECASE)
 _KINDS = {
     StepKind.ASK: "asked",
+    StepKind.CONFIRM: "asked",
     StepKind.QUOTE: "quoted",
     StepKind.INSPECTION: "inspection_offered",
     StepKind.ESCALATE: "escalated",

@@ -49,11 +49,11 @@ Three keys decide who answers. `MODEL` chooses whether a live model runs. The ot
 - `meta` reads the photo with `SPARK_MODEL_ID` and needs `META_API_KEY`.
 - `baseten` reads the photo with `BASETEN_IMAGE_MODEL_ID`. When that value is empty, the photo uses `BASETEN_MODEL_ID`.
 
-The two providers are independent. The reply can come from Baseten while the photo still goes to Meta. A side left on `meta` still needs the Meta key and `SPARK_MODEL_ID`.
+The two providers are independent. The reply can come from Baseten while the photo description still goes to Meta. A side left on `meta` still needs `SPARK_MODEL_ID`. `MODEL=spark` always needs `META_API_KEY`, because segmentation runs on SAM.
 
-A photo is read once. A second call on those same bytes asks for segments, and that call uses `IMAGE_PROVIDER` as well. Voice Transcribe is not called. There is no separate setting for Segment Anything.
+A photo is read once, on `IMAGE_PROVIDER`. Each object name from that read is then one concept prompt to Segment Anything Model 3.1 (`sam-3.1`) on the Meta API, with the same image bytes. That call uses `META_API_KEY` and `META_BASE_URL`, including when the description uses Baseten. `SAM_MODEL_ID` overrides the model id and defaults to `sam-3.1`. The score on each mask is what caps agreement. Voice Transcribe is not called.
 
-Startup logs the live choice, for example `Model agent provider=meta id=muse-spark-1.3 image provider=baseten id=...`. `MODEL=script` logs `Model script`.
+Startup logs the live choice, for example `Model agent provider=meta id=muse-spark-1.3 image provider=baseten id=... sam=sam-3.1`. `MODEL=script` logs `Model script`.
 
 The page posts Cloud API JSON to `POST /whatsapp/webhook` and paints agent bubbles from `GET /whatsapp/outbox`. The webhook body is not drawn. Uploads go to `POST /sim/media`. The webhook carries a media id, not the file bytes. Reads of the outbox do not delete rows.
 
@@ -100,7 +100,7 @@ pytest tests/adapters/test_harness.py tests/adapters/test_whatsapp_fixture.py -q
 
 ## Run with Docker
 
-`docker compose up --build` starts the app and uses the PostgreSQL already installed on this machine. The container reaches it at `host.docker.internal` on port 5432. That server needs database `quotedesk`, user `quotedesk`, and password `quotedesk`, which is the URL in `.env.example`. The app container also receives `MODEL`, `AGENT_PROVIDER`, `IMAGE_PROVIDER`, the keys those providers need, and `TENANT` from `.env`.
+`docker compose up --build` starts the app and uses the PostgreSQL already installed on this machine. The container reaches it at `host.docker.internal` on port 5432. That server needs database `quotedesk`, user `quotedesk`, and password `quotedesk`, which is the URL in `.env.example`. The app container also receives `MODEL`, `AGENT_PROVIDER`, `IMAGE_PROVIDER`, `SAM_MODEL_ID`, the keys those providers need, and `TENANT` from `.env`.
 
 ```bash
 docker compose up --build

@@ -138,11 +138,18 @@ def test_fab_b01_budget_below_minimum() -> None:
     assert "schedule_status" not in dumped
 
 
-def test_a_known_size_is_an_indicative_quote() -> None:
-    sized = opening(width_m=Decimal("5"), length_m=Decimal("7"), finish="Economy sheeting")
+def test_a_known_size_without_a_finish_is_an_indicative_quote() -> None:
+    sized = opening(width_m=Decimal("5"), length_m=Decimal("7"))
     decision, policy = quoted(sized)
     expect(decision, policy, "FAB-R02", sized)
     assert decision.outcome is Outcome.INDICATIVE_RANGE
+
+
+def test_a_known_finish_and_size_is_a_fixed_quote() -> None:
+    sized = opening(width_m=Decimal("5"), length_m=Decimal("7"), finish="Economy sheeting")
+    decision, policy = quoted(sized)
+    expect(decision, policy, "FAB-F02", sized)
+    assert decision.outcome is Outcome.FIXED_OFFER
     low = opening(
         checks=checks(required_fields=False, media_usable=False),
         width_m=Decimal("5"),

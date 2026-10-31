@@ -462,6 +462,7 @@ class RunAgentTurn:
         deposit_url = _named_sentence(answered, "create_deposit_link")
         if deposit_url and deposit_url not in text:
             text = f"{text.rstrip()} {deposit_url}".strip()
+        spoken = text.strip()
         text = _with_card(text, facts.card_link)
         planned = _planned_sentence(self._step, answered)
         if planned:
@@ -477,8 +478,8 @@ class RunAgentTurn:
                 "escalated",
                 TurnOutcome.ESCALATED,
             )
-        if not text.strip() or (reply.tool_calls and not check_reply(text, facts).ok):
-            if text.strip():
+        if not spoken or (reply.tool_calls and not check_reply(text, facts).ok):
+            if spoken:
                 second = self._complete(answered)
                 if second is not None and second.text and check_reply(_with_card(second.text, facts.card_link), facts).ok:
                     text = _with_card(second.text, facts.card_link)
@@ -1485,7 +1486,12 @@ def _grounded(payloads, facts: TurnFacts) -> str | None:
                 return _with_card(sentence, facts.card_link)
         template = item.body.get("customer_template")
         if isinstance(template, str) and template.strip():
-            return _with_card(template.strip(), facts.card_link)
+            sentence = template.strip()
+            if item.body.get("outcome") == "fixed_offer":
+                total = _amount(item.body.get("total"))
+                if total:
+                    sentence = f"{sentence} The total is R {total}."
+            return _with_card(sentence, facts.card_link)
     for item in payloads:
         if item.name == "check_availability":
             sentence = item.body.get("sentence")

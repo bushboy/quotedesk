@@ -2,7 +2,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
 
-from quotedesk.domain.case.case_file import CaseFact
+from quotedesk.domain.case.case_file import CaseFact, status_of
 
 
 class Contradiction(BaseModel):
@@ -15,9 +15,11 @@ class Contradiction(BaseModel):
 
 
 def detect_contradiction(existing: CaseFact, new: CaseFact) -> Contradiction | None:
-    if existing.key != new.key:
+    if existing.key != new.key or existing.value == new.value:
         return None
-    if existing.source != new.source and existing.value != new.value:
+    if status_of(existing) != "stated" or status_of(new) != "stated":
+        return None
+    if existing.source != new.source:
         return Contradiction(
             job_id=existing.job_id,
             key=existing.key,

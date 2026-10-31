@@ -72,6 +72,13 @@ def fabricator_policy() -> Policy:
                 "Replacement in the existing opening, standard size and finish.",
             ),
             _rule(
+                "FAB-F02",
+                1,
+                Outcome.FIXED_OFFER,
+                "We can send a fixed quote for this sheeting.",
+                "The width, the length, and the sheeting are known.",
+            ),
+            _rule(
                 "FAB-R01",
                 1,
                 Outcome.INDICATIVE_RANGE,

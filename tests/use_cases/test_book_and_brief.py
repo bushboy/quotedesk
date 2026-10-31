@@ -14,7 +14,9 @@ from quotedesk.domain.case.case_file import CaseFile
 from quotedesk.domain.policy.rules import Outcome
 from quotedesk.domain.quotes.quote import Quote, QuoteState
 from quotedesk.domain.quotes.schedule import Capacity, CapacitySlot
+from quotedesk.domain.services.price import RateCard
 from quotedesk.domain.shared.ids import QuoteId
+from quotedesk.domain.shared.money import Money
 from quotedesk.adapters.outbound.persistence.commercial import MemoryInspections, MemoryMail, MemoryNotices
 from quotedesk.infrastructure.demo import _schedule_settings
 from tests.unit.domain.test_plan_next_step import AQUA, EVENT
@@ -26,9 +28,10 @@ WHEN = datetime(2026, 10, 30, 8, 0, tzinfo=timezone.utc)
 
 
 class Published:
-    def __init__(self, playbook) -> None:
+    def __init__(self, playbook, rate_card=None) -> None:
         self.playbook = playbook
         self.policy = aquasure_policy()
+        self.rate_card = rate_card
 
     def published(self, tenant_id):
         return self
@@ -158,9 +161,10 @@ def test_a_damaged_installation_records_an_inspection():
     inspections = MemoryInspections()
     quotes = Quotes(Quote.open(QuoteId("QD-1042"), date(2026, 11, 30)).issue(Outcome.SITE_ASSESSMENT, version=1, at=WHEN))
     cases = Cases(_damaged())
+    card = RateCard(vat_inclusive=True, site_visit_fee=Money("750.00"), items=())
     tool = BookInspection(
         cases,
-        Published(AQUA),
+        Published(AQUA, card),
         _capacity(),
         _schedule_settings(),
         Clock(WHEN),
@@ -171,12 +175,12 @@ def test_a_damaged_installation_records_an_inspection():
     stored = inspections.for_conversation(TENANT, CONVERSATION)[0]
     assert stored.rule_id == "WATER-E02"
     assert stored.status.value == "offered"
-    assert stored.fee == "site visit"
+    assert stored.fee == "R 750.00"
     assert stored.window_start == date(2026, 11, 6)
     assert offered.sentence.startswith(
         "We'll book an inspection. The installation is damaged, and it is not clear this is a simple tank replacement."
     )
-    assert "The visit fee is site visit." in offered.sentence
+    assert "The visit fee is R 750.00." in offered.sentence
     assert "The earliest window is 2026-11-06." in offered.sentence
     booked = tool.execute(CONTEXT, BookInspectionInput(conversation_id=CONVERSATION, job_id="tank", confirm=True))
     assert booked.status == "booked"

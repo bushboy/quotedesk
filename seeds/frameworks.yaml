@@ -40,6 +40,11 @@ rules:
   outcome: fixed_offer
   customer_template: We can send a fixed quote for this replacement.
   reason: Replacement in the existing opening, standard size and finish.
+- rule_id: FAB-F02
+  priority: 1
+  outcome: fixed_offer
+  customer_template: We can send a fixed quote for this sheeting.
+  reason: The width, the length, and the sheeting are known.
 - rule_id: FAB-R01
   priority: 1
   outcome: indicative_range
@@ -80,12 +85,16 @@ playbook:
     When they have not chosen a sheet and the photo does not suggest one, offer the
     descriptions on the rate card and ask which one they want. Do not state a price.
 
-    When they give a size, record width_m and length_m in metres, and record the chosen
-    sheet as item_codes.
+    When they give a size, record width_m and length_m in metres. Ask which sheet they
+    want. The choices are the sheeting on the rate card. Record the chosen sheet as
+    item_codes.
 
-    When the width and length are known, including from an earlier message, call get_quote
-    in that same turn. The result is an indicative range. Say range_min and range_max,
-    and use the word range.
+    When the width, the length, and the sheet are known, call get_quote. The result is
+    a fixed price for that rate-card item. Say the total.
+
+    When they cannot choose a sheet, call get_quote. The result is an indicative range
+    across the sheeting on the rate card. Say range_min and range_max, and use the word
+    range.
 
     Do not reply that you will record the choice. If the size is still missing, ask
     for the width and length.
@@ -112,11 +121,35 @@ playbook:
       unit: m
       question: What is the width in metres?
       required: true
+      decides: price
+      ease: needs_tape
     - key: length_m
       type: number
       unit: m
       question: What is the length in metres?
       required: true
+      decides: price
+      ease: needs_tape
+    - key: sheet
+      label: Roof sheeting
+      type: choice
+      question: Which roof would you like?
+      required: true
+      decides: price
+      ease: easy
+      if_unsure: range
+      photo_can_answer: true
+      options:
+      - value: SHEET-ECO
+        label: Economy sheeting
+        hint: galvanised IBR, the standard metal roof
+        item_codes:
+        - SHEET-ECO
+      - value: SHEET-POLY
+        label: Polycarbonate sheeting
+        hint: lets light through
+        item_codes:
+        - SHEET-POLY
   inspections:
   - condition: The opening is new or widened.
     rule_id: FAB-S01

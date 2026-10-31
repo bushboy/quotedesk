@@ -106,10 +106,20 @@ playbook:
     pricing: indicative range or fixed offer
     facts:
     - key: size_litres
+      label: Tank size
       type: number
       unit: L
       question: Which tank size do you want?
+      photo_can_answer: true
+      min_confidence: '0.6'
       required: true
+      options:
+      - value: '2500'
+        label: 2500 L tank
+      - value: '5000'
+        label: 5000 L tank
+      - value: '10000'
+        label: 10000 L tank
     - key: existing_level_base
       type: yes_no
       question: Is the existing base level?

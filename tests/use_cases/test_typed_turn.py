@@ -440,7 +440,7 @@ def test_a_sheet_on_a_known_carport_is_quoted():
     conversations, _, sender, _, turn = harness(Record(), business=business, policies=_sheet_policies())
     say(conversations, "Economy sheeting for the 5 by 7 carport.", 0, str(EVENT))
     turn.execute(CONTEXT, CONVERSATION)
-    assert sender.sent == [(WA, "The indicative range is R 297500.00. /card/QD-1042?code=1042")]
+    assert sender.sent == [(WA, "We can send a fixed quote for this sheeting. The total is R 297500.00. /card/QD-1042?code=1042")]
 
 
 def test_a_sheet_choice_without_a_size_asks_for_one():
@@ -499,7 +499,7 @@ def test_invented_amount_is_still_refused():
     conversations, _, sender, _, turn = harness(model)
     say(conversations, TANK, 0, str(EVENT))
     turn.execute(CONTEXT, CONVERSATION)
-    assert sender.sent == [(WA, "We can send a fixed quote for this replacement. /card/QD-1042?code=1042")]
+    assert sender.sent == [(WA, "We can send a fixed quote for this replacement. The total is R 4250.00. /card/QD-1042?code=1042")]
     assert all("R 3 000" not in body for _, body in sender.sent)
 
 
@@ -638,7 +638,9 @@ def test_unknown_tool_is_not_called():
     assert price.calls == 0
     assert model.prompts[1].tool_payloads[0].name == "price"
     assert model.prompts[1].tool_payloads[0].body == {"error": "That tool is not available."}
-    assert sender.sent == [(WA, "Which tank size do you want?")]
+    assert sender.sent[0][0] == WA
+    assert sender.sent[0][1].startswith("Which tank size do you want?")
+    assert "5000 L tank" in sender.sent[0][1]
 
 
 def test_second_turn_sees_the_recorded_size():

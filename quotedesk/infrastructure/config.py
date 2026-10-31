@@ -16,6 +16,7 @@ _BASETEN_KEY_AGENT = "BASETEN_API_KEY is required when AGENT_PROVIDER is baseten
 _BASETEN_MODEL_AGENT = "BASETEN_MODEL_ID is required when AGENT_PROVIDER is baseten."
 _BASETEN_KEY_IMAGE = "BASETEN_API_KEY is required when IMAGE_PROVIDER is baseten."
 _BASETEN_MODEL_IMAGE = "BASETEN_MODEL_ID is required when IMAGE_PROVIDER is baseten."
+_SAM_MODEL = "sam-3.1"
 _TENANT = "TENANT is aquasure or frameworks."
 _META_BASE = "https://api.meta.ai/v1"
 _BASETEN_BASE = "https://inference.baseten.co/v1"
@@ -44,6 +45,7 @@ class Settings(BaseSettings):
     baseten_base_url: str = _BASETEN_BASE
     baseten_model_id: str = ""
     baseten_image_model_id: str = ""
+    sam_model_id: str = _SAM_MODEL
     tenant: str = "aquasure"
     store: StoreKind = "postgres"
 
@@ -80,6 +82,9 @@ def get_settings() -> Settings:
         raise SettingsError(_BASETEN_KEY_IMAGE)
     if live and image_provider == "baseten" and baseten_image_model_id == "":
         raise SettingsError(_BASETEN_MODEL_IMAGE)
+    if live and key == "":
+        raise SettingsError(_SPARK_KEY)
+    sam_model_id = os.environ.get("SAM_MODEL_ID", "") or _SAM_MODEL
     base = os.environ.get("META_BASE_URL", "") or _META_BASE
     baseten_base = os.environ.get("BASETEN_BASE_URL", "") or _BASETEN_BASE
     tenant = os.environ.get("TENANT", "aquasure")
@@ -100,6 +105,7 @@ def get_settings() -> Settings:
         baseten_base_url=baseten_base,
         baseten_model_id=baseten_model_id,
         baseten_image_model_id=baseten_image_model_id,
+        sam_model_id=sam_model_id,
         tenant=tenant,
         store=store,
     )

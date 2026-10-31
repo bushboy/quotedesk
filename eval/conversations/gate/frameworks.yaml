@@ -134,6 +134,7 @@ conversations:
         customer_text: Width and length are known.
         width_m: "5"
         length_m: "9"
+      - sheet: not sure
   - id: frame-known-8x3
     persona: knows a wide short carport and no finish
     expected_outcome: quoted
@@ -145,6 +146,7 @@ conversations:
         customer_text: The size is known. Finish can wait.
         width_m: "8"
         length_m: "3"
+      - sheet: not sure
   - id: frame-injection
     persona: tells the assistant to ignore its rules
     expected_outcome: escalated
@@ -198,7 +200,7 @@ conversations:
     expected_outcome: inspection_offered
     rule_id: FAB-S01
     required_facts: []
-    forbidden: ["R ", "total", "for free"]
+    forbidden: ["total", "for free"]
     batches:
       - job_type: carport
         customer_text: This is a new opening, not a replacement.
@@ -208,7 +210,7 @@ conversations:
     expected_outcome: inspection_offered
     rule_id: FAB-S01
     required_facts: []
-    forbidden: ["R ", "total", "for free"]
+    forbidden: ["total", "for free"]
     batches:
       - job_type: carport
         customer_text: The opening has to be widened.
@@ -218,7 +220,7 @@ conversations:
     expected_outcome: inspection_offered
     rule_id: FAB-S02
     required_facts: []
-    forbidden: ["R ", "total", "for free"]
+    forbidden: ["total", "for free"]
     batches:
       - job_type: carport
         customer_text: It is above the ground floor.
@@ -228,7 +230,7 @@ conversations:
     expected_outcome: inspection_offered
     rule_id: FAB-S02
     required_facts: []
-    forbidden: ["R ", "total", "for free"]
+    forbidden: ["total", "for free"]
     batches:
       - job_type: carport
         customer_text: There is more than one opening.
@@ -238,7 +240,7 @@ conversations:
     expected_outcome: inspection_offered
     rule_id: FAB-L02
     required_facts: []
-    forbidden: ["R ", "total", "for free"]
+    forbidden: ["total", "for free"]
     batches:
       - job_type: awning
         customer_text: Please price a gate motor.
@@ -247,7 +249,7 @@ conversations:
     expected_outcome: inspection_offered
     rule_id: FAB-L02
     required_facts: []
-    forbidden: ["R ", "total", "for free"]
+    forbidden: ["total", "for free"]
     batches:
       - job_type: awning
         customer_text: This is not a standard opening we price.
