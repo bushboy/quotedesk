@@ -26,7 +26,21 @@ def fabricator_policy() -> Policy:
     return Policy(
         version=PolicyVersionId("fab-policy-v1.0"),
         sam_score_threshold=Decimal("0.80"),
-        rate_card_codes=("SHEET-ECO", "SHEET-POLY"),
+        rate_card_codes=(
+            "SHEET-ECO",
+            "SHEET-POLY",
+            "SHEET-COLOUR",
+            "SHEET-INSUL",
+            "SHADE-NET",
+            "FRAME-STEEL",
+            "FRAME-SHADE",
+            "FINISH-PAINT",
+            "GUTTER",
+            "REMOVE-SHEET",
+            "INSTALL-CARPORT",
+            "DELIVERY-FAB",
+            "SITE-MEASURE",
+        ),
         range_minimum=Decimal("850.00"),
         rules=(
             _rule(
@@ -54,14 +68,14 @@ def fabricator_policy() -> Policy:
                 "FAB-S01",
                 1,
                 Outcome.SITE_ASSESSMENT,
-                "A new or widened opening needs a site measure. If you go ahead, the visit fee is credited against the work.",
-                "The opening is new or widened.",
+                "A widened opening needs a site measure. If you go ahead, the visit fee is R 750, credited against the work.",
+                "The opening is widened.",
             ),
             _rule(
                 "FAB-S02",
                 1,
                 Outcome.SITE_ASSESSMENT,
-                "This one needs a site measure before we can give you a price.",
+                "This one needs a site measure before we can give you a price. The visit fee is R 750.",
                 "The job is above the ground floor, or it is more than one opening.",
             ),
             _rule(

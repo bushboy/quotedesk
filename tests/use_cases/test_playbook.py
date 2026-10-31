@@ -64,13 +64,13 @@ def test_frameworks_has_required_facts_and_a_bare_catalog_does_not_change():
     from quotedesk.infrastructure.demo import bundle_for
 
     frames = bundle_for("frameworks").playbook
-    assert frames.required("carport") == ("width_m", "length_m", "sheet")
+    assert frames.required("carport") == ("width_m", "length_m", "sheet", "existing_frame")
     sheet = next(fact for fact in frames.job_types[0].facts if fact.key == "sheet")
     assert sheet.required is True
-    assert sheet.options[0].label == "Economy sheeting"
+    assert sheet.options[0].label == "Galvanised IBR sheeting"
     assert sheet.options[0].item_codes == ("SHEET-ECO",)
     assert "tank" not in frames.guidance.casefold()
-    assert book.playbook.required("replacement") == ("size_litres", "existing_level_base")
+    assert book.playbook.required("replacement") == ("size_litres", "existing_level_base", "stand_present")
 
 
 def test_rollback_restores_the_previous_question():

@@ -15,6 +15,7 @@ class JobKind(str, Enum):
     REPLACEMENT = "replacement"
     NEW_SYSTEM = "new_system"
     BOREHOLE = "borehole"
+    PUMP = "pump"
     UNKNOWN = "unknown"
 
 
@@ -44,6 +45,9 @@ class CaseFacts(BaseModel):
     standard_band: bool = False
     budget: Decimal | None = None
     job_type: Literal["carport", "window", "door", "shutter"] | None = None
+    stand_present: bool | None = None
+    existing_frame: bool | None = None
+    pump: str | None = None
 
 
 class ExtractionFacts(BaseModel):

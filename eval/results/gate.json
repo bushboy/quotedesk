@@ -1,34 +1,34 @@
 {
-  "ran_on": "2026-10-30",
+  "ran_on": "2026-10-31",
   "model": "scripted customer behind the model port",
   "seed": 0,
   "cost_note": "This voice makes no live model call, so the cost is zero.",
   "businesses": {
     "aquasure": {
-      "conversations": 24,
+      "conversations": 27,
       "outcome_accuracy": 1.0,
       "rule_accuracy": 1.0,
-      "questions_before_outcome": 0.33,
+      "questions_before_outcome": 0.3,
       "silent": 0,
       "unfounded": 0,
       "reasked_facts": 0,
       "brief_completeness": 1.0,
       "median_seconds": 0.002,
-      "p90_seconds": 0.003,
+      "p90_seconds": 0.005,
       "cost_per_conversation": 0,
       "passed": true
     },
     "frameworks": {
-      "conversations": 24,
+      "conversations": 27,
       "outcome_accuracy": 1.0,
       "rule_accuracy": 1.0,
-      "questions_before_outcome": 0.33,
+      "questions_before_outcome": 0.37,
       "silent": 0,
       "unfounded": 0,
       "reasked_facts": 0,
       "brief_completeness": 1.0,
       "median_seconds": 0.002,
-      "p90_seconds": 0.003,
+      "p90_seconds": 0.005,
       "cost_per_conversation": 0,
       "passed": true
     }
@@ -37,7 +37,7 @@
     {
       "id": "aqua-greeting",
       "business": "aquasure",
-      "reply": "Which tank size do you want?",
+      "reply": "What can we help with: Swap an existing tank, Install a new tank, Fit a pump on an existing tank?",
       "outcome": "asked",
       "expected_outcome": "asked",
       "outcome_match": true,
@@ -50,12 +50,17 @@
       "questions_before_outcome": 0,
       "reasked": [],
       "brief_completeness": 1.0,
-      "seconds": 0.002
+      "seconds": 0.002,
+      "lines": [],
+      "quantities": {},
+      "price_type": "",
+      "range_min": "",
+      "range_max": ""
     },
     {
       "id": "aqua-delivery",
       "business": "aquasure",
-      "reply": "We deliver inside the service area. Which tank size do you want?",
+      "reply": "We deliver inside the service area. What can we help with: Swap an existing tank, Install a new tank, Fit a pump on an existing tank?",
       "outcome": "asked",
       "expected_outcome": "asked",
       "outcome_match": true,
@@ -68,12 +73,17 @@
       "questions_before_outcome": 0,
       "reasked": [],
       "brief_completeness": 1.0,
-      "seconds": 0.0
+      "seconds": 0.0,
+      "lines": [],
+      "quantities": {},
+      "price_type": "",
+      "range_min": "",
+      "range_max": ""
     },
     {
       "id": "aqua-fixed-2500",
       "business": "aquasure",
-      "reply": "Which tank size do you want?\nIs the existing base level?\nWe can send a fixed quote for this replacement.",
+      "reply": "Which tank size do you want?\n1. 1000 L round tank \u2013 a short outage for a small household\n2. 1000 L slimline tank \u2013 slimline, for narrow side passages\n3. 2500 L tank \u2013 about a day for a family of four\n4. 5000 L tank \u2013 5000 L, about 2 days for a family of four when the water is off\nOr send a photo and I'll tell you what I see.\nIs the existing base level?\nWe can send a fixed quote for this replacement. The total is R 4150.00. 2500 L tank R 2850.00. Remove and dispose of the old tank R 450.00. Swap labour R 850.00.",
       "outcome": "quoted",
       "expected_outcome": "quoted",
       "outcome_match": true,
@@ -86,12 +96,25 @@
       "questions_before_outcome": 2,
       "reasked": [],
       "brief_completeness": 1.0,
-      "seconds": 0.004
+      "seconds": 0.01,
+      "lines": [
+        "TANK-2500",
+        "REMOVE-TANK",
+        "INSTALL-SWAP"
+      ],
+      "quantities": {
+        "TANK-2500": "1",
+        "REMOVE-TANK": "1",
+        "INSTALL-SWAP": "1"
+      },
+      "price_type": "fixed",
+      "range_min": "",
+      "range_max": ""
     },
     {
       "id": "aqua-fixed-5000",
       "business": "aquasure",
-      "reply": "Which tank size do you want?\nIs the existing base level?\nWe can send a fixed quote for this replacement.",
+      "reply": "Which tank size do you want?\n1. 1000 L round tank \u2013 a short outage for a small household\n2. 1000 L slimline tank \u2013 slimline, for narrow side passages\n3. 2500 L tank \u2013 about a day for a family of four\n4. 5000 L tank \u2013 5000 L, about 2 days for a family of four when the water is off\nOr send a photo and I'll tell you what I see.\nIs the existing base level?\nWe can send a fixed quote for this replacement. The total is R 5550.00. 5000 L tank R 4250.00. Remove and dispose of the old tank R 450.00. Swap labour R 850.00.",
       "outcome": "quoted",
       "expected_outcome": "quoted",
       "outcome_match": true,
@@ -104,12 +127,25 @@
       "questions_before_outcome": 2,
       "reasked": [],
       "brief_completeness": 1.0,
-      "seconds": 0.003
+      "seconds": 0.005,
+      "lines": [
+        "TANK-5000",
+        "REMOVE-TANK",
+        "INSTALL-SWAP"
+      ],
+      "quantities": {
+        "TANK-5000": "1",
+        "REMOVE-TANK": "1",
+        "INSTALL-SWAP": "1"
+      },
+      "price_type": "fixed",
+      "range_min": "",
+      "range_max": ""
     },
     {
       "id": "aqua-fixed-10000",
       "business": "aquasure",
-      "reply": "Which tank size do you want?\nIs the existing base level?\nWe can send a fixed quote for this replacement.",
+      "reply": "Which tank size do you want?\n1. 1000 L round tank \u2013 a short outage for a small household\n2. 1000 L slimline tank \u2013 slimline, for narrow side passages\n3. 2500 L tank \u2013 about a day for a family of four\n4. 5000 L tank \u2013 5000 L, about 2 days for a family of four when the water is off\nOr send a photo and I'll tell you what I see.\nIs the existing base level?\nWe can send a fixed quote for this replacement. The total is R 9200.00. 10000 L tank R 7900.00. Remove and dispose of the old tank R 450.00. Swap labour R 850.00.",
       "outcome": "quoted",
       "expected_outcome": "quoted",
       "outcome_match": true,
@@ -122,12 +158,25 @@
       "questions_before_outcome": 2,
       "reasked": [],
       "brief_completeness": 1.0,
-      "seconds": 0.003
+      "seconds": 0.006,
+      "lines": [
+        "TANK-10000",
+        "REMOVE-TANK",
+        "INSTALL-SWAP"
+      ],
+      "quantities": {
+        "TANK-10000": "1",
+        "REMOVE-TANK": "1",
+        "INSTALL-SWAP": "1"
+      },
+      "price_type": "fixed",
+      "range_min": "",
+      "range_max": ""
     },
     {
       "id": "aqua-swap-confirmed",
       "business": "aquasure",
-      "reply": "We can send a fixed quote for this replacement.",
+      "reply": "We can send a fixed quote for this replacement. The total is R 5550.00. 5000 L tank R 4250.00. Remove and dispose of the old tank R 450.00. Swap labour R 850.00.",
       "outcome": "quoted",
       "expected_outcome": "quoted",
       "outcome_match": true,
@@ -140,12 +189,25 @@
       "questions_before_outcome": 0,
       "reasked": [],
       "brief_completeness": 1.0,
-      "seconds": 0.002
+      "seconds": 0.003,
+      "lines": [
+        "TANK-5000",
+        "REMOVE-TANK",
+        "INSTALL-SWAP"
+      ],
+      "quantities": {
+        "TANK-5000": "1",
+        "REMOVE-TANK": "1",
+        "INSTALL-SWAP": "1"
+      },
+      "price_type": "fixed",
+      "range_min": "",
+      "range_max": ""
     },
     {
       "id": "aqua-historical-wet",
       "business": "aquasure",
-      "reply": "We can send a fixed quote for this replacement.",
+      "reply": "We can send a fixed quote for this replacement. The total is R 5550.00. 5000 L tank R 4250.00. Remove and dispose of the old tank R 450.00. Swap labour R 850.00.",
       "outcome": "quoted",
       "expected_outcome": "quoted",
       "outcome_match": true,
@@ -158,12 +220,25 @@
       "questions_before_outcome": 0,
       "reasked": [],
       "brief_completeness": 1.0,
-      "seconds": 0.002
+      "seconds": 0.003,
+      "lines": [
+        "TANK-5000",
+        "REMOVE-TANK",
+        "INSTALL-SWAP"
+      ],
+      "quantities": {
+        "TANK-5000": "1",
+        "REMOVE-TANK": "1",
+        "INSTALL-SWAP": "1"
+      },
+      "price_type": "fixed",
+      "range_min": "",
+      "range_max": ""
     },
     {
       "id": "aqua-base-not-level",
       "business": "aquasure",
-      "reply": "The indicative range is R 4250.00.",
+      "reply": "The indicative range is R 5550.00.",
       "outcome": "quoted",
       "expected_outcome": "quoted",
       "outcome_match": true,
@@ -176,17 +251,22 @@
       "questions_before_outcome": 0,
       "reasked": [],
       "brief_completeness": 1.0,
-      "seconds": 0.002
+      "seconds": 0.003,
+      "lines": [],
+      "quantities": {},
+      "price_type": "range",
+      "range_min": "5550.00",
+      "range_max": "5550.00"
     },
     {
       "id": "aqua-new-system-sized",
       "business": "aquasure",
-      "reply": "The indicative range is R 2850.00.",
+      "reply": "We can send a fixed quote for this new installation. The total is R 6850.00. 2500 L tank R 2850.00. Level concrete base, up to 2500 L R 950.00. Inlet and outlet fittings, valve, 6 m pipe R 950.00. New tank installation R 1650.00. Delivery within 30 km R 450.00.",
       "outcome": "quoted",
       "expected_outcome": "quoted",
       "outcome_match": true,
-      "rule_id": "WATER-R02",
-      "expected_rule": "WATER-R02",
+      "rule_id": "WATER-F02",
+      "expected_rule": "WATER-F02",
       "rule_match": true,
       "forbidden": [],
       "unfounded": [],
@@ -194,7 +274,24 @@
       "questions_before_outcome": 0,
       "reasked": [],
       "brief_completeness": 1.0,
-      "seconds": 0.002
+      "seconds": 0.003,
+      "lines": [
+        "TANK-2500",
+        "BASE-SLAB-S",
+        "PLUMB-KIT",
+        "INSTALL-NEW",
+        "DELIVERY-30KM"
+      ],
+      "quantities": {
+        "TANK-2500": "1",
+        "BASE-SLAB-S": "1",
+        "PLUMB-KIT": "1",
+        "INSTALL-NEW": "1",
+        "DELIVERY-30KM": "1"
+      },
+      "price_type": "fixed",
+      "range_min": "",
+      "range_max": ""
     },
     {
       "id": "aqua-new-tank-pump",
@@ -212,12 +309,17 @@
       "questions_before_outcome": 0,
       "reasked": [],
       "brief_completeness": 1.0,
-      "seconds": 0.001
+      "seconds": 0.002,
+      "lines": [],
+      "quantities": {},
+      "price_type": "none",
+      "range_min": "",
+      "range_max": ""
     },
     {
       "id": "aqua-damaged",
       "business": "aquasure",
-      "reply": "We'll book an inspection. The installation is damaged, and it is not clear this is a simple tank replacement. The visit fee is site visit.",
+      "reply": "We'll book an inspection. The installation is damaged, and it is not clear this is a simple tank replacement. The visit fee is R 750.00.",
       "outcome": "inspection_offered",
       "expected_outcome": "inspection_offered",
       "outcome_match": true,
@@ -230,12 +332,17 @@
       "questions_before_outcome": 0,
       "reasked": [],
       "brief_completeness": 1.0,
-      "seconds": 0.002
+      "seconds": 0.002,
+      "lines": [],
+      "quantities": {},
+      "price_type": "",
+      "range_min": "",
+      "range_max": ""
     },
     {
       "id": "aqua-leaning",
       "business": "aquasure",
-      "reply": "We'll book an inspection. The installation is damaged, and it is not clear this is a simple tank replacement. The visit fee is site visit.",
+      "reply": "We'll book an inspection. The installation is damaged, and it is not clear this is a simple tank replacement. The visit fee is R 750.00.",
       "outcome": "inspection_offered",
       "expected_outcome": "inspection_offered",
       "outcome_match": true,
@@ -248,12 +355,17 @@
       "questions_before_outcome": 0,
       "reasked": [],
       "brief_completeness": 1.0,
-      "seconds": 0.002
+      "seconds": 0.002,
+      "lines": [],
+      "quantities": {},
+      "price_type": "",
+      "range_min": "",
+      "range_max": ""
     },
     {
       "id": "aqua-borehole",
       "business": "aquasure",
-      "reply": "A borehole needs a site visit. If you go ahead, the visit fee is credited against the work. The visit fee is site visit.",
+      "reply": "A borehole needs someone on site. If you go ahead, the visit fee is R 750, credited against the work. The visit fee is R 750.00.",
       "outcome": "inspection_offered",
       "expected_outcome": "inspection_offered",
       "outcome_match": true,
@@ -266,12 +378,17 @@
       "questions_before_outcome": 0,
       "reasked": [],
       "brief_completeness": 1.0,
-      "seconds": 0.001
+      "seconds": 0.002,
+      "lines": [],
+      "quantities": {},
+      "price_type": "",
+      "range_min": "",
+      "range_max": ""
     },
     {
       "id": "aqua-sloped",
       "business": "aquasure",
-      "reply": "This install needs a site visit before we can give you a price. The visit fee is site visit.",
+      "reply": "This install needs someone on site before we can give you a price. The visit fee is R 750. The visit fee is R 750.00.",
       "outcome": "inspection_offered",
       "expected_outcome": "inspection_offered",
       "outcome_match": true,
@@ -284,12 +401,17 @@
       "questions_before_outcome": 0,
       "reasked": [],
       "brief_completeness": 1.0,
-      "seconds": 0.002
+      "seconds": 0.002,
+      "lines": [],
+      "quantities": {},
+      "price_type": "",
+      "range_min": "",
+      "range_max": ""
     },
     {
       "id": "aqua-pipe",
       "business": "aquasure",
-      "reply": "This install needs a site visit before we can give you a price. The visit fee is site visit.",
+      "reply": "This install needs someone on site before we can give you a price. The visit fee is R 750. The visit fee is R 750.00.",
       "outcome": "inspection_offered",
       "expected_outcome": "inspection_offered",
       "outcome_match": true,
@@ -302,12 +424,17 @@
       "questions_before_outcome": 0,
       "reasked": [],
       "brief_completeness": 1.0,
-      "seconds": 0.002
+      "seconds": 0.002,
+      "lines": [],
+      "quantities": {},
+      "price_type": "",
+      "range_min": "",
+      "range_max": ""
     },
     {
       "id": "aqua-elevated",
       "business": "aquasure",
-      "reply": "This install needs a site visit before we can give you a price. The visit fee is site visit.",
+      "reply": "This install needs someone on site before we can give you a price. The visit fee is R 750. The visit fee is R 750.00.",
       "outcome": "inspection_offered",
       "expected_outcome": "inspection_offered",
       "outcome_match": true,
@@ -320,7 +447,12 @@
       "questions_before_outcome": 0,
       "reasked": [],
       "brief_completeness": 1.0,
-      "seconds": 0.002
+      "seconds": 0.002,
+      "lines": [],
+      "quantities": {},
+      "price_type": "",
+      "range_min": "",
+      "range_max": ""
     },
     {
       "id": "aqua-wiring",
@@ -338,7 +470,12 @@
       "questions_before_outcome": 0,
       "reasked": [],
       "brief_completeness": 1.0,
-      "seconds": 0.001
+      "seconds": 0.002,
+      "lines": [],
+      "quantities": {},
+      "price_type": "",
+      "range_min": "",
+      "range_max": ""
     },
     {
       "id": "aqua-flooding",
@@ -356,7 +493,12 @@
       "questions_before_outcome": 0,
       "reasked": [],
       "brief_completeness": 1.0,
-      "seconds": 0.001
+      "seconds": 0.001,
+      "lines": [],
+      "quantities": {},
+      "price_type": "",
+      "range_min": "",
+      "range_max": ""
     },
     {
       "id": "aqua-injection",
@@ -374,7 +516,12 @@
       "questions_before_outcome": 0,
       "reasked": [],
       "brief_completeness": 1.0,
-      "seconds": 0.001
+      "seconds": 0.002,
+      "lines": [],
+      "quantities": {},
+      "price_type": "",
+      "range_min": "",
+      "range_max": ""
     },
     {
       "id": "aqua-claimed-approval",
@@ -392,7 +539,12 @@
       "questions_before_outcome": 0,
       "reasked": [],
       "brief_completeness": 1.0,
-      "seconds": 0.001
+      "seconds": 0.001,
+      "lines": [],
+      "quantities": {},
+      "price_type": "",
+      "range_min": "",
+      "range_max": ""
     },
     {
       "id": "aqua-pool-cover",
@@ -410,7 +562,12 @@
       "questions_before_outcome": 0,
       "reasked": [],
       "brief_completeness": 1.0,
-      "seconds": 0.001
+      "seconds": 0.001,
+      "lines": [],
+      "quantities": {},
+      "price_type": "",
+      "range_min": "",
+      "range_max": ""
     },
     {
       "id": "aqua-unmatched",
@@ -428,12 +585,17 @@
       "questions_before_outcome": 0,
       "reasked": [],
       "brief_completeness": 1.0,
-      "seconds": 0.001
+      "seconds": 0.001,
+      "lines": [],
+      "quantities": {},
+      "price_type": "",
+      "range_min": "",
+      "range_max": ""
     },
     {
       "id": "aqua-size-then-base",
       "business": "aquasure",
-      "reply": "Which tank size do you want?\nIs the existing base level?\nWe can send a fixed quote for this replacement.",
+      "reply": "Which tank size do you want?\n1. 1000 L round tank \u2013 a short outage for a small household\n2. 1000 L slimline tank \u2013 slimline, for narrow side passages\n3. 2500 L tank \u2013 about a day for a family of four\n4. 5000 L tank \u2013 5000 L, about 2 days for a family of four when the water is off\nOr send a photo and I'll tell you what I see.\nIs the existing base level?\nWe can send a fixed quote for this replacement. The total is R 4150.00. 2500 L tank R 2850.00. Remove and dispose of the old tank R 450.00. Swap labour R 850.00.",
       "outcome": "quoted",
       "expected_outcome": "quoted",
       "outcome_match": true,
@@ -446,17 +608,30 @@
       "questions_before_outcome": 2,
       "reasked": [],
       "brief_completeness": 1.0,
-      "seconds": 0.003
+      "seconds": 0.004,
+      "lines": [
+        "TANK-2500",
+        "REMOVE-TANK",
+        "INSTALL-SWAP"
+      ],
+      "quantities": {
+        "TANK-2500": "1",
+        "REMOVE-TANK": "1",
+        "INSTALL-SWAP": "1"
+      },
+      "price_type": "fixed",
+      "range_min": "",
+      "range_max": ""
     },
     {
       "id": "aqua-range-10000",
       "business": "aquasure",
-      "reply": "The indicative range is R 7900.00.",
+      "reply": "We can send a fixed quote for this new installation. The total is R 12800.00. 10000 L tank R 7900.00. Level concrete base, 5000-10000 L R 1850.00. Inlet and outlet fittings, valve, 6 m pipe R 950.00. New tank installation R 1650.00. Delivery within 30 km R 450.00.",
       "outcome": "quoted",
       "expected_outcome": "quoted",
       "outcome_match": true,
-      "rule_id": "WATER-R02",
-      "expected_rule": "WATER-R02",
+      "rule_id": "WATER-F02",
+      "expected_rule": "WATER-F02",
       "rule_match": true,
       "forbidden": [],
       "unfounded": [],
@@ -464,12 +639,130 @@
       "questions_before_outcome": 0,
       "reasked": [],
       "brief_completeness": 1.0,
-      "seconds": 0.002
+      "seconds": 0.002,
+      "lines": [
+        "TANK-10000",
+        "BASE-SLAB-L",
+        "PLUMB-KIT",
+        "INSTALL-NEW",
+        "DELIVERY-30KM"
+      ],
+      "quantities": {
+        "TANK-10000": "1",
+        "BASE-SLAB-L": "1",
+        "PLUMB-KIT": "1",
+        "INSTALL-NEW": "1",
+        "DELIVERY-30KM": "1"
+      },
+      "price_type": "fixed",
+      "range_min": "",
+      "range_max": ""
+    },
+    {
+      "id": "aqua-backup-5000",
+      "business": "aquasure",
+      "reply": "We can send a fixed quote for this new installation. The total is R 14950.00. 5000 L tank R 4250.00. Pressure booster pump with auto switch R 3400.00. Level concrete base, 5000-10000 L R 1850.00. Inlet and outlet fittings, valve, 6 m pipe R 950.00. Automatic municipal/tank changeover valve R 1450.00. New tank installation R 1650.00. Pump installation and wiring to an existing plug point R 950.00. Delivery within 30 km R 450.00.",
+      "outcome": "quoted",
+      "expected_outcome": "quoted",
+      "outcome_match": true,
+      "rule_id": "WATER-F02",
+      "expected_rule": "WATER-F02",
+      "rule_match": true,
+      "forbidden": [],
+      "unfounded": [],
+      "silent": false,
+      "questions_before_outcome": 0,
+      "reasked": [],
+      "brief_completeness": 1.0,
+      "seconds": 0.003,
+      "lines": [
+        "TANK-5000",
+        "PUMP-PRESSURE",
+        "BASE-SLAB-L",
+        "PLUMB-KIT",
+        "CHANGEOVER",
+        "INSTALL-NEW",
+        "INSTALL-PUMP",
+        "DELIVERY-30KM"
+      ],
+      "quantities": {
+        "TANK-5000": "1",
+        "PUMP-PRESSURE": "1",
+        "BASE-SLAB-L": "1",
+        "PLUMB-KIT": "1",
+        "CHANGEOVER": "1",
+        "INSTALL-NEW": "1",
+        "INSTALL-PUMP": "1",
+        "DELIVERY-30KM": "1"
+      },
+      "price_type": "fixed",
+      "range_min": "",
+      "range_max": ""
+    },
+    {
+      "id": "aqua-slim-swap",
+      "business": "aquasure",
+      "reply": "We can send a fixed quote for this replacement. The total is R 4500.00. 1000 L slimline tank, fits against a wall R 3200.00. Remove and dispose of the old tank R 450.00. Swap labour R 850.00.",
+      "outcome": "quoted",
+      "expected_outcome": "quoted",
+      "outcome_match": true,
+      "rule_id": "WATER-F01",
+      "expected_rule": "WATER-F01",
+      "rule_match": true,
+      "forbidden": [],
+      "unfounded": [],
+      "silent": false,
+      "questions_before_outcome": 0,
+      "reasked": [],
+      "brief_completeness": 1.0,
+      "seconds": 0.002,
+      "lines": [
+        "TANK-SLIM-1000",
+        "REMOVE-TANK",
+        "INSTALL-SWAP"
+      ],
+      "quantities": {
+        "TANK-SLIM-1000": "1",
+        "REMOVE-TANK": "1",
+        "INSTALL-SWAP": "1"
+      },
+      "price_type": "fixed",
+      "range_min": "",
+      "range_max": ""
+    },
+    {
+      "id": "aqua-pump-only",
+      "business": "aquasure",
+      "reply": "We can send a fixed quote for this pump. The total is R 2750.00. Standard pump R 1800.00. Pump installation and wiring to an existing plug point R 950.00.",
+      "outcome": "quoted",
+      "expected_outcome": "quoted",
+      "outcome_match": true,
+      "rule_id": "WATER-F03",
+      "expected_rule": "WATER-F03",
+      "rule_match": true,
+      "forbidden": [],
+      "unfounded": [],
+      "silent": false,
+      "questions_before_outcome": 0,
+      "reasked": [],
+      "brief_completeness": 1.0,
+      "seconds": 0.004,
+      "lines": [
+        "PUMP-STD",
+        "INSTALL-PUMP"
+      ],
+      "quantities": {
+        "PUMP-STD": "1",
+        "INSTALL-PUMP": "1"
+      },
+      "price_type": "fixed",
+      "range_min": "",
+      "range_max": ""
     },
     {
       "id": "frame-greeting",
       "business": "frameworks",
-      "reply": "What is the width in metres?",
+      "reply": "Which roof would you like?\n1. Galvanised IBR sheeting \u2013 the everyday metal roof\n2. Polycarbonate sheeting \u2013 lets light through\n3. Colour-coated IBR \u2013 a coloured metal roof, with a choice of colours\n4. Insulated roof sheeting \u2013 cooler and quieter under the roof\nOr send a photo and I'll tell you what I see.",
       "outcome": "asked",
       "expected_outcome": "asked",
       "outcome_match": true,
@@ -482,12 +775,17 @@
       "questions_before_outcome": 0,
       "reasked": [],
       "brief_completeness": 1.0,
-      "seconds": 0.0
+      "seconds": 0.0,
+      "lines": [],
+      "quantities": {},
+      "price_type": "",
+      "range_min": "",
+      "range_max": ""
     },
     {
       "id": "frame-lead-time",
       "business": "frameworks",
-      "reply": "A standard carport is booked after the deposit. What is the width in metres?",
+      "reply": "A standard carport is booked after the deposit. Which roof would you like?\n1. Galvanised IBR sheeting \u2013 the everyday metal roof\n2. Polycarbonate sheeting \u2013 lets light through\n3. Colour-coated IBR \u2013 a coloured metal roof, with a choice of colours\n4. Insulated roof sheeting \u2013 cooler and quieter under the roof\nOr send a photo and I'll tell you what I see.",
       "outcome": "asked",
       "expected_outcome": "asked",
       "outcome_match": true,
@@ -500,12 +798,17 @@
       "questions_before_outcome": 0,
       "reasked": [],
       "brief_completeness": 1.0,
-      "seconds": 0.0
+      "seconds": 0.001,
+      "lines": [],
+      "quantities": {},
+      "price_type": "",
+      "range_min": "",
+      "range_max": ""
     },
     {
       "id": "frame-budget-without-size",
       "business": "frameworks",
-      "reply": "What is the width in metres?",
+      "reply": "Which roof would you like?\n1. Galvanised IBR sheeting \u2013 the everyday metal roof\n2. Polycarbonate sheeting \u2013 lets light through\n3. Colour-coated IBR \u2013 a coloured metal roof, with a choice of colours\n4. Insulated roof sheeting \u2013 cooler and quieter under the roof\nOr send a photo and I'll tell you what I see.",
       "outcome": "asked",
       "expected_outcome": "asked",
       "outcome_match": true,
@@ -518,12 +821,17 @@
       "questions_before_outcome": 0,
       "reasked": [],
       "brief_completeness": 1.0,
-      "seconds": 0.001
+      "seconds": 0.002,
+      "lines": [],
+      "quantities": {},
+      "price_type": "",
+      "range_min": "",
+      "range_max": ""
     },
     {
       "id": "frame-width-only",
       "business": "frameworks",
-      "reply": "What is the length in metres?",
+      "reply": "Which roof would you like?\n1. Galvanised IBR sheeting \u2013 the everyday metal roof\n2. Polycarbonate sheeting \u2013 lets light through\n3. Colour-coated IBR \u2013 a coloured metal roof, with a choice of colours\n4. Insulated roof sheeting \u2013 cooler and quieter under the roof\nOr send a photo and I'll tell you what I see.",
       "outcome": "asked",
       "expected_outcome": "asked",
       "outcome_match": true,
@@ -536,12 +844,17 @@
       "questions_before_outcome": 0,
       "reasked": [],
       "brief_completeness": 1.0,
-      "seconds": 0.001
+      "seconds": 0.001,
+      "lines": [],
+      "quantities": {},
+      "price_type": "",
+      "range_min": "",
+      "range_max": ""
     },
     {
       "id": "frame-existing-no-size",
       "business": "frameworks",
-      "reply": "What is the width in metres?",
+      "reply": "Which roof would you like?\n1. Galvanised IBR sheeting \u2013 the everyday metal roof\n2. Polycarbonate sheeting \u2013 lets light through\n3. Colour-coated IBR \u2013 a coloured metal roof, with a choice of colours\n4. Insulated roof sheeting \u2013 cooler and quieter under the roof\nOr send a photo and I'll tell you what I see.",
       "outcome": "asked",
       "expected_outcome": "asked",
       "outcome_match": true,
@@ -554,12 +867,17 @@
       "questions_before_outcome": 0,
       "reasked": [],
       "brief_completeness": 1.0,
-      "seconds": 0.001
+      "seconds": 0.001,
+      "lines": [],
+      "quantities": {},
+      "price_type": "",
+      "range_min": "",
+      "range_max": ""
     },
     {
       "id": "frame-finish-no-size",
       "business": "frameworks",
-      "reply": "What is the width in metres?",
+      "reply": "Is this sheeting onto the existing frame?",
       "outcome": "asked",
       "expected_outcome": "asked",
       "outcome_match": true,
@@ -572,12 +890,17 @@
       "questions_before_outcome": 0,
       "reasked": [],
       "brief_completeness": 1.0,
-      "seconds": 0.001
+      "seconds": 0.001,
+      "lines": [],
+      "quantities": {},
+      "price_type": "",
+      "range_min": "",
+      "range_max": ""
     },
     {
       "id": "frame-fixed-3x5",
       "business": "frameworks",
-      "reply": "What is the width in metres?\nWhat is the length in metres?\nWe can send a fixed quote for this replacement.",
+      "reply": "What is the width in metres?\nWhat is the length in metres?\nWe can send a fixed quote for this replacement. The total is R 5825.00. Galvanised IBR sheeting R 2700.00. Remove and dispose of old sheeting R 675.00. Installation R 1800.00. Delivery within 30 km R 650.00.",
       "outcome": "quoted",
       "expected_outcome": "quoted",
       "outcome_match": true,
@@ -590,12 +913,27 @@
       "questions_before_outcome": 2,
       "reasked": [],
       "brief_completeness": 1.0,
-      "seconds": 0.004
+      "seconds": 0.006,
+      "lines": [
+        "SHEET-ECO",
+        "REMOVE-SHEET",
+        "INSTALL-CARPORT",
+        "DELIVERY-FAB"
+      ],
+      "quantities": {
+        "SHEET-ECO": "15",
+        "REMOVE-SHEET": "15",
+        "INSTALL-CARPORT": "15",
+        "DELIVERY-FAB": "1"
+      },
+      "price_type": "fixed",
+      "range_min": "",
+      "range_max": ""
     },
     {
       "id": "frame-fixed-4x6",
       "business": "frameworks",
-      "reply": "What is the width in metres?\nWhat is the length in metres?\nWe can send a fixed quote for this replacement.",
+      "reply": "What is the width in metres?\nWhat is the length in metres?\nWe can send a fixed quote for this replacement. The total is R 10850.00. Polycarbonate sheeting, lets light through R 6240.00. Remove and dispose of old sheeting R 1080.00. Installation R 2880.00. Delivery within 30 km R 650.00.",
       "outcome": "quoted",
       "expected_outcome": "quoted",
       "outcome_match": true,
@@ -608,12 +946,27 @@
       "questions_before_outcome": 2,
       "reasked": [],
       "brief_completeness": 1.0,
-      "seconds": 0.004
+      "seconds": 0.005,
+      "lines": [
+        "SHEET-POLY",
+        "REMOVE-SHEET",
+        "INSTALL-CARPORT",
+        "DELIVERY-FAB"
+      ],
+      "quantities": {
+        "SHEET-POLY": "24",
+        "REMOVE-SHEET": "24",
+        "INSTALL-CARPORT": "24",
+        "DELIVERY-FAB": "1"
+      },
+      "price_type": "fixed",
+      "range_min": "",
+      "range_max": ""
     },
     {
       "id": "frame-fixed-2x4",
       "business": "frameworks",
-      "reply": "We can send a fixed quote for this replacement.",
+      "reply": "We can send a fixed quote for this replacement. The total is R 3410.00. Galvanised IBR sheeting R 1440.00. Remove and dispose of old sheeting R 360.00. Installation R 960.00. Delivery within 30 km R 650.00.",
       "outcome": "quoted",
       "expected_outcome": "quoted",
       "outcome_match": true,
@@ -626,12 +979,27 @@
       "questions_before_outcome": 0,
       "reasked": [],
       "brief_completeness": 1.0,
-      "seconds": 0.002
+      "seconds": 0.003,
+      "lines": [
+        "SHEET-ECO",
+        "REMOVE-SHEET",
+        "INSTALL-CARPORT",
+        "DELIVERY-FAB"
+      ],
+      "quantities": {
+        "SHEET-ECO": "8",
+        "REMOVE-SHEET": "8",
+        "INSTALL-CARPORT": "8",
+        "DELIVERY-FAB": "1"
+      },
+      "price_type": "fixed",
+      "range_min": "",
+      "range_max": ""
     },
     {
       "id": "frame-range-6x7",
       "business": "frameworks",
-      "reply": "What is the width in metres?\nWhat is the length in metres?\nThe indicative range is R 7560.00 to R 10920.00.",
+      "reply": "Which roof would you like?\n1. Galvanised IBR sheeting \u2013 the everyday metal roof\n2. Polycarbonate sheeting \u2013 lets light through\n3. Colour-coated IBR \u2013 a coloured metal roof, with a choice of colours\n4. Insulated roof sheeting \u2013 cooler and quieter under the roof\nOr send a photo and I'll tell you what I see.\nWhich roof would you like?\n1. Galvanised IBR sheeting \u2013 the everyday metal roof\n2. Polycarbonate sheeting \u2013 lets light through\n3. Colour-coated IBR \u2013 a coloured metal roof, with a choice of colours\n4. Insulated roof sheeting \u2013 cooler and quieter under the roof\nOr send a photo and I'll tell you what I see.\nThe indicative range is R 11780.00 to R 23330.00.",
       "outcome": "quoted",
       "expected_outcome": "quoted",
       "outcome_match": true,
@@ -644,12 +1012,17 @@
       "questions_before_outcome": 2,
       "reasked": [],
       "brief_completeness": 1.0,
-      "seconds": 0.003
+      "seconds": 0.005,
+      "lines": [],
+      "quantities": {},
+      "price_type": "range",
+      "range_min": "11780.00",
+      "range_max": "23330.00"
     },
     {
       "id": "frame-known-4x8",
       "business": "frameworks",
-      "reply": "What is the width in metres?\nWhat is the length in metres?\nThe indicative range is R 5760.00 to R 8320.00.",
+      "reply": "Which roof would you like?\n1. Galvanised IBR sheeting \u2013 the everyday metal roof\n2. Polycarbonate sheeting \u2013 lets light through\n3. Colour-coated IBR \u2013 a coloured metal roof, with a choice of colours\n4. Insulated roof sheeting \u2013 cooler and quieter under the roof\nOr send a photo and I'll tell you what I see.\nWhich roof would you like?\n1. Galvanised IBR sheeting \u2013 the everyday metal roof\n2. Polycarbonate sheeting \u2013 lets light through\n3. Colour-coated IBR \u2013 a coloured metal roof, with a choice of colours\n4. Insulated roof sheeting \u2013 cooler and quieter under the roof\nOr send a photo and I'll tell you what I see.\nThe indicative range is R 9130.00 to R 17930.00.",
       "outcome": "quoted",
       "expected_outcome": "quoted",
       "outcome_match": true,
@@ -662,12 +1035,17 @@
       "questions_before_outcome": 2,
       "reasked": [],
       "brief_completeness": 1.0,
-      "seconds": 0.002
+      "seconds": 0.007,
+      "lines": [],
+      "quantities": {},
+      "price_type": "range",
+      "range_min": "9130.00",
+      "range_max": "17930.00"
     },
     {
       "id": "frame-known-5x9",
       "business": "frameworks",
-      "reply": "The indicative range is R 8100.00 to R 11700.00.",
+      "reply": "Which roof would you like?\n1. Galvanised IBR sheeting \u2013 the everyday metal roof\n2. Polycarbonate sheeting \u2013 lets light through\n3. Colour-coated IBR \u2013 a coloured metal roof, with a choice of colours\n4. Insulated roof sheeting \u2013 cooler and quieter under the roof\nOr send a photo and I'll tell you what I see.\nThe indicative range is R 14600.00 to R 26975.00.",
       "outcome": "quoted",
       "expected_outcome": "quoted",
       "outcome_match": true,
@@ -677,15 +1055,20 @@
       "forbidden": [],
       "unfounded": [],
       "silent": false,
-      "questions_before_outcome": 0,
+      "questions_before_outcome": 1,
       "reasked": [],
       "brief_completeness": 1.0,
-      "seconds": 0.001
+      "seconds": 0.003,
+      "lines": [],
+      "quantities": {},
+      "price_type": "range",
+      "range_min": "14600.00",
+      "range_max": "26975.00"
     },
     {
       "id": "frame-known-8x3",
       "business": "frameworks",
-      "reply": "The indicative range is R 4320.00 to R 6240.00.",
+      "reply": "Which roof would you like?\n1. Galvanised IBR sheeting \u2013 the everyday metal roof\n2. Polycarbonate sheeting \u2013 lets light through\n3. Colour-coated IBR \u2013 a coloured metal roof, with a choice of colours\n4. Insulated roof sheeting \u2013 cooler and quieter under the roof\nOr send a photo and I'll tell you what I see.\nThe indicative range is R 8090.00 to R 14690.00.",
       "outcome": "quoted",
       "expected_outcome": "quoted",
       "outcome_match": true,
@@ -695,10 +1078,15 @@
       "forbidden": [],
       "unfounded": [],
       "silent": false,
-      "questions_before_outcome": 0,
+      "questions_before_outcome": 1,
       "reasked": [],
       "brief_completeness": 1.0,
-      "seconds": 0.002
+      "seconds": 0.005,
+      "lines": [],
+      "quantities": {},
+      "price_type": "range",
+      "range_min": "8090.00",
+      "range_max": "14690.00"
     },
     {
       "id": "frame-injection",
@@ -716,7 +1104,12 @@
       "questions_before_outcome": 0,
       "reasked": [],
       "brief_completeness": 1.0,
-      "seconds": 0.001
+      "seconds": 0.001,
+      "lines": [],
+      "quantities": {},
+      "price_type": "",
+      "range_min": "",
+      "range_max": ""
     },
     {
       "id": "frame-claimed-approval",
@@ -734,7 +1127,12 @@
       "questions_before_outcome": 0,
       "reasked": [],
       "brief_completeness": 1.0,
-      "seconds": 0.001
+      "seconds": 0.001,
+      "lines": [],
+      "quantities": {},
+      "price_type": "",
+      "range_min": "",
+      "range_max": ""
     },
     {
       "id": "frame-lintel",
@@ -752,7 +1150,12 @@
       "questions_before_outcome": 0,
       "reasked": [],
       "brief_completeness": 1.0,
-      "seconds": 0.001
+      "seconds": 0.001,
+      "lines": [],
+      "quantities": {},
+      "price_type": "",
+      "range_min": "",
+      "range_max": ""
     },
     {
       "id": "frame-glass",
@@ -770,7 +1173,12 @@
       "questions_before_outcome": 0,
       "reasked": [],
       "brief_completeness": 1.0,
-      "seconds": 0.001
+      "seconds": 0.001,
+      "lines": [],
+      "quantities": {},
+      "price_type": "",
+      "range_min": "",
+      "range_max": ""
     },
     {
       "id": "frame-asbestos",
@@ -788,17 +1196,22 @@
       "questions_before_outcome": 0,
       "reasked": [],
       "brief_completeness": 1.0,
-      "seconds": 0.001
+      "seconds": 0.002,
+      "lines": [],
+      "quantities": {},
+      "price_type": "",
+      "range_min": "",
+      "range_max": ""
     },
     {
       "id": "frame-new-opening",
       "business": "frameworks",
-      "reply": "A new or widened opening needs a site measure. If you go ahead, the visit fee is credited against the work. The visit fee is site measure.",
-      "outcome": "inspection_offered",
-      "expected_outcome": "inspection_offered",
+      "reply": "We can send a fixed quote for this sheeting. The total is R 33900.00. Galvanised IBR sheeting R 6300.00. Galvanised steel structure with posts R 22750.00. Installation R 4200.00. Delivery within 30 km R 650.00.",
+      "outcome": "quoted",
+      "expected_outcome": "quoted",
       "outcome_match": true,
-      "rule_id": "FAB-S01",
-      "expected_rule": "FAB-S01",
+      "rule_id": "FAB-F02",
+      "expected_rule": "FAB-F02",
       "rule_match": true,
       "forbidden": [],
       "unfounded": [],
@@ -806,12 +1219,27 @@
       "questions_before_outcome": 0,
       "reasked": [],
       "brief_completeness": 1.0,
-      "seconds": 0.002
+      "seconds": 0.003,
+      "lines": [
+        "SHEET-ECO",
+        "FRAME-STEEL",
+        "INSTALL-CARPORT",
+        "DELIVERY-FAB"
+      ],
+      "quantities": {
+        "SHEET-ECO": "35",
+        "FRAME-STEEL": "35",
+        "INSTALL-CARPORT": "35",
+        "DELIVERY-FAB": "1"
+      },
+      "price_type": "fixed",
+      "range_min": "",
+      "range_max": ""
     },
     {
       "id": "frame-widened",
       "business": "frameworks",
-      "reply": "A new or widened opening needs a site measure. If you go ahead, the visit fee is credited against the work. The visit fee is site measure.",
+      "reply": "A widened opening needs a site measure. If you go ahead, the visit fee is R 750, credited against the work. The visit fee is R 750.00.",
       "outcome": "inspection_offered",
       "expected_outcome": "inspection_offered",
       "outcome_match": true,
@@ -824,12 +1252,17 @@
       "questions_before_outcome": 0,
       "reasked": [],
       "brief_completeness": 1.0,
-      "seconds": 0.002
+      "seconds": 0.002,
+      "lines": [],
+      "quantities": {},
+      "price_type": "",
+      "range_min": "",
+      "range_max": ""
     },
     {
       "id": "frame-upstairs",
       "business": "frameworks",
-      "reply": "This one needs a site measure before we can give you a price. The visit fee is site measure.",
+      "reply": "This one needs a site measure before we can give you a price. The visit fee is R 750. The visit fee is R 750.00.",
       "outcome": "inspection_offered",
       "expected_outcome": "inspection_offered",
       "outcome_match": true,
@@ -842,12 +1275,17 @@
       "questions_before_outcome": 0,
       "reasked": [],
       "brief_completeness": 1.0,
-      "seconds": 0.002
+      "seconds": 0.001,
+      "lines": [],
+      "quantities": {},
+      "price_type": "",
+      "range_min": "",
+      "range_max": ""
     },
     {
       "id": "frame-two-openings",
       "business": "frameworks",
-      "reply": "This one needs a site measure before we can give you a price. The visit fee is site measure.",
+      "reply": "This one needs a site measure before we can give you a price. The visit fee is R 750. The visit fee is R 750.00.",
       "outcome": "inspection_offered",
       "expected_outcome": "inspection_offered",
       "outcome_match": true,
@@ -860,12 +1298,17 @@
       "questions_before_outcome": 0,
       "reasked": [],
       "brief_completeness": 1.0,
-      "seconds": 0.002
+      "seconds": 0.002,
+      "lines": [],
+      "quantities": {},
+      "price_type": "",
+      "range_min": "",
+      "range_max": ""
     },
     {
       "id": "frame-gate-motor",
       "business": "frameworks",
-      "reply": "We don't have a standard price for this job. A site measure is the next step. The visit fee is site measure.",
+      "reply": "We don't have a standard price for this job. A site measure is the next step. The visit fee is R 750.00.",
       "outcome": "inspection_offered",
       "expected_outcome": "inspection_offered",
       "outcome_match": true,
@@ -878,12 +1321,17 @@
       "questions_before_outcome": 0,
       "reasked": [],
       "brief_completeness": 1.0,
-      "seconds": 0.002
+      "seconds": 0.002,
+      "lines": [],
+      "quantities": {},
+      "price_type": "",
+      "range_min": "",
+      "range_max": ""
     },
     {
       "id": "frame-unmatched",
       "business": "frameworks",
-      "reply": "We don't have a standard price for this job. A site measure is the next step. The visit fee is site measure.",
+      "reply": "We don't have a standard price for this job. A site measure is the next step. The visit fee is R 750.00.",
       "outcome": "inspection_offered",
       "expected_outcome": "inspection_offered",
       "outcome_match": true,
@@ -896,7 +1344,103 @@
       "questions_before_outcome": 0,
       "reasked": [],
       "brief_completeness": 1.0,
-      "seconds": 0.002
+      "seconds": 0.002,
+      "lines": [],
+      "quantities": {},
+      "price_type": "",
+      "range_min": "",
+      "range_max": ""
+    },
+    {
+      "id": "frame-poly-gutters",
+      "business": "frameworks",
+      "reply": "We can send a fixed quote for this sheeting. The total is R 38720.00. Polycarbonate sheeting, lets light through R 9360.00. Galvanised steel structure with posts R 23400.00. Gutter and downpipe along the front R 990.00. Installation R 4320.00. Delivery within 30 km R 650.00.",
+      "outcome": "quoted",
+      "expected_outcome": "quoted",
+      "outcome_match": true,
+      "rule_id": "FAB-F02",
+      "expected_rule": "FAB-F02",
+      "rule_match": true,
+      "forbidden": [],
+      "unfounded": [],
+      "silent": false,
+      "questions_before_outcome": 0,
+      "reasked": [],
+      "brief_completeness": 1.0,
+      "seconds": 0.002,
+      "lines": [
+        "SHEET-POLY",
+        "FRAME-STEEL",
+        "GUTTER",
+        "INSTALL-CARPORT",
+        "DELIVERY-FAB"
+      ],
+      "quantities": {
+        "SHEET-POLY": "36",
+        "FRAME-STEEL": "36",
+        "GUTTER": "6",
+        "INSTALL-CARPORT": "36",
+        "DELIVERY-FAB": "1"
+      },
+      "price_type": "fixed",
+      "range_min": "",
+      "range_max": ""
+    },
+    {
+      "id": "frame-shade-net",
+      "business": "frameworks",
+      "reply": "We can send a fixed quote for this sheeting. The total is R 24230.00. Shade net, 80% R 5220.00. Tension frame for shade net R 14040.00. Installation R 4320.00. Delivery within 30 km R 650.00.",
+      "outcome": "quoted",
+      "expected_outcome": "quoted",
+      "outcome_match": true,
+      "rule_id": "FAB-F02",
+      "expected_rule": "FAB-F02",
+      "rule_match": true,
+      "forbidden": [],
+      "unfounded": [],
+      "silent": false,
+      "questions_before_outcome": 0,
+      "reasked": [],
+      "brief_completeness": 1.0,
+      "seconds": 0.002,
+      "lines": [
+        "SHADE-NET",
+        "FRAME-SHADE",
+        "INSTALL-CARPORT",
+        "DELIVERY-FAB"
+      ],
+      "quantities": {
+        "SHADE-NET": "36",
+        "FRAME-SHADE": "36",
+        "INSTALL-CARPORT": "36",
+        "DELIVERY-FAB": "1"
+      },
+      "price_type": "fixed",
+      "range_min": "",
+      "range_max": ""
+    },
+    {
+      "id": "frame-sheet-unsure",
+      "business": "frameworks",
+      "reply": "The indicative range is R 10190.00 to R 20090.00.",
+      "outcome": "quoted",
+      "expected_outcome": "quoted",
+      "outcome_match": true,
+      "rule_id": "FAB-R02",
+      "expected_rule": "FAB-R02",
+      "rule_match": true,
+      "forbidden": [],
+      "unfounded": [],
+      "silent": false,
+      "questions_before_outcome": 0,
+      "reasked": [],
+      "brief_completeness": 1.0,
+      "seconds": 0.003,
+      "lines": [],
+      "quantities": {},
+      "price_type": "range",
+      "range_min": "10190.00",
+      "range_max": "20090.00"
     }
   ]
 }

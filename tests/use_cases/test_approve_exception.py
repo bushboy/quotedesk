@@ -257,6 +257,13 @@ def test_queue_is_tenant_scoped():
     assert ListPending(store, store, Settings()).execute(context) == ()
 
 
+def test_a_quote_with_no_version_stays_off_the_queue():
+    store = store_with((TENANT_A, QUOTE_A))
+    store.quotes[(TENANT_A, "QD-0000")] = Quote(quote_id=QuoteId("QD-0000"), versions=())
+    rows = ListPending(store, store, Settings()).execute(TenantContext(tenant_id=TENANT_A))
+    assert [row.quote_id for row in rows] == [QUOTE_A]
+
+
 def test_audit_timeline_lists_the_write_path():
     store = Store()
     events = (

@@ -26,7 +26,27 @@ def aquasure_policy() -> Policy:
     return Policy(
         version=PolicyVersionId("water-policy-v1.0"),
         sam_score_threshold=Decimal("0.80"),
-        rate_card_codes=("TANK-2500", "TANK-5000", "TANK-10000", "PUMP-STD"),
+        rate_card_codes=(
+            "TANK-1000",
+            "TANK-SLIM-1000",
+            "TANK-2500",
+            "TANK-5000",
+            "TANK-10000",
+            "PUMP-STD",
+            "PUMP-PRESSURE",
+            "BASE-SLAB-S",
+            "BASE-SLAB-L",
+            "STAND-2M",
+            "PLUMB-KIT",
+            "CHANGEOVER",
+            "RAIN-KIT",
+            "REMOVE-TANK",
+            "INSTALL-SWAP",
+            "INSTALL-NEW",
+            "INSTALL-PUMP",
+            "DELIVERY-30KM",
+            "SITE-VISIT",
+        ),
         rules=(
             _rule(
                 "WATER-E01",
@@ -53,14 +73,14 @@ def aquasure_policy() -> Policy:
                 "WATER-S01",
                 1,
                 Outcome.SITE_ASSESSMENT,
-                "A borehole needs a site visit. If you go ahead, the visit fee is credited against the work.",
+                "A borehole needs someone on site. If you go ahead, the visit fee is R 750, credited against the work.",
                 "The job is a borehole.",
             ),
             _rule(
                 "WATER-S02",
                 1,
                 Outcome.SITE_ASSESSMENT,
-                "This install needs a site visit before we can give you a price.",
+                "This install needs someone on site before we can give you a price. The visit fee is R 750.",
                 "The ground, the stand, or the pipe run needs a visit.",
             ),
             _rule(
@@ -69,6 +89,13 @@ def aquasure_policy() -> Policy:
                 Outcome.FIXED_OFFER,
                 "We can send a fixed quote for this replacement.",
                 "Like-for-like replacement on a level base with a stated size.",
+            ),
+            _rule(
+                "WATER-F02",
+                1,
+                Outcome.FIXED_OFFER,
+                "We can send a fixed quote for this new installation.",
+                "A new installation of a tank on the rate card.",
             ),
             _rule(
                 "WATER-R01",
@@ -83,6 +110,13 @@ def aquasure_policy() -> Policy:
                 Outcome.INDICATIVE_RANGE,
                 "The indicative range for that tank is in this result. It can change once we confirm the base.",
                 "The tank size is known for a new installation or a swap.",
+            ),
+            _rule(
+                "WATER-F03",
+                1,
+                Outcome.FIXED_OFFER,
+                "We can send a fixed quote for this pump.",
+                "A pump on an existing tank.",
             ),
             _rule(
                 "WATER-L01",

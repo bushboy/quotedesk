@@ -133,7 +133,11 @@ class Quote:
 
     def execute(self, context, data):
         self.calls += 1
-        return type("Result", (), {"total": Money("4250.00"), "price_type": "fixed", "clauses": ()})()
+        return type(
+            "Result",
+            (),
+            {"total": Money("4250.00"), "price_type": "fixed", "clauses": (), "lines": ()},
+        )()
 
 
 def tools():
@@ -485,6 +489,7 @@ def test_a_model_quote_id_is_replaced_with_the_issued_quote():
                 {
                     "total": None,
                     "clauses": (),
+                    "lines": (),
                     "range_min": None,
                     "range_max": None,
                     "model_dump": lambda self, mode="json": {"quote_id": {"value": "QD-1042"}, "outcome": "fixed_offer"},

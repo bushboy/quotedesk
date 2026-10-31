@@ -5,6 +5,7 @@ plus read-only lists of stored messages and quotes. It never computes a price, a
 or whether an ask or a draft is allowed.
 """
 
+import json
 import re
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
@@ -22,6 +23,7 @@ from quotedesk.application.dto.tool_outputs import ApproveResult
 from quotedesk.application.errors import ApplicationError
 from quotedesk.application.use_cases.tools.escalate_to_owner import EscalateToOwner
 from quotedesk.application.use_cases.tools.notify_owner import NotifyOwner
+from quotedesk.domain.policy.when import summarise
 from quotedesk.domain.quotes.quote import QuoteState
 from quotedesk.domain.services.validate_policy import validate_policy
 from quotedesk.domain.shared.errors import DomainError
@@ -269,12 +271,14 @@ def _heard(state):
 def _quote_threads(state) -> tuple:
     listed = getattr(state.unit, "list_quote_threads", None)
     if listed is not None:
-        return listed(state.tenant_id)
-    return tuple(
-        (conversation_id, quote)
-        for (tenant, conversation_id), quote in getattr(state.unit, "committed", {}).items()
-        if tenant == state.tenant_id
-    )
+        loaded = listed(state.tenant_id)
+    else:
+        loaded = tuple(
+            (conversation_id, quote)
+            for (tenant, conversation_id), quote in getattr(state.unit, "committed", {}).items()
+            if tenant == state.tenant_id
+        )
+    return tuple((conversation_id, quote) for conversation_id, quote in loaded if quote.versions)
 
 
 def _contact_label(state, conversation_id) -> str:
@@ -424,7 +428,22 @@ def policy_view(
         "refusal": refusal,
         "published": _published_version(request, published),
         "names": _item_names(state),
-        "rows": [*rows, {"code": "", "name": "", "price": "", "remove": False, "blank": True, "unit": "each", "role": "product"}],
+        "rows": [
+            *rows,
+            {
+                "code": "",
+                "name": "",
+                "price": "",
+                "remove": False,
+                "blank": True,
+                "unit": "each",
+                "role": "product",
+                "applies_to": "both",
+                "job_types": "",
+                "when": "",
+                "when_summary": "",
+            },
+        ],
         "deposit_invalid": any("deposit" in sentence.lower() for sentence in errors),
         "storage": None if store is None else store.reachable,
         "ready": not errors and draft is not None and reason.strip() != "",
@@ -442,6 +461,10 @@ def draft_rows(draft) -> list[dict]:
             "remove": False,
             "unit": row.unit,
             "role": row.role,
+            "applies_to": row.applies_to,
+            "job_types": ", ".join(row.job_types),
+            "when": "" if row.when is None else json.dumps(row.when.model_dump(mode="json"), separators=(",", ":")),
+            "when_summary": summarise(row.when),
         }
         for row in draft.rate_rows
     ]

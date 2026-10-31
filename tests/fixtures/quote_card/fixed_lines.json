@@ -1,0 +1,23 @@
+{
+  "state": "fixed_lines",
+  "headline": "Fixed quote",
+  "business_name": "AquaSure Gauteng",
+  "quote_id": "QD-1042",
+  "rule_id": "WATER-F02",
+  "body": "We can send a fixed quote for this new installation.",
+  "lines": [
+    {"description": "5000 L tank", "total_display": "R 4 250.00"},
+    {"description": "Tank stand", "total_display": "R 900.00"}
+  ],
+  "amount_display": "R 5 150.00",
+  "range_min_display": null,
+  "range_max_display": null,
+  "shared": null,
+  "fee_display": null,
+  "expiry_display": "7 November 2026",
+  "status_line": "ISSUED · version 1 · 7 November 2026 · none",
+  "window_display": null,
+  "hold_until_display": null,
+  "clauses": [],
+  "next_step": null
+}

@@ -101,7 +101,7 @@ conversations:
   - id: aqua-new-system-sized
     persona: wants a new installation and already knows the litres
     expected_outcome: quoted
-    rule_id: WATER-R02
+    rule_id: WATER-F02
     required_facts: [size_litres]
     forbidden: ["for free", "no charge"]
     batches:
@@ -255,7 +255,7 @@ conversations:
   - id: aqua-range-10000
     persona: wants a new system at 10000 litres and does not mention the base
     expected_outcome: quoted
-    rule_id: WATER-R02
+    rule_id: WATER-F02
     required_facts: [size_litres]
     forbidden: ["for free", "no charge"]
     batches:
@@ -264,3 +264,48 @@ conversations:
         size_litres: "10000"
         size_source: customer_stated
         item_codes: TANK-10000
+  - id: aqua-backup-5000
+    persona: wants a new 5000 L backup system with a booster pump
+    expected_outcome: quoted
+    rule_id: WATER-F02
+    required_facts: [size_litres, supply, pump]
+    forbidden: ["for free", "no charge"]
+    lines: [TANK-5000, PUMP-PRESSURE, BASE-SLAB-L, PLUMB-KIT, CHANGEOVER, INSTALL-NEW, INSTALL-PUMP, DELIVERY-30KM]
+    excluded: [BASE-SLAB-S, STAND-2M, REMOVE-TANK, INSTALL-SWAP, RAIN-KIT]
+    batches:
+      - job_type: new_system
+        customer_text: A new 5000 litre backup tank with a pressure booster.
+        size_litres: "5000"
+        size_source: customer_stated
+        item_codes: TANK-5000,PUMP-PRESSURE
+        supply: backup
+        pump: PUMP-PRESSURE
+        existing_level_base: "false"
+  - id: aqua-slim-swap
+    persona: wants the slimline 1000 L tank swapped
+    expected_outcome: quoted
+    rule_id: WATER-F01
+    required_facts: [size_litres]
+    forbidden: ["for free", "no charge"]
+    lines: [TANK-SLIM-1000, REMOVE-TANK, INSTALL-SWAP]
+    excluded: [BASE-SLAB-S, BASE-SLAB-L, STAND-2M, INSTALL-NEW]
+    batches:
+      - job_type: replacement
+        customer_text: Swap the slimline thousand litre tank. The base is level.
+        size_litres: "1000-slim"
+        size_source: customer_stated
+        item_codes: TANK-SLIM-1000
+        existing_level_base: "true"
+  - id: aqua-pump-only
+    persona: wants only a pump on the tank already there
+    expected_outcome: quoted
+    rule_id: WATER-F03
+    required_facts: [pump]
+    forbidden: ["for free", "no charge"]
+    lines: [PUMP-STD, INSTALL-PUMP]
+    excluded: [TANK-5000, BASE-SLAB-L, INSTALL-NEW, REMOVE-TANK]
+    batches:
+      - job_type: pump
+        customer_text: Just fit a standard pump on the tank we already have.
+        pump: PUMP-STD
+        item_codes: PUMP-STD

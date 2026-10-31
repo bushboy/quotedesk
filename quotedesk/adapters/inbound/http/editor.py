@@ -4,6 +4,7 @@ The draft is checked by `validate_policy` and published by `PublishPolicy`.
 The form lives on the console page; this module never writes the published bundle itself.
 """
 
+import json
 import re
 from decimal import Decimal
 from urllib.parse import quote
@@ -17,20 +18,23 @@ from quotedesk.application.dto.tenant import TenantContext
 from quotedesk.application.dto.tool_inputs import PublishInput
 from quotedesk.application.errors import ApplicationError
 from quotedesk.domain.policy.draft import DraftRateRow
+from quotedesk.domain.services.decide import parse_when
 from quotedesk.domain.shared.errors import DomainError
 
 router = APIRouter()
 
 _WHOLE = re.compile(r"-?\d{1,6}")
 _NOT_A_NUMBER = "Type the deposit as a whole number, like 30."
-_ROW = re.compile(r"(code|name|price|remove|unit|role)-(\d{1,3})")
+_ROW = re.compile(r"(code|name|price|remove|unit|role|applies-to|job-types|when)-(\d{1,3})")
 _UNITS = {"each", "per m²", "per metre"}
 _ROLES = {"product", "frame", "hardware", "installation", "delivery", "inspection"}
+_APPLIES = {"both", "swap", "new"}
 _CODE = re.compile(r"[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*")
 _PRICE = re.compile(r"\d{1,9}(?:\.\d{1,2})?")
 _NO_CODE = "Each priced item needs a code, like TANK-5000."
 _BAD_CODE = "An item code is letters and numbers joined by dashes, like TANK-5000."
 _BAD_PRICE = "Type each price in rand, like 4250.00."
+_BAD_APPLIES = "Say whether a row applies to both, a swap, or a new installation."
 
 
 @router.get("/editor")
@@ -109,6 +113,9 @@ def _typed_rows(form: dict[str, str]) -> list[dict] | None:
             "remove": f"remove-{index}" in form,
             "unit": form.get(f"unit-{index}", "").strip(),
             "role": form.get(f"role-{index}", "").strip(),
+            "applies_to": form.get(f"applies-to-{index}", "").strip(),
+            "job_types": form.get(f"job-types-{index}", "").strip(),
+            "when": form.get(f"when-{index}", "").strip(),
         }
         for index in indexes
     ]
@@ -130,6 +137,10 @@ def _rate_rows(typed: list[dict], vat_inclusive: bool) -> tuple[tuple[DraftRateR
         else:
             unit = row.get("unit") or "each"
             role = row.get("role") or "product"
+            applies = row.get("applies_to") or "both"
+            if applies not in _APPLIES:
+                problems.append(_BAD_APPLIES)
+                continue
             rows.append(
                 DraftRateRow(
                     item_code=row["code"],
@@ -138,6 +149,19 @@ def _rate_rows(typed: list[dict], vat_inclusive: bool) -> tuple[tuple[DraftRateR
                     description=row["name"],
                     unit=unit if unit in _UNITS else "each",
                     role=role if role in _ROLES else "product",
+                    applies_to=applies,
+                    job_types=tuple(part.strip() for part in row.get("job_types", "").split(",") if part.strip()),
+                    when=_when(row.get("when", "")),
                 )
             )
     return tuple(rows), list(dict.fromkeys(problems))
+
+
+def _when(raw: str):
+    if not raw.strip():
+        return None
+    try:
+        loaded = json.loads(raw)
+    except json.JSONDecodeError:
+        return None
+    return parse_when(loaded)

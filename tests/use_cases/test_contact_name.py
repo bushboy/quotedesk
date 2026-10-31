@@ -4,7 +4,12 @@ from datetime import datetime, timezone
 from types import SimpleNamespace
 from uuid import UUID
 
-from quotedesk.application.use_cases.conversation.run_agent_turn import NAME_ASK, remember_name, with_name
+from quotedesk.application.use_cases.conversation.run_agent_turn import (
+    NAME_ASK,
+    keep_profile_name,
+    remember_name,
+    with_name,
+)
 from quotedesk.infrastructure.demo import Conversations
 
 TENANT = UUID("11111111-1111-4111-8111-111111111111")
@@ -15,6 +20,24 @@ WA = "27821234567"
 
 def _event(body: str):
     return SimpleNamespace(body=body)
+
+
+def test_a_profile_name_is_kept_and_not_asked_again():
+    store = Conversations()
+    store.bind(TENANT, WA, CONVERSATION)
+    keep_profile_name(store, TENANT, WA, "Thabo")
+    assert store.name(TENANT, WA) == "Thabo"
+    assert with_name(store, TENANT, WA, "Thanks.") == "Thanks."
+    remember_name(store, TENANT, CONVERSATION, WA, (_event("Please quote a 5000 L replacement."),))
+    assert store.name(TENANT, WA) == "Thabo"
+
+
+def test_an_introduction_replaces_the_profile_name():
+    store = Conversations()
+    store.bind(TENANT, WA, CONVERSATION)
+    keep_profile_name(store, TENANT, WA, "Thabo")
+    remember_name(store, TENANT, CONVERSATION, WA, (_event("My name is Lerato Mokoena, please quote a tank"),))
+    assert store.name(TENANT, WA) == "Lerato Mokoena"
 
 
 def test_an_introduction_is_stored_and_not_asked_again():

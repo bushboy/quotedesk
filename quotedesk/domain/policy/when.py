@@ -79,6 +79,27 @@ def any_of(*parts: When) -> When:
     return When(op="any", of=parts)
 
 
+def summarise(condition: When | None) -> str:
+    """A short reading of a condition, for the rate-card editor."""
+    if condition is None:
+        return ""
+    if condition.op == "equals":
+        return f"{condition.fact} is {condition.value}"
+    if condition.op == "in":
+        return f"{condition.fact} is one of {', '.join(condition.values)}"
+    if condition.op == "greater_than":
+        return f"{condition.fact} is greater than {condition.value}"
+    if condition.op == "is_missing":
+        return f"{condition.fact} is missing"
+    if condition.op == "is_unknown":
+        return f"{condition.fact} is unknown"
+    if condition.op == "all":
+        return "; ".join(part for part in (summarise(item) for item in condition.of) if part)
+    if condition.op == "any":
+        return " or ".join(part for part in (summarise(item) for item in condition.of) if part)
+    return ""
+
+
 def published_when(rule_id: str) -> When | None:
     """The condition the current AquaSure and FrameWorks rules already mean."""
     return _PUBLISHED.get(rule_id)
@@ -119,6 +140,11 @@ _SIZED = all_of(
     one_of("job", ("replacement", "new_system")),
     _SIMPLE_OR_UNSAID,
 )
+_NEW_TANK = all_of(
+    eq("job", "new_system"),
+    one_of("size_litres", ("2500", "5000", "10000")),
+)
+_PUMP = all_of(eq("job", "pump"), one_of("pump", ("PUMP-STD", "PUMP-PRESSURE")))
 _FIXED = all_of(
     _SIMPLE_OR_UNSAID,
     eq("confidence", "high"),
@@ -163,6 +189,8 @@ _PUBLISHED = {
         eq("pipe_run_unknown", "true"),
     ),
     "WATER-F01": _FIXED,
+    "WATER-F02": _NEW_TANK,
+    "WATER-F03": _PUMP,
     "WATER-R01": all_of(_READY, eq("new_tank_and_pump", "true"), eq("base_unconfirmed", "true")),
     "WATER-R02": _SIZED,
     "WATER-L01": _LOW,
@@ -170,7 +198,7 @@ _PUBLISHED = {
     "FAB-E01": _INJECTION,
     "FAB-E02": any_of(eq("lintel_cracked", "true"), eq("glass_broken", "true")),
     "FAB-E03": eq("possible_asbestos", "true"),
-    "FAB-S01": one_of("opening", ("new", "widened")),
+    "FAB-S01": eq("opening", "widened"),
     "FAB-S02": any_of(eq("above_ground_floor", "true"), eq("multi_unit", "true")),
     "FAB-F01": all_of(
         eq("confidence", "high"),

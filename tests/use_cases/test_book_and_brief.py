@@ -1,6 +1,7 @@
 """Increment 4: an inspection is recorded, the brief is enough to call from, and the owner is told once."""
 
 from datetime import date, datetime, timezone
+from decimal import Decimal
 from uuid import uuid4
 
 from quotedesk.application.dto.agent import HandoverNote
@@ -12,7 +13,7 @@ from quotedesk.application.use_cases.tools.escalate_to_owner import EscalateToOw
 from quotedesk.application.use_cases.tools.notify_owner import NotifyOwner
 from quotedesk.domain.case.case_file import CaseFile
 from quotedesk.domain.policy.rules import Outcome
-from quotedesk.domain.quotes.quote import Quote, QuoteState
+from quotedesk.domain.quotes.quote import Quote, QuoteLine, QuoteState
 from quotedesk.domain.quotes.schedule import Capacity, CapacitySlot
 from quotedesk.domain.services.price import RateCard
 from quotedesk.domain.shared.ids import QuoteId
@@ -265,3 +266,49 @@ def test_email_is_the_fallback_when_there_is_no_owner_number():
     result = tool.execute(CONTEXT, EscalateToOwnerInput(conversation_id=CONVERSATION, summary="A tank."))
     assert result.notified == "email"
     assert mail.sent[0][0] == "owner@example.com"
+
+
+def _money_line(code: str, description: str, amount: str) -> QuoteLine:
+    money = Money(amount)
+    return QuoteLine(item_code=code, description=description, quantity=Decimal("1"), unit_price=money, total=money)
+
+
+def _issued(*lines: QuoteLine) -> Quote:
+    quote = Quote.open(QuoteId("QD-1042"), date(2026, 11, 30)).set_lines(1, lines)
+    return quote.issue(Outcome.FIXED_OFFER, version=1, at=WHEN)
+
+
+def _brief_for(case: CaseFile, quote: Quote) -> str:
+    tool = EscalateToOwner(
+        Cases(case),
+        Talk("The tank is leaking."),
+        Published(AQUA),
+        Notes(),
+        None,
+        NotifyOwner(MemoryNotices(), Sender()),
+        Clock(WHEN),
+        quotes=Quotes(quote),
+    )
+    return tool.render(CONTEXT, EscalateToOwnerInput(conversation_id=CONVERSATION, summary="A tank."))
+
+
+def test_the_brief_marks_a_swap_and_lists_its_lines():
+    case = CaseFile.open(CONVERSATION, TENANT).add_job("tank", "replacement")
+    brief = _brief_for(case, _issued(_money_line("TANK-5000", "5000 L tank", "4250.00")))
+    assert "a swap" in brief
+    assert "5000 L tank R 4 250.00" in brief
+    assert "stand" not in brief.casefold()
+
+
+def test_the_brief_marks_a_new_installation_and_lists_its_lines():
+    case = CaseFile.open(CONVERSATION, TENANT).add_job("tank", "new_system")
+    brief = _brief_for(
+        case,
+        _issued(
+            _money_line("TANK-5000", "5000 L tank", "4250.00"),
+            _money_line("STAND", "Tank stand", "900.00"),
+        ),
+    )
+    assert "a new installation" in brief
+    assert "5000 L tank R 4 250.00" in brief
+    assert "Tank stand R 900.00" in brief

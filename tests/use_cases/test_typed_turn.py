@@ -326,11 +326,15 @@ def test_typed_replacement_issues_water_f01():
     first, second = model.prompts
     assert first.messages[-1].body == TANK
     assert first.tool_payloads == ()
-    assert first.rate_card == (
+    assert first.rate_card[:5] == (
+        PromptRateItem(item_code="TANK-1000", description="1000 L round tank"),
+        PromptRateItem(item_code="TANK-SLIM-1000", description="1000 L slimline tank, fits against a wall"),
         PromptRateItem(item_code="TANK-2500", description="2500 L tank"),
         PromptRateItem(item_code="TANK-5000", description="5000 L tank"),
         PromptRateItem(item_code="TANK-10000", description="10000 L tank"),
     )
+    assert PromptRateItem(item_code="PUMP-STD", description="Standard pump") in first.rate_card
+    assert PromptRateItem(item_code="PUMP-PRESSURE", description="Pressure booster pump with auto switch") in first.rate_card
     assert all("2850" not in item.description and "4250" not in item.description and "7900" not in item.description for item in first.rate_card)
     update = next(item for item in second.tool_payloads if item.name == "update_case")
     assert "agreement" not in update.body["current"]
@@ -338,7 +342,7 @@ def test_typed_replacement_issues_water_f01():
     quote = next(item for item in second.tool_payloads if item.name == "get_quote")
     assert quote.body["rule_id"]["value"] == "WATER-F01"
     assert quote.body["outcome"] == "fixed_offer"
-    assert quote.body["total"]["amount"] == "4250.00"
+    assert quote.body["total"]["amount"] == "5550.00"
     assert sender.sent == [(WA, QUOTE)]
     assert cases.case.current("tank", "agreement") == "true"
 
@@ -433,6 +437,7 @@ def test_a_sheet_on_a_known_carport_is_quoted():
                     {"key": "item_codes", "value": "SHEET-ECO", **fact},
                     {"key": "width_m", "value": "5", **fact},
                     {"key": "length_m", "value": "7", **fact},
+                    {"key": "existing_frame", "value": "true", **fact},
                 ],
             )
 
@@ -440,10 +445,10 @@ def test_a_sheet_on_a_known_carport_is_quoted():
     conversations, _, sender, _, turn = harness(Record(), business=business, policies=_sheet_policies())
     say(conversations, "Economy sheeting for the 5 by 7 carport.", 0, str(EVENT))
     turn.execute(CONTEXT, CONVERSATION)
-    assert sender.sent == [(WA, "We can send a fixed quote for this sheeting. The total is R 297500.00. /card/QD-1042?code=1042")]
+    assert sender.sent == [(WA, "We can send a fixed quote for this sheeting. The total is R 297500.00. Economy sheeting R 297500.00. /card/QD-1042?code=1042")]
 
 
-def test_a_sheet_choice_without_a_size_asks_for_one():
+def test_a_sheet_choice_without_an_opening_asks_about_the_frame():
     class Record:
         def complete(self, prompt: TurnPrompt) -> ModelReply:
             if prompt.tool_payloads:
@@ -455,7 +460,7 @@ def test_a_sheet_choice_without_a_size_asks_for_one():
     conversations, _, sender, _, turn = harness(Record(), business=business, policies=_sheet_policies())
     say(conversations, "Economy sheeting.", 0, str(EVENT))
     turn.execute(CONTEXT, CONVERSATION)
-    assert sender.sent == [(WA, "What is the width in metres?")]
+    assert sender.sent == [(WA, "Is this sheeting onto the existing frame?")]
 
 
 def test_missing_size_does_not_invent_a_price():
@@ -499,7 +504,12 @@ def test_invented_amount_is_still_refused():
     conversations, _, sender, _, turn = harness(model)
     say(conversations, TANK, 0, str(EVENT))
     turn.execute(CONTEXT, CONVERSATION)
-    assert sender.sent == [(WA, "We can send a fixed quote for this replacement. The total is R 4250.00. /card/QD-1042?code=1042")]
+    assert sender.sent == [(
+        WA,
+        "We can send a fixed quote for this replacement. The total is R 5550.00. "
+        "5000 L tank R 4250.00. Remove and dispose of the old tank R 450.00. "
+        "Swap labour R 850.00. /card/QD-1042?code=1042",
+    )]
     assert all("R 3 000" not in body for _, body in sender.sent)
 
 
@@ -639,8 +649,8 @@ def test_unknown_tool_is_not_called():
     assert model.prompts[1].tool_payloads[0].name == "price"
     assert model.prompts[1].tool_payloads[0].body == {"error": "That tool is not available."}
     assert sender.sent[0][0] == WA
-    assert sender.sent[0][1].startswith("Which tank size do you want?")
-    assert "5000 L tank" in sender.sent[0][1]
+    assert sender.sent[0][1].startswith("What can we help with:")
+    assert "Fit a pump on an existing tank" in sender.sent[0][1]
 
 
 def test_second_turn_sees_the_recorded_size():

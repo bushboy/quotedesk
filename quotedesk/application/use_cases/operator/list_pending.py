@@ -22,6 +22,8 @@ class ListPending:
         changes = self._unit.list_changes(context.tenant_id)
         rows: list[PendingRow] = []
         for quote in self._quotes.list_for(context.tenant_id):
+            if not quote.versions:
+                continue
             if quote.current.state is not QuoteState.PENDING_APPROVAL:
                 continue
             percent = _percent(changes, quote.quote_id)

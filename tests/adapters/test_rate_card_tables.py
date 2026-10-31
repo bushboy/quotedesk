@@ -1,3 +1,4 @@
+from pathlib import Path
 from uuid import UUID
 
 import pytest
@@ -37,13 +38,16 @@ def test_the_migration_seeds_each_business_card(database):
     with database.begin() as connection:
         frameworks = RateCardTables().get(connection, FRAMEWORKS)
 
+    from pathlib import Path
+
+    from quotedesk.adapters.outbound.parsers.aquasure import load_rate_card
+
+    root = Path("seeds")
+    assert aquasure == load_rate_card(root / "aquasure.yaml")
+    assert frameworks == load_rate_card(root / "frameworks.yaml")
     assert aquasure.site_visit_fee == Money("750.00")
-    assert [(i.item_code, i.description, i.unit_price) for i in aquasure.items] == [
-        ("TANK-2500", "2500 L tank", Money("2850.00")),
-        ("TANK-5000", "5000 L tank", Money("4250.00")),
-        ("TANK-10000", "10000 L tank", Money("7900.00")),
-    ]
-    assert [i.item_code for i in frameworks.items] == ["SHEET-ECO", "SHEET-POLY"]
+    assert frameworks.items[-1].item_code == "SITE-MEASURE"
+    assert frameworks.items[-1].unit_price == frameworks.site_visit_fee
 
 
 def test_a_saved_card_reads_back_in_order_and_only_for_its_tenant(database):
@@ -62,7 +66,48 @@ def test_a_saved_card_reads_back_in_order_and_only_for_its_tenant(database):
     with database.begin() as connection:
         connection.execute(text("SELECT set_config('app.current_tenant_id', :t, true)"), {"t": str(FRAMEWORKS)})
         codes = connection.execute(text("SELECT item_code FROM rate_card_item ORDER BY item_code")).scalars().all()
-    assert codes == ["SHEET-ECO", "SHEET-POLY"]
+    from quotedesk.adapters.outbound.parsers.aquasure import load_rate_card
+
+    expected = sorted(item.item_code for item in load_rate_card(Path("seeds/frameworks.yaml")).items)
+    assert codes == expected
+
+
+def test_applies_to_round_trips(database):
+    with database.begin() as connection:
+        seeded = RateCardTables().get(connection, AQUASURE)
+    assert seeded is not None
+    assert seeded.items[0].item_code == "TANK-1000"
+    assert seeded.items[0].applies_to == "both"
+
+    card = RateCard(
+        vat_inclusive=True,
+        site_visit_fee=Money("750.00"),
+        items=(
+            RateCardItem(
+                item_code="TANK-5000",
+                description="5000 L tank",
+                unit_price=Money("4250.00"),
+                role="product",
+                applies_to="both",
+            ),
+            RateCardItem(
+                item_code="STAND",
+                description="Stand and base",
+                unit_price=Money("900.00"),
+                role="frame",
+                applies_to="new",
+            ),
+        ),
+    )
+    with database.begin() as connection:
+        RateCardTables().save(connection, AQUASURE, card)
+    with database.begin() as connection:
+        loaded = RateCardTables().get(connection, AQUASURE)
+    assert loaded is not None
+    assert [(item.item_code, item.role, item.applies_to) for item in loaded.items] == [
+        ("TANK-5000", "product", "both"),
+        ("STAND", "frame", "new"),
+    ]
 
 
 def test_a_closed_database_is_not_reachable():

@@ -4,7 +4,7 @@ Oct 30, 2026 · @Bushboy
 
 ## Verdict
 
-The commercial core is still sound, but the last four days of work have moved business knowledge into the wrong places, and the agent can still go silent. Do not seed a third business yet: today, adding Kingdom Doors means editing code in at least six places, and a single tool error can leave a customer unanswered while the worker retries forever. Fix the shape first; it is about two days of work and it is what makes the third business a configuration task.
+The commercial core is still sound, but the last four days of work have moved business knowledge into the wrong places, and the agent can still go silent. Do not seed a third business yet: today, adding Oakmere Doors means editing code in at least six places, and a single tool error can leave a customer unanswered while the worker retries forever. Fix the shape first; it is about two days of work and it is what makes the third business a configuration task.
 
 Reviewed: the repository as of commit `04e14d2` plus uncommitted changes, 30 October 2026, by reading the code. Your last local test run passed 297 tests; I could not run them myself.
 
@@ -227,6 +227,6 @@ Do these in order; each step leaves the app working. Steps 1 to 4 are the minimu
 | 6 | Rule conditions as data; move Postgres adapters into `adapters/`; tenant resolved from `phone_number_id` | A6, A9, A11 | One day |
 | 7 | Evaluation set and simulator for all three businesses; publish the numbers in the README | Section on evaluation | Half a day, then ongoing |
 
-**For Saturday's conversation with Kingdom Doors**, steps 1 and 2 are enough to seed the door showroom as a playbook with the rate card already prepared, and to demo it without the risk of a silent chat. Present it as a working prototype, and use the meeting to collect their real job types, prices and inspection rules for the playbook.
+**For Saturday's conversation with Oakmere Doors**, steps 1 and 2 are enough to seed the door showroom as a playbook with the rate card already prepared, and to demo it without the risk of a silent chat. Present it as a working prototype, and use the meeting to collect their real job types, prices and inspection rules for the playbook.
 
 **Hackathon note:** steps 1 to 4 also strengthen the submission. A planner that decides the next step, an agent that always answers, and measured accuracy per business are a clearer story for judges than more features.

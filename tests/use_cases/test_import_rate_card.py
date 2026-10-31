@@ -121,6 +121,26 @@ def _run(library_unit: tuple[Library, Unit, ImportRateCard] | None = None, **fie
     return importer.execute(CONTEXT, data), library, unit
 
 
+def test_a_sheet_without_applies_to_stores_both() -> None:
+    library, _unit, importer = _world()
+    importer.execute(
+        CONTEXT,
+        ImportRateCardInput(filename="card.xlsx", body=_xlsx(CARD), expected_unit="each", labeller=Mislabel()),
+    )
+    assert [row.applies_to for row in library.current_draft.rate_rows] == ["both", "both"]
+
+    stated = [
+        ["item_code", "unit_price", "unit", "applies_to"],
+        ["STAND", 900, "each", "new"],
+    ]
+    library, _unit, importer = _world()
+    importer.execute(
+        CONTEXT,
+        ImportRateCardInput(filename="stand.xlsx", body=_xlsx(stated), expected_unit="each", labeller=Mislabel()),
+    )
+    assert library.current_draft.rate_rows[0].applies_to == "new"
+
+
 def test_excel_numbers_come_from_cells() -> None:
     labeller = Mislabel()
     library, _unit, importer = _world()

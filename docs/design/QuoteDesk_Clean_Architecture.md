@@ -53,9 +53,9 @@ The domain is plain Python: Pydantic models and pure functions with no I/O, no f
 | `decide()` | Case facts, extraction facts, segmentation facts, published policy | `Decision`: outcome, rule ID, reasons, confidence band |
 | `derive_confidence()` | Required-field completeness, cross-model agreement, measurement source, media usability (blur, darkness, unintelligible audio), rate card match | `ConfidenceBand` |
 | `select_clauses()` | Decision, unconfirmed facts, job type, policy | Conditions with placeholders filled from settings |
-| `price()` | Decision, facts, rate card | Line items or a range, as `Money` |
+| `price()` | Decision, facts, rate card | The chosen product, plus role rows whose `applies_to` matches the work (`swap` or `new`). A range is that product span with the shared rows added to both ends. Amounts are `Money`. `lines` stays empty on a range. |
 | `schedule()` | Request, capacity snapshot, scheduling settings, deposit state | Schedule commitment and what the agent may say |
-| `validate_policy()` | Policy draft | List of validation errors |
+| `validate_policy()` | Policy draft | List of validation errors. Two non-product rows that share a role and an `applies_to` are rejected. The sentence is "A role has one price for each kind of work." |
 | `detect_contradiction()` | New fact, existing facts | Contradiction or none |
 | `classify_injection_claims()` | Extracted text from media or messages | Flags for claimed approvals or instructions |
 
@@ -213,7 +213,7 @@ Three flows show the layers working together. Each step names the layer it runs 
 **2. `GetQuote` produces a commitment**
 
 1. *Use case:* loads the case file, the latest extraction and segmentation facts, and the tenant's published `PolicyVersion`.
-2. *Domain:* `derive_confidence()`, then `decide()` returns the outcome and rule; `price()` and `select_clauses()` build line items or a range and the conditions.
+2. *Domain:* `derive_confidence()`, then `decide()` returns the outcome and rule; `price()` composes the chosen product with the role rows whose `applies_to` matches the work, or a range that puts those shared rows on both ends, and `select_clauses()` builds the conditions.
 3. *Domain:* the `Quote` aggregate creates a new version in `ISSUED`, `SITE_ASSESSMENT_OFFERED`, `ESCALATED` or `PENDING_APPROVAL`.
 4. *Use case:* saves the quote and its audit event in one unit of work and returns the quote DTO, which the agent may relay but not alter.
 

@@ -159,6 +159,10 @@ def _one(slug: str, item: dict, seed: int, voice: ScriptedCustomer) -> dict:
         break
     elapsed = time.perf_counter() - started
     reply = "\n".join(replies)
+    quote = application.state.unit.committed.get((profile.tenant_id, conversation_id))
+    current = None if quote is None else quote.current
+    lines = [] if current is None else [line.item_code for line in current.lines]
+    quantities = {} if current is None else {line.item_code: format(line.quantity, "f") for line in current.lines}
     expected_rule = "" if item["rule_id"] in ("", "none") else item["rule_id"]
     forbidden = [phrase for phrase in item.get("forbidden") or [] if phrase in reply]
     unfounded = [phrase for phrase in _UNFOUNDED if phrase in reply.casefold()]
@@ -181,6 +185,11 @@ def _one(slug: str, item: dict, seed: int, voice: ScriptedCustomer) -> dict:
         "reasked": reasked,
         "brief_completeness": 1.0 if not required else len(filled) / len(required),
         "seconds": round(elapsed, 3),
+        "lines": lines,
+        "quantities": quantities,
+        "price_type": "" if current is None or current.price_type is None else current.price_type,
+        "range_min": "" if current is None or current.range_min is None else str(current.range_min.amount),
+        "range_max": "" if current is None or current.range_max is None else str(current.range_max.amount),
     }
 
 

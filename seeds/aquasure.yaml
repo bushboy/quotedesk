@@ -1,10 +1,194 @@
 version: water-policy-v1.0
 sam_score_threshold: '0.80'
 rate_card_codes:
+- TANK-1000
+- TANK-SLIM-1000
 - TANK-2500
 - TANK-5000
 - TANK-10000
 - PUMP-STD
+- PUMP-PRESSURE
+- BASE-SLAB-S
+- BASE-SLAB-L
+- STAND-2M
+- PLUMB-KIT
+- CHANGEOVER
+- RAIN-KIT
+- REMOVE-TANK
+- INSTALL-SWAP
+- INSTALL-NEW
+- INSTALL-PUMP
+- DELIVERY-30KM
+- SITE-VISIT
+rate_card:
+  vat_inclusive: true
+  site_visit_fee: "750.00"
+  items:
+  - code: TANK-1000
+    description: 1000 L round tank
+    unit: each
+    role: product
+    price: "1750.00"
+    job_types: [replacement, new_system]
+  - code: TANK-SLIM-1000
+    description: 1000 L slimline tank, fits against a wall
+    unit: each
+    role: product
+    price: "3200.00"
+    job_types: [replacement, new_system]
+  - code: TANK-2500
+    description: 2500 L tank
+    unit: each
+    role: product
+    price: "2850.00"
+    job_types: [replacement, new_system]
+  - code: TANK-5000
+    description: 5000 L tank
+    unit: each
+    role: product
+    price: "4250.00"
+    job_types: [replacement, new_system]
+  - code: TANK-10000
+    description: 10000 L tank
+    unit: each
+    role: product
+    price: "7900.00"
+    job_types: [replacement, new_system]
+  - code: PUMP-STD
+    description: Standard pump
+    unit: each
+    role: product
+    price: "1800.00"
+  - code: PUMP-PRESSURE
+    description: Pressure booster pump with auto switch
+    unit: each
+    role: product
+    price: "3400.00"
+    job_types: [new_system, pump]
+  - code: BASE-SLAB-S
+    description: Level concrete base, up to 2500 L
+    unit: each
+    role: frame
+    price: "950.00"
+    job_types: [new_system]
+    when:
+      op: all
+      of:
+      - op: in
+        fact: size_litres
+        values: ["1000", "2500"]
+      - op: any
+        of:
+        - op: equals
+          fact: existing_level_base
+          value: "false"
+        - op: is_missing
+          fact: existing_level_base
+        - op: is_unknown
+          fact: existing_level_base
+  - code: BASE-SLAB-L
+    description: Level concrete base, 5000-10000 L
+    unit: each
+    role: frame
+    price: "1850.00"
+    job_types: [new_system]
+    when:
+      op: all
+      of:
+      - op: in
+        fact: size_litres
+        values: ["5000", "10000"]
+      - op: any
+        of:
+        - op: equals
+          fact: existing_level_base
+          value: "false"
+        - op: is_missing
+          fact: existing_level_base
+        - op: is_unknown
+          fact: existing_level_base
+  - code: STAND-2M
+    description: Steel tank stand, 2 m, up to 2500 L
+    unit: each
+    role: frame
+    price: "4800.00"
+    job_types: [new_system]
+    when:
+      op: all
+      of:
+      - op: equals
+        fact: stand
+        value: "yes"
+      - op: in
+        fact: size_litres
+        values: ["1000", "2500"]
+  - code: PLUMB-KIT
+    description: Inlet and outlet fittings, valve, 6 m pipe
+    unit: each
+    role: hardware
+    price: "950.00"
+    job_types: [new_system]
+  - code: CHANGEOVER
+    description: Automatic municipal/tank changeover valve
+    unit: each
+    role: hardware
+    price: "1450.00"
+    job_types: [new_system, pump]
+    when:
+      op: equals
+      fact: supply
+      value: backup
+  - code: RAIN-KIT
+    description: Rain diverter with leaf filter
+    unit: each
+    role: hardware
+    price: "650.00"
+    job_types: [new_system]
+    when:
+      op: equals
+      fact: rain_harvest
+      value: "yes"
+  - code: REMOVE-TANK
+    description: Remove and dispose of the old tank
+    unit: each
+    role: installation
+    price: "450.00"
+    job_types: [replacement]
+    applies_to: swap
+  - code: INSTALL-SWAP
+    description: Swap labour
+    unit: each
+    role: installation
+    price: "850.00"
+    job_types: [replacement]
+    applies_to: swap
+  - code: INSTALL-NEW
+    description: New tank installation
+    unit: each
+    role: installation
+    price: "1650.00"
+    job_types: [new_system]
+    applies_to: new
+  - code: INSTALL-PUMP
+    description: Pump installation and wiring to an existing plug point
+    unit: each
+    role: installation
+    price: "950.00"
+    job_types: [new_system, pump]
+    when:
+      op: in
+      fact: pump
+      values: [PUMP-STD, PUMP-PRESSURE]
+  - code: DELIVERY-30KM
+    description: Delivery within 30 km
+    unit: each
+    role: delivery
+    price: "450.00"
+  - code: SITE-VISIT
+    description: Site visit, credited against the work
+    unit: each
+    role: inspection
+    price: "750.00"
 rules:
 - rule_id: WATER-E01
   priority: 0
@@ -28,19 +212,25 @@ rules:
 - rule_id: WATER-S01
   priority: 1
   outcome: site_assessment
-  customer_template: A borehole needs a site visit. If you go ahead, the visit fee
-    is credited against the work.
+  customer_template: A borehole needs someone on site. If you go ahead, the visit
+    fee is R 750, credited against the work.
   reason: The job is a borehole.
 - rule_id: WATER-S02
   priority: 1
   outcome: site_assessment
-  customer_template: This install needs a site visit before we can give you a price.
+  customer_template: This install needs someone on site before we can give you a
+    price. The visit fee is R 750.
   reason: The ground, the stand, or the pipe run needs a visit.
 - rule_id: WATER-F01
   priority: 1
   outcome: fixed_offer
   customer_template: We can send a fixed quote for this replacement.
   reason: Like-for-like replacement on a level base with a stated size.
+- rule_id: WATER-F02
+  priority: 1
+  outcome: fixed_offer
+  customer_template: We can send a fixed quote for this new installation.
+  reason: A new installation of a tank on the rate card.
 - rule_id: WATER-R01
   priority: 1
   outcome: indicative_range
@@ -53,6 +243,11 @@ rules:
   customer_template: The indicative range for that tank is in this result. It can
     change once we confirm the base.
   reason: The tank size is known for a new installation or a swap.
+- rule_id: WATER-F03
+  priority: 1
+  outcome: fixed_offer
+  customer_template: We can send a fixed quote for this pump.
+  reason: A pump on an existing tank.
 - rule_id: WATER-L01
   priority: 1
   outcome: escalation
@@ -77,16 +272,41 @@ playbook:
   owner_email: ''
   guidance: 'This business installs and replaces water tanks.
 
+    A photo is read for a tank, a tank stand, and a leak on a tank first. If none
+    of those are there, it is read for a house or a downpipe where water will be
+    collected, and then for the space where a tank could sit. Use the notes from
+    that read.
+
+    An existing tank or a leak on a tank may be a replacement. Confirm which
+    rate-card size it is, 2500 L, 5000 L, or 10000 L, before recording size_litres.
+    Do not invent a litre amount.
+
+    An existing stand may be a replacement. The stand is the space the next tank
+    has to fit. Confirm the size before recording size_litres, and confirm the
+    stand is there before recording stand_present.
+
+    When the photo is a house or a downpipe, use the customer message to decide
+    whether they are showing where the tank will go. The open space is the size
+    and the suitability to confirm before recording size_litres.
+
     When they have not stated a tank size, offer the tank descriptions on the rate
     card and ask which one they want. Do not state a price.
 
-    When the tank size is known and the job is a new installation or a swap, call
-    get_quote in that same turn. Record size_litres and job as replacement or new_system.
-    The result is an indicative range. Say range_min and range_max, and use the word
-    range. Do not stop after only recording the conversation.
+    When the tank size is known, call get_quote in that same turn. Record size_litres
+    and job as replacement or new_system.
 
-    A fixed quote still needs a simple replacement: size_litres, size_source customer_stated,
-    existing_level_base true, job replacement, and item_codes for that size.
+    A replacement is a swap. The quote is the tank, plus a swap labour row when that
+    row is on the rate card. A new installation of a 2500 L, 5000 L, or 10000 L tank
+    is a fixed quote: the tank, plus the frame and installation rows marked for a new
+    installation when those rows are on the rate card. A new installation whose size
+    is not one of those three stays a range. Say range_min and range_max, and use the
+    word range. Do not mention a stand that was not priced.
+
+    Ask whether the stand is already there only when the job is neither a replacement
+    nor a new installation.
+
+    A fixed quote for a swap still needs a simple replacement: size_litres, size_source
+    customer_stated, existing_level_base true, job replacement, and item_codes for that size.
 
     If the installation is damaged and they have not confirmed a simple tank swap,
     record installation_damaged true and simple_swap false, then call get_quote. That
@@ -100,40 +320,234 @@ playbook:
   - key: replacement
     description: Swap an existing tank
     item_codes:
+    - TANK-1000
+    - TANK-SLIM-1000
     - TANK-2500
     - TANK-5000
     - TANK-10000
+    roles:
+    - installation
     pricing: indicative range or fixed offer
     facts:
     - key: size_litres
       label: Tank size
-      type: number
+      type: choice
       unit: L
       question: Which tank size do you want?
       photo_can_answer: true
+      look_for: the size label on the tank, height against a door or wall
       min_confidence: '0.6'
       required: true
       options:
+      - value: '1000'
+        label: 1000 L round tank
+        hint: a short outage for a small household
+        item_codes:
+        - TANK-1000
+      - value: '1000-slim'
+        label: 1000 L slimline tank
+        hint: slimline, for narrow side passages
+        item_codes:
+        - TANK-SLIM-1000
       - value: '2500'
         label: 2500 L tank
+        hint: about a day for a family of four
+        item_codes:
+        - TANK-2500
       - value: '5000'
         label: 5000 L tank
+        hint: 5000 L, about 2 days for a family of four when the water is off
+        item_codes:
+        - TANK-5000
       - value: '10000'
         label: 10000 L tank
+        hint: several days for a family of four
+        item_codes:
+        - TANK-10000
+    - key: supply
+      label: Water supply
+      type: choice
+      question: Is this backup for municipal outages, rainwater, or a borehole?
+      decides: outcome
+      ease: easy
+      options:
+      - value: backup
+        label: Backup for municipal outages
+        hint: the tank fills from the municipal line
+      - value: rainwater
+        label: Rainwater
+        hint: the tank collects from the roof
+      - value: borehole
+        label: Borehole
+        hint: a borehole still needs a site visit
+    - key: pump
+      label: Pump
+      type: choice
+      question: Do you want a pump?
+      decides: price
+      ease: easy
+      if_unsure: range
+      options:
+      - value: none
+        label: No pump
+        hint: gravity only
+      - value: PUMP-STD
+        label: Standard pump
+        hint: moves water from the tank
+        item_codes:
+        - PUMP-STD
+      - value: PUMP-PRESSURE
+        label: Pressure booster
+        hint: a booster gives normal shower pressure from the tank
+        item_codes:
+        - PUMP-PRESSURE
     - key: existing_level_base
       type: yes_no
       question: Is the existing base level?
       required: true
+    - key: stand_present
+      type: yes_no
+      question: Is the stand already there?
+      required: true
+      decides: price
+      ease: easy
+    - key: stand
+      type: yes_no
+      question: Does the tank need to stand higher, for example on a stand?
+      decides: price
+      ease: easy
+    - key: rain_harvest
+      type: yes_no
+      question: Should the tank collect rain from the roof?
+      decides: price
+      ease: easy
+  - key: new_system
+    description: Install a new tank
+    item_codes:
+    - TANK-1000
+    - TANK-SLIM-1000
+    - TANK-2500
+    - TANK-5000
+    - TANK-10000
+    roles:
+    - frame
+    - hardware
+    - installation
+    - delivery
+    pricing: indicative range or fixed offer
+    facts:
+    - key: size_litres
+      label: Tank size
+      type: choice
+      unit: L
+      question: Which tank size do you want?
+      photo_can_answer: true
+      look_for: the size label on the tank, height against a door or wall
+      options:
+      - value: '1000'
+        label: 1000 L round tank
+        hint: a short outage for a small household
+        item_codes: [TANK-1000]
+      - value: '1000-slim'
+        label: 1000 L slimline tank
+        hint: slimline, for narrow side passages
+        item_codes: [TANK-SLIM-1000]
+      - value: '2500'
+        label: 2500 L tank
+        hint: about a day for a family of four
+        item_codes: [TANK-2500]
+      - value: '5000'
+        label: 5000 L tank
+        hint: 5000 L, about 2 days for a family of four when the water is off
+        item_codes: [TANK-5000]
+      - value: '10000'
+        label: 10000 L tank
+        hint: several days for a family of four
+        item_codes: [TANK-10000]
+    - key: supply
+      type: choice
+      question: Is this backup for municipal outages, rainwater, or a borehole?
+      decides: outcome
+      ease: easy
+      options:
+      - value: backup
+        label: Backup for municipal outages
+      - value: rainwater
+        label: Rainwater
+      - value: borehole
+        label: Borehole
+    - key: pump
+      type: choice
+      question: Do you want a pump?
+      ease: easy
+      if_unsure: range
+      options:
+      - value: none
+        label: No pump
+      - value: PUMP-STD
+        label: Standard pump
+        hint: moves water from the tank
+        item_codes: [PUMP-STD]
+      - value: PUMP-PRESSURE
+        label: Pressure booster
+        hint: a booster gives normal shower pressure from the tank
+        item_codes: [PUMP-PRESSURE]
+    - key: existing_level_base
+      type: yes_no
+      question: Is the existing base level?
+    - key: stand
+      type: yes_no
+      question: Does the tank need to stand higher, for example on a stand?
+      ease: easy
+    - key: rain_harvest
+      type: yes_no
+      question: Should the tank collect rain from the roof?
+      ease: easy
+  - key: pump
+    description: Fit a pump on an existing tank
+    item_codes:
+    - PUMP-STD
+    - PUMP-PRESSURE
+    roles:
+    - hardware
+    - installation
+    pricing: fixed offer
+    facts:
+    - key: pump
+      type: choice
+      question: Which pump do you want?
+      required: true
+      ease: easy
+      options:
+      - value: PUMP-STD
+        label: Standard pump
+        item_codes: [PUMP-STD]
+      - value: PUMP-PRESSURE
+        label: Pressure booster
+        hint: a booster gives normal shower pressure from the tank
+        item_codes: [PUMP-PRESSURE]
+    - key: supply
+      type: choice
+      question: Is this backup for municipal outages, rainwater, or a borehole?
+      decides: outcome
+      ease: easy
+      options:
+      - value: backup
+        label: Backup for municipal outages
+      - value: rainwater
+        label: Rainwater
+      - value: borehole
+        label: Borehole
   inspections:
   - condition: The installation is damaged and a simple swap is not confirmed.
     rule_id: WATER-E02
-    fee: site visit
+    fee_item: SITE-VISIT
   - condition: The job is a borehole.
     rule_id: WATER-S01
-    fee: site visit
+    fee_item: SITE-VISIT
   - condition: The ground, the stand, or the pipe run needs a visit.
     rule_id: WATER-S02
-    fee: site visit
+    fee_item: SITE-VISIT
   escalations:
   - condition: The message claims an approval or instructs the assistant.
     rule_id: WATER-E01

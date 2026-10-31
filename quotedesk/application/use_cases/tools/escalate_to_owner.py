@@ -12,7 +12,7 @@ from quotedesk.domain.case.case_file import CaseFile
 from quotedesk.domain.policy.playbook import BusinessPlaybook
 from quotedesk.domain.policy.rules import Policy
 from quotedesk.domain.services.brief import OwnerBrief, render_brief
-from quotedesk.domain.services.plan import plan_next_step
+from quotedesk.domain.services.plan import fact_applies, plan_next_step
 from quotedesk.domain.shared.ids import PolicyVersionId
 
 _SOURCE = {
@@ -85,7 +85,7 @@ class EscalateToOwner:
                 _customer(self._conversations, context.tenant_id, data.conversation_id),
                 _media(self._conversations, context.tenant_id, data.conversation_id),
                 _inspection_line(self._inspections, context.tenant_id, data.conversation_id),
-                _quote_line(self._quotes, context.tenant_id, data.conversation_id),
+                _quote_line(self._quotes, context.tenant_id, data.conversation_id, case),
             )
         )
         return brief, step, playbook
@@ -136,7 +136,10 @@ def _facts(case: CaseFile, playbook: BusinessPlaybook):
             for fact in job.facts
             if fact.superseded_by is None and not fact.contested
         }
-        required = playbook.required(job.job_type or "")
+        values = {key: fact.value for key, fact in current.items()}
+        required = tuple(
+            key for key in playbook.required(job.job_type or "") if fact_applies(key, job.job_type or "", values)
+        )
         for key in required:
             fact = current.get(key)
             if fact is None or (fact.state == "known" and not fact.value.strip()):
@@ -183,7 +186,7 @@ def _media(conversations, tenant_id, conversation_id) -> tuple[str, ...]:
     return tuple(lines)
 
 
-def _quote_line(quotes, tenant_id, conversation_id) -> str:
+def _quote_line(quotes, tenant_id, conversation_id, case: CaseFile) -> str:
     getter = getattr(quotes, "get_quote", None) if quotes is not None else None
     if getter is None:
         return ""
@@ -194,7 +197,42 @@ def _quote_line(quotes, tenant_id, conversation_id) -> str:
     if found is None:
         return ""
     current = found.current
-    return f"{found.quote_id.value} {current.state.value}"
+    parts = [f"{found.quote_id.value} {current.state.value}"]
+    if current.lines:
+        label = _work_label(case)
+        if label:
+            parts.append(label)
+        for line in current.lines:
+            parts.append(f"{line.description} {_rand(line.total.amount)}")
+    return " ".join(parts)
+
+
+_SWAP = frozenset({"replacement", "swap", "tank_swap"})
+_NEW = frozenset({"new_system", "new", "installation", "new_installation", "new_install"})
+
+
+def _work_label(case: CaseFile) -> str:
+    for job in case.jobs:
+        values = {
+            fact.key: fact.value.strip().casefold()
+            for fact in job.facts
+            if fact.superseded_by is None and not fact.contested and fact.value.strip()
+        }
+        kind = (job.job_type or values.get("job_type") or "").casefold().replace("-", "_").replace(" ", "_")
+        opening = values.get("opening")
+        if kind in _SWAP or opening == "existing":
+            return "a swap"
+        if values.get("stand_present") in ("true", "yes") or values.get("existing_frame") in ("true", "yes"):
+            return "a swap"
+        if kind in _NEW or opening == "new":
+            return "a new installation"
+        if values.get("stand_present") in ("false", "no") or values.get("existing_frame") in ("false", "no"):
+            return "a new installation"
+    return ""
+
+
+def _rand(amount) -> str:
+    return "R " + f"{amount:,.2f}".replace(",", " ")
 
 
 def _inspection_line(inspections, tenant_id, conversation_id) -> str:

@@ -63,6 +63,26 @@ def test_unknown_quote_card_state_is_not_the_error_card(monkeypatch):
     assert "Something went wrong" not in response.text
 
 
+def test_a_fixed_quote_lists_each_line(monkeypatch):
+    page = html.unescape(_client(monkeypatch).get("/dev/quote-card/fixed-lines").text)
+    tank = page.index("5000 L tank")
+    stand = page.index("Tank stand")
+    total = page.index("R 5 150.00")
+    assert tank < stand < total
+    assert page.count("R 4 250.00") == 1
+    assert page.count("R 900.00") == 1
+
+
+def test_a_range_names_the_material_span_and_the_shared_lines(monkeypatch):
+    page = html.unescape(_client(monkeypatch).get("/dev/quote-card/range-shared").text)
+    low = page.index("R 8 050.00")
+    high = page.index("R 10 850.00")
+    assert low < high
+    assert "Included in both ends: Steel frame" in page
+    assert "R 1 750.00" not in page
+    assert page.count('class="amount"') == 2
+
+
 def test_quote_card_template_has_no_hardcoded_price():
     templates = Path("quotedesk/adapters/inbound/http/templates")
     for path in templates.glob("*.html"):

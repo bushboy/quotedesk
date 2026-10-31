@@ -77,13 +77,36 @@ def test_fab_e03_possible_asbestos() -> None:
 
 
 def test_fab_s01_new_or_widened_opening() -> None:
-    for value in ("new", "widened"):
-        case = opening(opening=value)
-        decision, policy = quoted(case)
-        expect(decision, policy, "FAB-S01", case)
+    widened = opening(opening="widened")
+    decision, policy = quoted(widened)
+    expect(decision, policy, "FAB-S01", widened)
+    fresh = opening(opening="new")
+    decision, policy = quoted(fresh)
+    assert decision.rule_id != RuleId("FAB-S01")
     existing = fixed()
     decision, policy = quoted(existing)
     expect(decision, policy, "FAB-F01", existing)
+
+
+def test_a_new_opening_with_a_sheet_and_a_size_is_a_fixed_quote() -> None:
+    case = opening(
+        opening="new",
+        width_m=Decimal("5"),
+        length_m=Decimal("7"),
+        finish="Economy sheeting",
+        item_codes=("SHEET-ECO",),
+    )
+    decision, policy = quoted(case)
+    assert decision.outcome is Outcome.FIXED_OFFER
+    assert decision.rule_id != RuleId("FAB-S01")
+    expect(decision, policy, "FAB-F02", case)
+
+
+def test_a_widened_opening_is_a_site_measure() -> None:
+    case = opening(opening="widened")
+    decision, policy = quoted(case)
+    expect(decision, policy, "FAB-S01", case)
+    assert decision.outcome is Outcome.SITE_ASSESSMENT
 
 
 def test_fab_s02_access_and_complexity() -> None:
@@ -100,12 +123,11 @@ def test_fab_f01_standard_replacement() -> None:
     reference = fixed(size_source=SizeSource.REFERENCE_OBJECT)
     medium = fixed(checks=checks(agreement=False))
     photo = fixed(size_source=SizeSource.PHOTO_INFERRED)
-    for case in (stated, reference):
+    for case in (stated, reference, medium):
         decision, policy = quoted(case)
         expect(decision, policy, "FAB-F01", case)
-    for case in (medium, photo):
-        decision, policy = quoted(case)
-        assert decision.rule_id != RuleId("FAB-F01")
+    decision, policy = quoted(photo)
+    assert decision.rule_id != RuleId("FAB-F01")
     water = decide(replacement(), ExtractionFacts(), SegmentationFacts(), aquasure_policy())
     assert water.rule_id == RuleId("WATER-F01")
 
@@ -119,12 +141,10 @@ def test_fab_r01_unspecified_finish() -> None:
         length_m=Decimal("7.0"),
         finish=None,
     )
-    for case in (high, medium):
+    for case in (high, medium, low):
         decision, policy = quoted(case)
         expect(decision, policy, "FAB-R01", case)
         assert decision.outcome is Outcome.INDICATIVE_RANGE
-    decision, policy = quoted(low)
-    expect(decision, policy, "FAB-L01", low)
 
 
 def test_fab_b01_budget_below_minimum() -> None:
@@ -136,6 +156,14 @@ def test_fab_b01_budget_below_minimum() -> None:
     dumped = decision.model_dump()
     assert "amount" not in dumped
     assert "schedule_status" not in dumped
+
+
+def test_an_unchosen_sheet_on_a_new_carport_stays_a_range() -> None:
+    case = opening(opening="new", width_m=Decimal("5"), length_m=Decimal("7"))
+    decision, policy = quoted(case)
+    expect(decision, policy, "FAB-R02", case)
+    assert decision.outcome is Outcome.INDICATIVE_RANGE
+    assert decision.rule_id != RuleId("FAB-S01")
 
 
 def test_a_known_size_without_a_finish_is_an_indicative_quote() -> None:
@@ -156,13 +184,13 @@ def test_a_known_finish_and_size_is_a_fixed_quote() -> None:
         length_m=Decimal("7"),
     )
     decision, policy = quoted(low)
-    expect(decision, policy, "FAB-L01", low)
+    expect(decision, policy, "FAB-R02", low)
 
 
 def test_fab_l01_and_l02() -> None:
     low = opening(checks=checks(required_fields=False, media_usable=False))
     medium = opening(checks=checks(agreement=False))
     decision, policy = quoted(low)
-    expect(decision, policy, "FAB-L01", low)
+    expect(decision, policy, "FAB-L02", low)
     decision, policy = quoted(medium)
     expect(decision, policy, "FAB-L02", medium)

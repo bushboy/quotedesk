@@ -91,3 +91,20 @@ def test_the_release_set_meets_the_targets():
         if row["silent"] or row["forbidden"] or row["unfounded"] or not row["outcome_match"] or not row["rule_match"]
     ]
     assert missed == []
+    documents = {
+        slug: {item["id"]: item for item in yaml.safe_load((GATE / f"{slug}.yaml").read_text(encoding="utf-8"))["conversations"]}
+        for slug in BUSINESSES
+    }
+    for row in report["rows"]:
+        spec = documents[row["business"]][row["id"]]
+        if "lines" in spec:
+            assert row["lines"] == spec["lines"], row["id"]
+        for code in spec.get("excluded") or []:
+            assert code not in row["lines"], row["id"]
+        for code, quantity in (spec.get("quantities") or {}).items():
+            assert row["quantities"].get(code) == str(quantity), row["id"]
+        if spec.get("price_type"):
+            assert row["price_type"] == spec["price_type"], row["id"]
+        if spec.get("range_min"):
+            assert row["range_min"] == spec["range_min"], row["id"]
+            assert row["range_max"] == spec["range_max"], row["id"]

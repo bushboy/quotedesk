@@ -30,28 +30,24 @@ def _checks(**overrides: bool) -> ConfidenceChecks:
     return ConfidenceChecks(**fields)
 
 
-def test_confidence_all_five_pass_is_high():
+def test_confidence_confirmed_facts_are_high():
     assert derive_confidence(_checks()) == ConfidenceBand.HIGH
 
 
-def test_confidence_one_non_rate_failure_is_medium():
-    for name in ("required_fields", "agreement", "measurement", "media_usable"):
-        assert derive_confidence(_checks(**{name: False})) == ConfidenceBand.MEDIUM
+def test_a_photo_check_does_not_lower_a_confirmed_case():
+    for name in ("agreement", "measurement", "media_usable"):
+        assert derive_confidence(_checks(**{name: False})) == ConfidenceBand.HIGH
+
+
+def test_a_missing_required_fact_stays_medium():
+    assert derive_confidence(_checks(required_fields=False)) == ConfidenceBand.MEDIUM
+    assert derive_confidence(_checks(required_fields=False, media_usable=False, agreement=False)) == ConfidenceBand.MEDIUM
 
 
 def test_confidence_rate_card_miss_alone_is_low():
     assert rate_card_match(("TANK-UNKNOWN",), {"TANK-5000"}) is False
     assert derive_confidence(_checks(rate_card=False)) == ConfidenceBand.LOW
-
-
-def test_confidence_two_failures_are_low():
-    pairs = (
-        {"required_fields": False, "media_usable": False},
-        {"agreement": False, "measurement": False},
-        {"rate_card": False, "required_fields": False},
-    )
-    for overrides in pairs:
-        assert derive_confidence(_checks(**overrides)) == ConfidenceBand.LOW
+    assert derive_confidence(_checks(rate_card=False, required_fields=False)) == ConfidenceBand.LOW
 
 
 def test_confidence_all_five_fail_is_low():

@@ -1,10 +1,12 @@
-"""Clear conversations, quotes, cases, and escalations so a test can start from scratch.
+"""Clear transactional history so a test can start from scratch.
 
-Deletes every tenant's chats, messages, case files, escalations, inspections,
-quotes, bookings, and handovers. An escalation is the handover row, the owner
-notice, and the escalated flag on the conversation. An open case is that
-escalation, an inspection, or an issued quote. Keeps the tenant directory,
-rate cards, and published policy ids. Audit rows are insert-only and stay.
+Deletes every tenant's chats, the messages in them, case files, escalations,
+inspections, quotes, bookings, and handovers. Message rows live in
+conversation_event, inbound_message, and assistant_reply, so those are removed
+before the conversation header. Quote lines have no tenant column; they go
+with the tenant's quotes. Keeps the tenant directory, rate cards, and
+published policy ids. Audit rows are insert-only and stay when the database
+refuses the delete.
 
 The running app keeps an outbox and a quote cache in memory. Restart it after
 this script.
@@ -23,6 +25,15 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.exc import SQLAlchemyError
 
 _ROOT = Path(__file__).resolve().parents[1]
+# Children first. A conversation header cannot go while its messages remain,
+# and row security can stop a cascading delete from seeing those messages.
+_QUOTE_PARTS = (
+    "quote_line",
+    "quote_condition",
+    "quote_evidence",
+    "quote_approval",
+    "quote_version",
+)
 _TABLES = (
     "capacity_hold",
     "capacity_slot",
@@ -38,6 +49,9 @@ _TABLES = (
     "case_fact",
     "case_file",
     "enrichment",
+    "conversation_event",
+    "inbound_message",
+    "assistant_reply",
     "conversation",
 )
 
@@ -54,6 +68,7 @@ def main() -> None:
                 {"tenant_id": tenant_id},
             )
             print(slug)
+            _clear_quote_parts(connection, tenant_id)
             for table in _TABLES:
                 deleted = connection.execute(
                     text(f"DELETE FROM {table} WHERE tenant_id = :tenant_id"),
@@ -64,6 +79,18 @@ def main() -> None:
         connection.execute(text("ALTER SEQUENCE quote_seq RESTART WITH 1042"))
     print("Next quote id is QD-1042.")
     print("Kept tenants, rate cards, and published policies. Restart the app.")
+
+
+def _clear_quote_parts(connection, tenant_id: str) -> None:
+    for table in _QUOTE_PARTS:
+        deleted = connection.execute(
+            text(
+                f"DELETE FROM {table} WHERE quote_id IN "
+                "(SELECT quote_id FROM quote WHERE tenant_id = :tenant_id)"
+            ),
+            {"tenant_id": tenant_id},
+        ).rowcount
+        print(f"  {table} {deleted}")
 
 
 def _clear_audit(connection, tenant_id: str) -> None:

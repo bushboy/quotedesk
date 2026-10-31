@@ -98,6 +98,28 @@ def test_validate_locked_rules_cannot_be_disabled() -> None:
     assert validate_policy(_draft(rules=(DraftRule(rule_id="WATER-E01", enabled=True),))) == ()
 
 
+def test_validate_several_rows_of_one_role_are_allowed() -> None:
+    def row(code: str, role: str, applies_to: str) -> DraftRateRow:
+        return DraftRateRow(
+            item_code=code,
+            unit_price=Decimal("100.00"),
+            vat_inclusive=True,
+            role=role,
+            applies_to=applies_to,
+        )
+
+    several = _draft(
+        rate_rows=(
+            row("TANK-5000", "product", "both"),
+            row("FIT-NEW-A", "installation", "new"),
+            row("FIT-NEW-B", "installation", "new"),
+            row("FIT-SWAP", "installation", "swap"),
+        )
+    )
+    assert "policy.duplicate_role" not in _codes(several)
+    assert "policy.duplicate_item" not in _codes(several)
+
+
 def test_validate_rate_card_codes_are_unique_and_present() -> None:
     row = DraftRateRow(item_code="TANK-5000", unit_price=Decimal("4250.00"), vat_inclusive=True)
     assert "policy.duplicate_item" in _codes(_draft(rate_rows=(row, row)))

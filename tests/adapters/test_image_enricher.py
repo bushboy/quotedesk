@@ -290,6 +290,217 @@ def test_sam_failure_keeps_the_summary(monkeypatch):
     assert result.summary == "A tank on a level base."
 
 
+def _empty_sam() -> dict:
+    return {"output": [{"type": "message", "content": [{"type": "output_text", "text": ""}]}]}
+
+
+def _carport_enricher(transport: _Transport) -> ImageEnricher:
+    return ImageEnricher(
+        host=_Host({"media-1": ("image/jpeg", b"\xff\xd8\xff\xd9")}),
+        transport=transport,
+        model_id="muse-spark-1.3",
+        base_url="https://api.meta.ai/v1",
+        sam_model_id="sam-3.1",
+        subject="carport",
+    )
+
+
+def _prompts(transport: _Transport) -> list[str]:
+    return [body["input"][0]["content"][0]["text"] for _, body in transport.calls[1:]]
+
+
+def test_a_carport_photo_stops_before_the_garage(monkeypatch):
+    _refuse_socket(monkeypatch)
+    recorded = {"summary": "An existing carport.", "notes": ["About 6 m long."], "objects": ["tree"]}
+    transport = _Transport([recorded, _sam_response("0.88"), _empty_sam(), _sam_response("0.70")])
+    enricher = _carport_enricher(transport)
+    enricher.note("wamid.IMG", "media-1", "This is the one we want to resheet.")
+    result = enricher.for_image("wamid.IMG")
+    assert _prompts(transport) == ["carport", "single carport", "double carport"]
+    assert "carports and replaces sheeting" in transport.calls[0][1]["instructions"]
+    assert result is not None
+    assert result.objects == ("carport", "double carport")
+    assert result.objects[0] == "carport"
+    assert "tree" not in result.objects
+    assert "A carport is in the photo." in result.notes[0]
+    assert "The carport is a double bay." in " ".join(result.notes)
+    assert "About 6 m long." in result.notes
+    assert result.masks[0].label == "carport"
+
+
+def test_a_garage_uses_the_customer_message_and_the_bays(monkeypatch):
+    _refuse_socket(monkeypatch)
+    recorded = {"summary": "A house with a garage.", "objects": ["sky"]}
+    transport = _Transport(
+        [recorded, _empty_sam(), _sam_response("0.80"), _empty_sam(), _empty_sam(), _sam_response("0.77")]
+    )
+    enricher = _carport_enricher(transport)
+    enricher.note("wamid.IMG", "media-1", "The carport goes in front of this garage.")
+    result = enricher.for_image("wamid.IMG")
+    assert _prompts(transport) == ["carport", "garage", "house", "single garage", "double garage"]
+    assert result is not None
+    assert result.objects == ("garage", "double garage")
+    text = " ".join(result.notes)
+    assert "A garage is in the photo." in text
+    assert "The customer said: The carport goes in front of this garage." in text
+    assert "where the carport will go" in text
+    assert "Those two bays are the width to confirm." in text
+    assert "sky" not in result.objects
+
+
+def test_a_house_wall_is_the_span_when_there_is_no_carport(monkeypatch):
+    _refuse_socket(monkeypatch)
+    recorded = {"summary": "The side of a house.", "objects": []}
+    transport = _Transport([recorded, _empty_sam(), _empty_sam(), _sam_response("0.66"), _sam_response("0.64")])
+    enricher = _carport_enricher(transport)
+    enricher.note("wamid.IMG", "media-1", "")
+    result = enricher.for_image("wamid.IMG")
+    assert _prompts(transport) == ["carport", "garage", "house", "house wall"]
+    assert result is not None
+    assert result.objects == ("house", "house wall")
+    assert "The wall is the span to confirm." in " ".join(result.notes)
+    assert "The customer said:" not in " ".join(result.notes)
+
+
+def test_sheeting_is_the_last_object(monkeypatch):
+    _refuse_socket(monkeypatch)
+    recorded = {"summary": "A stack of roof sheets.", "objects": ["sheets"]}
+    transport = _Transport([recorded, _empty_sam(), _empty_sam(), _empty_sam(), _sam_response("0.73")])
+    enricher = _carport_enricher(transport)
+    enricher.note("wamid.IMG", "media-1", "Which of these should we use?")
+    result = enricher.for_image("wamid.IMG")
+    assert _prompts(transport) == ["carport", "garage", "house", "sheeting"]
+    assert result is not None
+    assert result.objects == ("sheeting",)
+    assert "closest sheet" in " ".join(result.notes)
+
+
+def _tank_enricher(transport: _Transport) -> ImageEnricher:
+    return ImageEnricher(
+        host=_Host({"media-1": ("image/jpeg", b"\xff\xd8\xff\xd9")}),
+        transport=transport,
+        model_id="muse-spark-1.3",
+        base_url="https://api.meta.ai/v1",
+        sam_model_id="sam-3.1",
+        subject="tank",
+    )
+
+
+def test_a_tank_photo_stops_before_the_house(monkeypatch):
+    _refuse_socket(monkeypatch)
+    recorded = {"summary": "A green tank.", "notes": ["Looks like 5000 L."], "objects": ["tree"]}
+    transport = _Transport([recorded, _sam_response("0.90"), _empty_sam(), _empty_sam()])
+    enricher = _tank_enricher(transport)
+    enricher.note("wamid.IMG", "media-1", "Replace this one.")
+    result = enricher.for_image("wamid.IMG")
+    assert _prompts(transport) == ["tank", "tank stand", "tank leak"]
+    assert "installs and replaces water tanks" in transport.calls[0][1]["instructions"]
+    assert result is not None
+    assert result.objects == ("tank",)
+    assert "tree" not in result.objects
+    assert "It may be a replacement." in result.notes[0]
+    assert "That tank is the size to confirm." in result.notes[0]
+    assert "Looks like 5000 L." in result.notes
+    assert result.masks[0].label == "tank"
+
+
+def test_a_stand_is_the_space_the_next_tank_has_to_fit(monkeypatch):
+    _refuse_socket(monkeypatch)
+    recorded = {"summary": "An empty steel stand.", "objects": ["sky"]}
+    transport = _Transport([recorded, _empty_sam(), _sam_response("0.81"), _empty_sam()])
+    enricher = _tank_enricher(transport)
+    enricher.note("wamid.IMG", "media-1", "")
+    result = enricher.for_image("wamid.IMG")
+    assert _prompts(transport) == ["tank", "tank stand", "tank leak"]
+    assert result is not None
+    assert result.objects == ("tank stand",)
+    text = " ".join(result.notes)
+    assert "The stand is already there" in text
+    assert "the space the next tank has to fit" in text
+    assert "downpipe" not in result.objects
+
+
+def test_a_leak_on_a_tank_is_an_existing_tank(monkeypatch):
+    _refuse_socket(monkeypatch)
+    recorded = {"summary": "Water running down a tank.", "objects": []}
+    transport = _Transport([recorded, _empty_sam(), _empty_sam(), _sam_response("0.74")])
+    enricher = _tank_enricher(transport)
+    enricher.note("wamid.IMG", "media-1", "It is leaking.")
+    result = enricher.for_image("wamid.IMG")
+    assert _prompts(transport) == ["tank", "tank stand", "tank leak"]
+    assert result is not None
+    assert result.objects == ("tank leak",)
+    assert "A leak is on a tank" in " ".join(result.notes)
+    assert "may be a replacement" in " ".join(result.notes)
+
+
+def test_a_downpipe_uses_the_message_and_the_space(monkeypatch):
+    _refuse_socket(monkeypatch)
+    recorded = {"summary": "The corner of a house.", "objects": ["gutter"]}
+    transport = _Transport(
+        [
+            recorded,
+            _empty_sam(),
+            _empty_sam(),
+            _empty_sam(),
+            _empty_sam(),
+            _sam_response("0.70"),
+            _sam_response("0.63"),
+        ]
+    )
+    enricher = _tank_enricher(transport)
+    enricher.note("wamid.IMG", "media-1", "The tank goes under this downpipe.")
+    result = enricher.for_image("wamid.IMG")
+    assert _prompts(transport) == ["tank", "tank stand", "tank leak", "house", "downpipe", "tank space"]
+    assert result is not None
+    assert result.objects == ("downpipe", "tank space")
+    text = " ".join(result.notes)
+    assert "A downpipe is in the photo." in text
+    assert "water can be collected" in text
+    assert "The customer said: The tank goes under this downpipe." in text
+    assert "where the tank will go" in text
+    assert "the size and the suitability to confirm" in text
+    assert "gutter" not in result.objects
+
+
+def test_a_house_and_a_downpipe_share_one_space_probe(monkeypatch):
+    _refuse_socket(monkeypatch)
+    recorded = {"summary": "A house wall and a downpipe.", "objects": []}
+    transport = _Transport(
+        [
+            recorded,
+            _empty_sam(),
+            _empty_sam(),
+            _empty_sam(),
+            _sam_response("0.68"),
+            _sam_response("0.67"),
+            _empty_sam(),
+        ]
+    )
+    enricher = _tank_enricher(transport)
+    enricher.note("wamid.IMG", "media-1", "")
+    result = enricher.for_image("wamid.IMG")
+    assert _prompts(transport) == ["tank", "tank stand", "tank leak", "house", "downpipe", "tank space"]
+    assert result is not None
+    assert result.objects == ("house", "downpipe")
+    assert "The customer said:" not in " ".join(result.notes)
+    assert "A house and a downpipe is in the photo." in " ".join(result.notes)
+
+
+def test_a_photo_with_none_of_the_tank_objects_says_so(monkeypatch):
+    _refuse_socket(monkeypatch)
+    recorded = {"summary": "A garden path.", "objects": ["path"]}
+    transport = _Transport([recorded, _empty_sam(), _empty_sam(), _empty_sam(), _empty_sam(), _empty_sam()])
+    enricher = _tank_enricher(transport)
+    enricher.note("wamid.IMG", "media-1", "What do you think?")
+    result = enricher.for_image("wamid.IMG")
+    assert _prompts(transport) == ["tank", "tank stand", "tank leak", "house", "downpipe"]
+    assert result is not None
+    assert result.objects == ()
+    assert "does not show a tank" in " ".join(result.notes)
+    assert result.summary == "A garden path."
+
+
 def test_install_uses_spark_for_images(monkeypatch):
     _refuse_socket(monkeypatch)
     monkeypatch.setenv("DATABASE_URL", _URL)
@@ -316,5 +527,9 @@ def test_install_uses_spark_for_images(monkeypatch):
     enricher = app.state.turn.enricher
     assert isinstance(enricher, ImageEnricher)
     assert enricher._sam_model_id == "sam-3.1"
+    assert enricher._subject == "tank"
+    monkeypatch.setenv("TENANT", "frameworks")
+    framed = create_app(get_settings())
+    assert framed.state.turn.enricher._subject == "carport"
     assert enricher._sam_url == "https://api.meta.ai/v1/responses"
     assert enricher._model_id == "muse-spark-1.3"

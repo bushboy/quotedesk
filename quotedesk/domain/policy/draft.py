@@ -1,4 +1,5 @@
 from decimal import Decimal
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -23,6 +24,9 @@ class DraftRateRow(BaseModel):
     description: str = ""
     unit: str = "each"
     role: str = "product"
+    applies_to: Literal["both", "swap", "new"] = "both"
+    job_types: tuple[str, ...] = ()
+    when: When | None = None
 
 
 class DraftClause(BaseModel):

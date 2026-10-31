@@ -105,6 +105,9 @@ def _bundle(current: PublishedPolicy, draft: PolicyDraft, version: PolicyVersion
                     unit_price=Money(row.unit_price),
                     unit=row.unit if row.unit in ("each", "per m²", "per metre") else "each",
                     role=row.role if row.role in ("product", "frame", "hardware", "installation", "delivery", "inspection") else "product",
+                    applies_to=row.applies_to if row.applies_to in ("both", "swap", "new") else "both",
+                    job_types=row.job_types,
+                    when=row.when,
                 )
                 for row in draft.rate_rows
             ),

@@ -7,7 +7,7 @@ from enum import Enum
 
 from pydantic import BaseModel, ConfigDict
 
-from quotedesk.domain.case.case_file import CaseFact, CaseFile, Job, price_ready, status_of
+from quotedesk.domain.case.case_file import CaseFact, CaseFile, Job, price_ready, ready_values, status_of
 from quotedesk.domain.case.facts import CaseFacts, ExtractionFacts, JobKind, SegmentationFacts
 from quotedesk.domain.policy.playbook import BusinessPlaybook, FactDefinition, FactOption
 from quotedesk.domain.policy.rules import Outcome, Policy
@@ -88,7 +88,7 @@ def _opening(playbook: BusinessPlaybook) -> NextStep:
     if len(playbook.job_types) == 1:
         job = playbook.job_types[0]
         for fact in _ranked(job.facts):
-            if fact.required and fact.question.strip():
+            if fact.required and fact.question.strip() and _relevant(fact, job.key, {}):
                 return _ask(job.key, _job_label(job), fact, False)
     if playbook.job_types:
         names = ", ".join(_job_label(job) for job in playbook.job_types[:4])
@@ -104,7 +104,7 @@ def _job_step(
     asked: dict[str, int],
 ) -> NextStep:
     current = _current(case, job.job_id)
-    play = next((item for item in playbook.job_types if item.key == (job.job_type or "")), None)
+    play = _play_for(playbook, job)
     required = () if play is None else tuple(fact for fact in play.facts if fact.required)
     missing = None
     unknown = None
@@ -112,6 +112,8 @@ def _job_step(
     seen = _has_photo(case)
     if play is not None:
         for fact in _ranked(required):
+            if not _relevant(fact, job.job_type or "", current):
+                continue
             active = case.active_fact(job.job_id, fact.key)
             if fact.key == "sheet" and _sheet_known(current, fact) and (active is None or status_of(active) not in ("inferred", "unknown")):
                 continue
@@ -200,6 +202,50 @@ def _phrase(step: NextStep, playbook: BusinessPlaybook, text: str) -> NextStep:
     if _GREETING.match(text.strip()) and playbook.hours.strip():
         return step.model_copy(update={"sentence": f"{playbook.hours.strip()} {step.sentence}".strip()})
     return step
+
+
+_NAMED_TANK = frozenset(
+    {
+        "replacement",
+        "swap",
+        "tank_swap",
+        "new_system",
+        "new",
+        "installation",
+        "new_installation",
+        "new_install",
+    }
+)
+
+
+def _play_for(playbook: BusinessPlaybook, job: Job):
+    key = job.job_type or ""
+    found = next((item for item in playbook.job_types if item.key == key), None)
+    if found is not None:
+        return found
+    if key == "tank":
+        return next((item for item in playbook.job_types if item.key == "replacement"), None)
+    return None
+
+
+def fact_applies(key: str, job_key: str, current: Mapping[str, str] | None = None) -> bool:
+    """Whether a playbook fact still has to be known for this job."""
+    return _relevant(FactDefinition(key=key), job_key, dict(current or {}))
+
+
+def _relevant(fact: FactDefinition, job_key: str, current: dict[str, str]) -> bool:
+    """The stand and frame questions are skipped once the case has already said which."""
+    if fact.key == "stand_present":
+        named = (job_key or current.get("job_type") or "").casefold().replace("-", "_").replace(" ", "_")
+        return named not in _NAMED_TANK
+    if fact.key == "existing_frame":
+        return not (current.get("opening") or "").strip()
+    if fact.key == "stand":
+        size = _whole(current.get("size_litres"))
+        return size in (1000, 2500)
+    if fact.key == "rain_harvest":
+        return (current.get("supply") or "").strip().casefold() == "rainwater"
+    return True
 
 
 def _ranked(facts: tuple[FactDefinition, ...]) -> tuple[FactDefinition, ...]:
@@ -301,6 +347,8 @@ def _ready(case: CaseFile, job: Job, play, current: dict[str, str]) -> bool:
     for fact in play.facts:
         if not fact.required:
             continue
+        if not _relevant(fact, job.job_type or "", current):
+            continue
         if fact.key == "sheet" and _sheet_known(current, fact):
             continue
         keys.append(fact.key)
@@ -373,34 +421,36 @@ def _current(case: CaseFile, job_id: str) -> dict[str, str]:
 
 
 def _case_facts(job: Job, current: dict[str, str], case: CaseFile, options=()) -> CaseFacts:
-    size = _whole(current.get("size_litres"))
-    source = current.get("size_source")
+    confirmed = ready_values(case.facts(job.job_id)) if job.job_id else {}
+    size = _whole(confirmed.get("size_litres"))
+    source = confirmed.get("size_source")
     if source not in ("photo_inferred", "customer_stated", "reference_object") and size is not None:
         source = "customer_stated"
-    opening = current.get("opening")
+    opening = confirmed.get("opening")
     return CaseFacts(
         checks=_checks(current, case.facts(job.job_id) if job.job_id else ()),
-        job=_job_kind(current.get("job_type") or job.job_type),
+        job=_job_kind(confirmed.get("job_type") or job.job_type),
         customer_text=current.get("customer_text"),
         size_litres=size,
         size_source=None if source is None else SizeSource(source),
-        existing_level_base=_flag(current, "existing_level_base"),
+        existing_level_base=_flag(confirmed, "existing_level_base"),
         installation_damaged=_flag(current, "installation_damaged"),
-        simple_swap=_optional(current, "simple_swap"),
-        base_unconfirmed=_flag(current, "base_unconfirmed"),
-        new_tank_and_pump=_flag(current, "new_tank_and_pump"),
+        simple_swap=_optional(confirmed, "simple_swap"),
+        base_unconfirmed=_flag(confirmed, "base_unconfirmed"),
+        new_tank_and_pump=_flag(confirmed, "new_tank_and_pump"),
         sloped_ground=_flag(current, "sloped_ground"),
         pipe_run_unknown=_flag(current, "pipe_run_unknown"),
-        item_codes=_sheet_codes(current, options),
-        width_m=_decimal(current.get("width_m")),
-        length_m=_decimal(current.get("length_m")),
-        finish=_finish(current, options),
+        item_codes=_sheet_codes(confirmed, options),
+        width_m=_decimal(confirmed.get("width_m")),
+        length_m=_decimal(confirmed.get("length_m")),
+        finish=_finish(confirmed, options),
         opening=opening if opening in ("existing", "new", "widened") else None,
         above_ground_floor=_flag(current, "above_ground_floor"),
         multi_unit=_flag(current, "multi_unit"),
-        standard_band=_flag(current, "standard_band"),
-        budget=_decimal(current.get("budget")),
-        job_type=_sheet_job(current.get("job_type") or job.job_type),
+        standard_band=_flag(confirmed, "standard_band"),
+        budget=_decimal(confirmed.get("budget")),
+        job_type=_sheet_job(confirmed.get("job_type") or job.job_type),
+        pump=(confirmed.get("pump") or "").strip() or None,
     )
 
 
@@ -490,6 +540,8 @@ def _job_kind(raw: str | None) -> JobKind:
         return JobKind.NEW_SYSTEM
     if folded == "borehole":
         return JobKind.BOREHOLE
+    if folded == "pump":
+        return JobKind.PUMP
     return JobKind.UNKNOWN
 
 

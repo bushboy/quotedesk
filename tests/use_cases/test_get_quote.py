@@ -11,6 +11,7 @@ from quotedesk.application.errors import CaseNotFound
 from quotedesk.application.use_cases.tools.get_quote import GetQuote
 from quotedesk.domain.case.case_file import CaseFile
 from quotedesk.domain.policy.clauses import ClausePolicy
+from quotedesk.domain.policy.playbook import BusinessPlaybook, JobTypePlay
 from quotedesk.domain.quotes.quote import Quote, QuoteState
 from quotedesk.domain.services.price import RateCard, RateCardItem
 from quotedesk.domain.shared.ids import PolicyVersionId, QuoteId
@@ -68,8 +69,8 @@ def published(unit_price: str = "4250.00", policy=None) -> PublishedPolicy:
     )
 
 
-def build_case(values: dict[str, str], tenant_id: UUID = TENANT_A) -> CaseFile:
-    case = CaseFile.open(CONVERSATION, tenant_id).add_job("tank", "replacement")
+def build_case(values: dict[str, str], tenant_id: UUID = TENANT_A, job_type: str = "replacement") -> CaseFile:
+    case = CaseFile.open(CONVERSATION, tenant_id).add_job("tank", job_type)
     for key, value in values.items():
         case = case.record_fact("tank", uuid4(), key, value, "customer_text", EVENT)
     return case
@@ -148,7 +149,8 @@ class Ids:
 def world(values: dict[str, str] | None = None, **kwargs: object):
     facts = BASE if values is None else values
     tenant = kwargs.pop("tenant_id", TENANT_A)
-    cases = Cases(build_case(facts, tenant) if facts is not None else None, tenant)
+    job_type = str(kwargs.pop("job_type", "replacement"))
+    cases = Cases(build_case(facts, tenant, job_type) if facts is not None else None, tenant)
     policies = Policies(kwargs.pop("bundle", published()), kwargs.pop("draft", None))
     unit = kwargs.pop("unit", Unit(fail_audit=bool(kwargs.pop("fail_audit", False))))
     ids = Ids()
@@ -351,3 +353,131 @@ def test_get_quote_pins_policy_version():
     result, _, _, _ = execute()
     assert result.policy_version.value == "water-policy-v1.0"
     assert result.rule_id.value == "WATER-F01"
+
+
+def _roles(*keys: str) -> BusinessPlaybook:
+    return BusinessPlaybook(job_types=tuple(JobTypePlay(key=key, roles=("frame", "installation")) for key in keys))
+
+
+def test_a_replacement_prices_the_tank_only():
+    items = card().items + (
+        RateCardItem(item_code="STAND", description="Tank stand", unit_price=Money("900.00"), role="frame", applies_to="new"),
+    )
+    bundle = published().model_copy(
+        update={"rate_card": card().model_copy(update={"items": items}), "playbook": _roles("replacement")}
+    )
+    result, _, _, _ = execute(bundle=bundle)
+    assert [line.item_code for line in result.lines] == ["TANK-5000"]
+    assert result.total == Money("4250.00")
+
+
+def test_a_new_system_prices_the_tank_and_the_stand():
+    items = (
+        RateCardItem(item_code="TANK-5000", description="5000 L tank", unit_price=Money("4250.00")),
+        RateCardItem(item_code="STAND", description="Tank stand", unit_price=Money("900.00"), role="frame", applies_to="new"),
+        RateCardItem(item_code="FIT-NEW", description="New installation", unit_price=Money("400.00"), role="installation", applies_to="new"),
+    )
+    bundle = published().model_copy(
+        update={
+            "rate_card": RateCard(vat_inclusive=True, site_visit_fee=Money("750.00"), items=items),
+            "playbook": _roles("new_system"),
+        }
+    )
+    result, _, _, _ = execute(
+        {
+            "size_litres": "5000",
+            "size_source": "customer_stated",
+            "item_codes": "TANK-5000",
+            "required_fields": "true",
+            "agreement": "true",
+            "measurement": "true",
+            "media_usable": "true",
+            "rate_card": "true",
+        },
+        job_type="new_system",
+        bundle=bundle,
+    )
+    assert [line.item_code for line in result.lines] == ["TANK-5000", "STAND", "FIT-NEW"]
+    assert result.total == Money("5550.00")
+    assert result.deposit == Money("1665.00")
+
+
+def test_an_existing_opening_prices_the_sheet_only():
+    items = (
+        RateCardItem(item_code="SHEET-ECO", description="Economy sheeting", unit_price=Money("180.00"), unit="per m²"),
+        RateCardItem(item_code="FRAME", description="Carport frame", unit_price=Money("50.00"), unit="per m²", role="frame", applies_to="new"),
+    )
+    bundle = PublishedPolicy(
+        policy=fabricator_policy(),
+        rate_card=RateCard(vat_inclusive=True, site_visit_fee=Money("750.00"), items=items),
+        clause_policy=ClausePolicy(templates=(), settings={"deposit_percent": 30, "validity_days": 14}, rate_card_codes=("SHEET-ECO",)),
+        playbook=_roles("carport"),
+    )
+    result, _, _, _ = execute(
+        {
+            "opening": "existing",
+            "item_codes": "SHEET-ECO",
+            "width_m": "5",
+            "length_m": "7",
+            "finish": "Economy sheeting",
+            "required_fields": "true",
+            "agreement": "true",
+            "measurement": "true",
+            "media_usable": "true",
+            "rate_card": "true",
+        },
+        job_type="carport",
+        bundle=bundle,
+    )
+    assert [line.item_code for line in result.lines] == ["SHEET-ECO"]
+
+
+def test_a_new_carport_prices_the_sheet_and_the_frame():
+    items = (
+        RateCardItem(item_code="SHEET-ECO", description="Economy sheeting", unit_price=Money("180.00"), unit="per m²"),
+        RateCardItem(item_code="FRAME", description="Carport frame", unit_price=Money("50.00"), unit="per m²", role="frame", applies_to="new"),
+    )
+    bundle = PublishedPolicy(
+        policy=fabricator_policy(),
+        rate_card=RateCard(vat_inclusive=True, site_visit_fee=Money("750.00"), items=items),
+        clause_policy=ClausePolicy(templates=(), settings={"deposit_percent": 30, "validity_days": 14}, rate_card_codes=("SHEET-ECO",)),
+        playbook=_roles("carport"),
+    )
+    result, _, _, _ = execute(
+        {
+            "opening": "new",
+            "item_codes": "SHEET-ECO",
+            "width_m": "5",
+            "length_m": "7",
+            "finish": "Economy sheeting",
+            "required_fields": "true",
+            "agreement": "true",
+            "measurement": "true",
+            "media_usable": "true",
+            "rate_card": "true",
+        },
+        job_type="carport",
+        bundle=bundle,
+    )
+    assert [line.item_code for line in result.lines] == ["SHEET-ECO", "FRAME"]
+
+
+def test_a_new_system_without_a_stand_row_prices_the_tank():
+    bundle = published().model_copy(update={"playbook": _roles("new_system")})
+    result, _, _, _ = execute(
+        {
+            "size_litres": "5000",
+            "size_source": "customer_stated",
+            "item_codes": "TANK-5000",
+            "required_fields": "true",
+            "agreement": "true",
+            "measurement": "true",
+            "media_usable": "true",
+            "rate_card": "true",
+        },
+        job_type="new_system",
+        bundle=bundle,
+    )
+    assert [line.item_code for line in result.lines] == ["TANK-5000"]
+    assert result.total == Money("4250.00")
+    assert all("stand" not in line.description.casefold() for line in result.lines)

@@ -6,6 +6,7 @@ from quotedesk.application.ports.repositories import CaseFileRepository, JobCata
 from quotedesk.application.ports.runtime import IdGenerator
 from quotedesk.domain.case.case_file import CaseFile
 from quotedesk.domain.services.finish import sheet_choice
+from quotedesk.domain.services.plan import fact_applies
 from quotedesk.domain.shared.errors import PolicyViolation, ValidationError
 
 _TYPE = "A new job names its type."
@@ -78,6 +79,9 @@ class UpdateCase:
         job = _find(case, data.job_id)
         assert job is not None
         recorded = {fact.key for fact in data.facts}
+        explicit_codes = "item_codes" in recorded
+        linked_codes: list[str] = []
+        defined = _defined(self._catalog, job.job_type or "")
         for fact in data.facts:
             if fact.key in _CONFIDENCE and not data.system:
                 continue
@@ -101,7 +105,11 @@ class UpdateCase:
                 fact.source,
                 fact.event_id,
             )
-            for key, linked in _priced(fact.key, value, _defined(self._catalog, job.job_type or "")):
+            for key, linked in _priced(fact.key, value, defined):
+                if key == "item_codes":
+                    if not explicit_codes:
+                        linked_codes.append(linked)
+                    continue
                 if key in recorded:
                     continue
                 recorded.add(key)
@@ -113,11 +121,25 @@ class UpdateCase:
                     fact.source,
                     fact.event_id,
                 )
+        if linked_codes:
+            case = case.record_fact(
+                data.job_id,
+                self._ids.next_fact_id(),
+                "item_codes",
+                ",".join(dict.fromkeys(linked_codes)),
+                data.facts[0].source,
+                data.facts[0].event_id,
+            )
+        case = _suggest_bays(case, data.job_id, self._ids, defined)
         self._cases.save(context.tenant_id, case)
         job = _find(case, data.job_id)
         assert job is not None
         current = _current(case, data.job_id)
-        required = self._catalog.required(job.job_type or "")
+        required = tuple(
+            name
+            for name in self._catalog.required(job.job_type or "")
+            if fact_applies(name, job.job_type or "", current)
+        )
         missing = tuple(name for name in required if name not in current)
         return UpdateCaseResult(
             job_id=data.job_id,
@@ -168,22 +190,53 @@ def _normalise(key: str, value: str, job_type: str, catalog, system: bool, sourc
     return digits
 
 
+_BAYS = {"1": ("3", "6"), "2": ("6", "6"), "3": ("9", "6")}
+
+
 def _priced(key: str, value: str, defined: dict) -> tuple[tuple[str, str], ...]:
-    """A named finish is the rate-card item on that choice."""
-    sheet = defined.get("sheet")
-    if sheet is None or key not in ("sheet", "finish", "item_codes"):
+    """A named choice that carries an item code is that rate-card item."""
+    fact = defined.get(key)
+    if fact is None or key not in ("sheet", "finish", "item_codes", "size_litres", "pump"):
         return ()
-    found = sheet_choice(value, sheet.options)
+    found = sheet_choice(value, fact.options)
     if found is None:
         return ()
     pairs = []
-    if key != "item_codes":
+    if key != "item_codes" and any(found.code == code for option in fact.options for code in option.item_codes):
         pairs.append(("item_codes", found.code))
-    if key != "finish":
-        pairs.append(("finish", found.label))
-    if key != "sheet":
-        pairs.append(("sheet", found.value))
+    if key in ("sheet", "finish", "item_codes"):
+        if key != "finish":
+            pairs.append(("finish", found.label))
+        if key != "sheet":
+            pairs.append(("sheet", found.value))
     return tuple(pairs)
+
+
+def _suggest_bays(case: CaseFile, job_id: str, ids, defined: dict) -> CaseFile:
+    """One, two, or three bays suggest a size. The customer confirms it before a fixed quote."""
+    if "bays" not in defined:
+        return case
+    active = case.active_fact(job_id, "bays")
+    if active is None:
+        return case
+    size = _BAYS.get(active.value.strip())
+    if size is None:
+        return case
+    for key, value in zip(("width_m", "length_m"), size, strict=True):
+        current = case.active_fact(job_id, key)
+        if current is not None and current.value.strip():
+            continue
+        case = case.record_fact(
+            job_id,
+            ids.next_fact_id(),
+            key,
+            value,
+            active.source,
+            active.event_id,
+            status="inferred",
+            evidence="From the number of bays.",
+        )
+    return case
 
 
 def _defined(catalog, job_type: str) -> dict:

@@ -48,9 +48,10 @@ from quotedesk.domain.case.case_file import CaseFile
 from quotedesk.domain.conversation.events import ConversationEvent
 from quotedesk.domain.policy.playbook import BusinessPlaybook
 from quotedesk.domain.policy.rules import Outcome, Policy
-from quotedesk.domain.services.plan import NextStep, StepKind, plan_next_step
+from quotedesk.domain.services.plan import NextStep, StepKind, fact_applies, plan_next_step
 from quotedesk.domain.shared.ids import PolicyVersionId
 from quotedesk.domain.services.commitments import TurnFacts, check_reply
+from quotedesk.domain.case.case_file import price_ready, status_of
 from quotedesk.domain.services.confidence import (
     MediaUsability,
     SizeFact,
@@ -59,7 +60,6 @@ from quotedesk.domain.services.confidence import (
     measurement_acceptable,
     media_is_usable,
     rate_card_match,
-    required_fields_complete,
 )
 from quotedesk.domain.shared.errors import PolicyViolation, ValidationError
 from quotedesk.domain.shared.money import Money
@@ -123,15 +123,28 @@ _INTRODUCED = re.compile(
 )
 
 
-def remember_name(conversations, tenant_id, conversation_id: UUID, wa_id: str, events) -> None:
-    """Keep a name the customer stated, or a short reply after we asked."""
+def keep_profile_name(conversations, tenant_id, wa_id: str, profile_name: str | None) -> None:
+    """Store the name WhatsApp already has, when the customer has not given another."""
     rename = getattr(conversations, "rename", None)
     named = getattr(conversations, "name", None)
     if rename is None or named is None or not wa_id or named(tenant_id, wa_id):
         return
+    found = _bare_name(profile_name or "")
+    if found:
+        rename(tenant_id, wa_id, found)
+
+
+def remember_name(conversations, tenant_id, conversation_id: UUID, wa_id: str, events) -> None:
+    """Keep a name the customer stated, or a short reply after we asked."""
+    rename = getattr(conversations, "rename", None)
+    named = getattr(conversations, "name", None)
+    if rename is None or named is None or not wa_id:
+        return
     text = "\n".join(getattr(event, "body", "") or "" for event in events).strip()
     found = _introduced_name(text)
-    if found is None and _asked_for_name(conversations, tenant_id, conversation_id):
+    if found is None:
+        if named(tenant_id, wa_id) or not _asked_for_name(conversations, tenant_id, conversation_id):
+            return
         found = _bare_name(text)
         if found and _already_said(conversations, tenant_id, conversation_id, found):
             found = None
@@ -740,6 +753,7 @@ class RunAgentTurn:
             business=self._business,
             task=self._task_for(context, conversation),
             effort="medium",
+            conversation_id=str(conversation.conversation_id),
         )
 
     def _task_for(self, context: TenantContext, conversation) -> str:
@@ -865,8 +879,8 @@ class RunAgentTurn:
         missing: tuple[str, ...] = ()
         if self._catalog is not None and case.jobs:
             job = case.jobs[0]
-            current = {fact.key for fact in facts if fact.job_id == job.job_id}
-            required = self._catalog.required(job.job_type or "")
+            current = {fact.key: fact.value for fact in facts if fact.job_id == job.job_id}
+            required = _applicable(self._catalog.required(job.job_type or ""), job.job_type or "", current)
             missing = tuple(name for name in required if name not in current)
         return CaseView(
             facts=facts,
@@ -1102,6 +1116,8 @@ class RunAgentTurn:
             return ToolPayload(name="get_quote", body={"error": error.sentence})
         if result.total is not None:
             amounts.append(result.total)
+        for line in result.lines:
+            amounts.append(line.total)
         low = getattr(result, "range_min", None)
         high = getattr(result, "range_max", None)
         if low is not None:
@@ -1241,8 +1257,9 @@ class RunAgentTurn:
             self, context, conversation_id, recent, kinds
         )
         sizes = _sizes(current)
+        required = _applicable(self._catalog.required(job.job_type or ""), job.job_type or "", current)
         flags = {
-            "required_fields": required_fields_complete(current, self._catalog.required(job.job_type or "")),
+            "required_fields": price_ready(case, job.job_id, _confirmed_requirements(case, job.job_id, required)),
             "agreement": cross_model_agreement(
                 has_image=has_image,
                 has_video=has_video,
@@ -1491,6 +1508,7 @@ def _grounded(payloads, facts: TurnFacts) -> str | None:
                 total = _amount(item.body.get("total"))
                 if total:
                     sentence = f"{sentence} The total is R {total}."
+                sentence = _with_lines(sentence, item.body.get("lines"))
             return _with_card(sentence, facts.card_link)
     for item in payloads:
         if item.name == "check_availability":
@@ -1500,6 +1518,33 @@ def _grounded(payloads, facts: TurnFacts) -> str | None:
         if item.name == "request_change" and not item.body.get("error"):
             return "The request is waiting."
     return None
+
+
+def _applicable(keys, job_type: str, current: dict) -> tuple[str, ...]:
+    return tuple(key for key in keys if fact_applies(key, job_type, current))
+
+
+def _confirmed_requirements(case, job_id: str, keys: tuple[str, ...]) -> tuple[str, ...]:
+    """A sheet the customer chose by item code does not have to be repeated."""
+    codes = case.active_fact(job_id, "item_codes")
+    chosen = codes is not None and status_of(codes) in ("stated", "confirmed") and bool(codes.value.strip())
+    return tuple(key for key in keys if not (key == "sheet" and chosen))
+
+
+def _with_lines(sentence: str, lines) -> str:
+    if not isinstance(lines, list):
+        return sentence
+    parts = []
+    for line in lines:
+        if not isinstance(line, dict):
+            continue
+        description = str(line.get("description") or "").strip()
+        amount = _amount(line.get("total"))
+        if description and amount:
+            parts.append(f"{description} R {amount}")
+    if not parts:
+        return sentence
+    return f"{sentence} {'. '.join(parts)}."
 
 
 def _amount(raw) -> str | None:
@@ -1551,10 +1596,10 @@ def _sizes(current: dict[str, str]) -> tuple[SizeFact, ...] | None:
     raw = current.get("size_litres")
     if raw is None or raw.strip() == "":
         return ()
-    try:
-        litres = int(raw)
-    except ValueError:
+    digits = "".join(character for character in raw if character.isdigit())
+    if digits == "":
         return None
+    litres = int(digits)
     source = current.get("size_source")
     if source in _SOURCES:
         return (SizeFact(litres=litres, source=SizeSource(source)),)

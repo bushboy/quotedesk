@@ -52,24 +52,18 @@ class RecordedMask(BaseModel):
 
 
 def derive_confidence(checks: ConfidenceChecks) -> ConfidenceBand:
+    """Whether the customer has confirmed the facts a price needs.
+
+    Agreement, measurement, and media usability describe a photo. They guide
+    what to ask next, and they do not change this band. Confirmed required
+    facts are high. A required fact that is still open is medium, so the
+    conversation keeps asking. An item code that is not on the rate card is low.
+    """
     if not checks.rate_card:
         return ConfidenceBand.LOW
-    failed = sum(
-        1
-        for flag in (
-            checks.required_fields,
-            checks.agreement,
-            checks.measurement,
-            checks.media_usable,
-            checks.rate_card,
-        )
-        if not flag
-    )
-    if failed == 0:
+    if checks.required_fields:
         return ConfidenceBand.HIGH
-    if failed == 1:
-        return ConfidenceBand.MEDIUM
-    return ConfidenceBand.LOW
+    return ConfidenceBand.MEDIUM
 
 
 def required_fields_complete(values: Mapping[str, object], required: Sequence[str]) -> bool:

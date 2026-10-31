@@ -73,7 +73,12 @@ def _card(request: Request, quote_id: str, code: str) -> dict | None:
         "business_name": " ".join(part for part in (tenant.display_name, tenant.area) if part),
         "quote_id": parsed.value,
         "rule_id": None,
-        "body": current.lines[0].description if current.lines else None,
+        "body": None,
+        "lines": [
+            {"description": line.description, "total_display": _rand(line.total.amount)}
+            for line in current.lines
+        ] if price_type == "fixed" else [],
+        "shared": ", ".join(current.included) if price_type == "range" and current.included else None,
         "amount_display": None if amount is None else _rand(amount.amount),
         "range_min_display": _rand(low.amount) if show_range else None,
         "range_max_display": _rand(high.amount) if show_range and high is not None else None,

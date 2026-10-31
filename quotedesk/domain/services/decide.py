@@ -76,6 +76,7 @@ def _facts(case: CaseFacts, extraction: ExtractionFacts, policy: Policy) -> Fact
     text("opening", case.opening)
     text("finish", case.finish, blank_missing=True)
     text("job_type", case.job_type)
+    text("pump", case.pump, blank_missing=True)
     number("size_litres", case.size_litres)
     number("width_m", case.width_m)
     number("length_m", case.length_m)

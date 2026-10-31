@@ -126,6 +126,7 @@ class QuoteVersion(BaseModel):
     reasons: tuple[str, ...] = ()
     policy_version: str = ""
     facts_used: tuple[str, ...] = ()
+    included: tuple[str, ...] = ()
 
 
 def _expiry(value: Any) -> date:
@@ -196,6 +197,7 @@ class Quote(BaseModel):
         range_max: Money | None,
         deposit: Money | None,
         site_visit_fee: Money | None,
+        included: tuple[str, ...] = (),
     ) -> "Quote":
         self._require_current(version)
         self._require_draft()
@@ -207,6 +209,7 @@ class Quote(BaseModel):
                     "range_max": range_max,
                     "deposit": deposit,
                     "site_visit_fee": site_visit_fee,
+                    "included": tuple(included),
                 }
             )
         )
@@ -244,6 +247,7 @@ class Quote(BaseModel):
         range_max: Money | None = None,
         deposit: Money | None = None,
         site_visit_fee: Money | None = None,
+        included: tuple[str, ...] = (),
     ) -> "Quote":
         current = self.current
         if QuoteState.REVISED not in _LEGAL.get(current.state, frozenset()):
@@ -262,6 +266,7 @@ class Quote(BaseModel):
             range_max=range_max,
             deposit=deposit,
             site_visit_fee=site_visit_fee,
+            included=tuple(included),
         )
         kept = tuple(revised if item.number == current.number else item for item in self.versions)
         return self.model_copy(update={"versions": kept + (successor,)})

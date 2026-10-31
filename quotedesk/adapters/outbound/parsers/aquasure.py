@@ -15,7 +15,9 @@ from quotedesk.domain.policy.playbook import (
 from quotedesk.domain.policy.rules import Outcome, Policy, PolicyRule
 from quotedesk.domain.policy.when import published_when
 from quotedesk.domain.services.decide import parse_when
+from quotedesk.domain.services.price import RateCard, RateCardItem
 from quotedesk.domain.shared.ids import PolicyVersionId, RuleId
+from quotedesk.domain.shared.money import Money
 
 
 def load_policy(path: Path) -> Policy:
@@ -121,6 +123,33 @@ def _inspection(raw: dict) -> InspectionTrigger:
 
 def _escalation(raw: dict) -> EscalationTrigger:
     return EscalationTrigger(condition=str(raw.get("condition") or ""), rule_id=str(raw["rule_id"]))
+
+
+def load_rate_card(path: Path) -> RateCard:
+    raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+    block = raw.get("rate_card") or {}
+    items = tuple(_rate_item(item) for item in block.get("items") or ())
+    fee = block.get("site_visit_fee")
+    if fee is None:
+        inspection = next((item.unit_price for item in items if item.role == "inspection"), Money("0"))
+        fee = inspection.amount
+    return RateCard(vat_inclusive=bool(block.get("vat_inclusive", True)), site_visit_fee=Money(str(fee)), items=items)
+
+
+def _rate_item(raw: dict) -> RateCardItem:
+    unit = str(raw.get("unit") or "each")
+    role = str(raw.get("role") or "product")
+    applies = str(raw.get("applies_to") or "both")
+    return RateCardItem(
+        item_code=str(raw["code"]),
+        description=str(raw.get("description") or raw["code"]),
+        unit_price=Money(str(raw["price"])),
+        unit=unit if unit in ("each", "per m²", "per metre") else "each",
+        role=role if role in ("product", "frame", "hardware", "installation", "delivery", "inspection") else "product",
+        applies_to=applies if applies in ("both", "swap", "new") else "both",
+        job_types=tuple(str(item) for item in raw.get("job_types") or ()),
+        when=parse_when(raw.get("when")),
+    )
 
 
 def _question(raw: dict) -> CommonQuestion:

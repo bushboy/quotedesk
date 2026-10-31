@@ -73,6 +73,7 @@ def _enricher(settings: Settings, host):
         segment_transport=SdkTransport(settings.meta_api_key),
         sam_model_id=settings.sam_model_id,
         sam_base_url=settings.meta_base_url,
+        subject={"frameworks": "carport", "aquasure": "tank"}.get(settings.tenant, ""),
     )
 
 

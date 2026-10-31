@@ -481,8 +481,6 @@ class Lock:
 
 
 EVENT = "44444444-4444-4444-8444-444444444444"
-CARD_URL = "/card/QD-1042?code=1042"
-QUOTE_REPLY = f"The total is R 4 250. Your card: {CARD_URL}"
 
 
 def quote_facts() -> list[dict[str, str]]:
@@ -502,21 +500,47 @@ def quote_facts() -> list[dict[str, str]]:
 
 class QuoteScript:
     def complete(self, prompt) -> ModelReply:
+        said = " ".join(getattr(message, "body", "") or "" for message in getattr(prompt, "messages", ())).casefold()
+        conversation = getattr(prompt, "conversation_id", "") or str(CONVERSATION)
+        if "widened" in said:
+            return ModelReply(
+                text="",
+                tool_calls=(
+                    ToolCall(
+                        name="update_case",
+                        arguments={
+                            "conversation_id": conversation,
+                            "job_id": "carport",
+                            "job_type": "carport",
+                            "facts": _script_facts(("opening", "widened"), ("width_m", "5"), ("length_m", "7")),
+                        },
+                    ),
+                    ToolCall(name="get_quote", arguments={"conversation_id": conversation}),
+                ),
+            )
+        job_type = "new_system" if "new installation" in said or "new system" in said else "replacement"
         return ModelReply(
-            text=QUOTE_REPLY,
+            text="",
             tool_calls=(
                 ToolCall(
                     name="update_case",
                     arguments={
-                        "conversation_id": str(CONVERSATION),
+                        "conversation_id": conversation,
                         "job_id": "tank",
-                        "job_type": "replacement",
+                        "job_type": job_type,
                         "facts": quote_facts(),
                     },
                 ),
-                ToolCall(name="get_quote", arguments={"conversation_id": str(CONVERSATION)}),
+                ToolCall(name="get_quote", arguments={"conversation_id": conversation}),
             ),
         )
+
+
+def _script_facts(*pairs: tuple[str, str]) -> list[dict[str, str]]:
+    return [
+        {"key": key, "value": value, "source": "customer_text", "event_id": EVENT}
+        for key, value in pairs
+    ]
 
 
 class Remembering:
@@ -588,28 +612,21 @@ def bundle_for(slug: str) -> PublishedPolicy:
 def _frameworks_bundle() -> PublishedPolicy:
     from pathlib import Path
 
-    from quotedesk.adapters.outbound.parsers.aquasure import load_playbook, load_policy
+    from quotedesk.adapters.outbound.parsers.aquasure import load_playbook, load_policy, load_rate_card
     from quotedesk.domain.policy.clauses import ClausePolicy
-    from quotedesk.domain.services.price import RateCard, RateCardItem
-    from quotedesk.domain.shared.money import Money
 
     path = Path("seeds/frameworks.yaml")
     if not path.is_file():
         path = Path(__file__).resolve().parents[2] / "seeds" / "frameworks.yaml"
+    card = load_rate_card(path)
+    codes = tuple(item.item_code for item in card.items)
     return PublishedPolicy(
         policy=load_policy(path),
-        rate_card=RateCard(
-            vat_inclusive=True,
-            site_visit_fee=Money("750.00"),
-            items=(
-                RateCardItem(item_code="SHEET-ECO", description="Economy sheeting", unit_price=Money("180.00"), unit="per m²", role="product"),
-                RateCardItem(item_code="SHEET-POLY", description="Polycarbonate sheeting", unit_price=Money("260.00"), unit="per m²", role="product"),
-            ),
-        ),
+        rate_card=card,
         clause_policy=ClausePolicy(
             templates=(),
             settings={"deposit_percent": 30, "validity_days": 14},
-            rate_card_codes=("SHEET-ECO", "SHEET-POLY"),
+            rate_card_codes=codes,
         ),
         playbook=load_playbook(path),
     )
@@ -618,29 +635,21 @@ def _frameworks_bundle() -> PublishedPolicy:
 def published_bundle() -> PublishedPolicy:
     from pathlib import Path
 
-    from quotedesk.adapters.outbound.parsers.aquasure import load_playbook, load_policy
+    from quotedesk.adapters.outbound.parsers.aquasure import load_playbook, load_policy, load_rate_card
     from quotedesk.domain.policy.clauses import ClausePolicy
-    from quotedesk.domain.services.price import RateCard, RateCardItem
-    from quotedesk.domain.shared.money import Money
 
     path = Path("seeds/aquasure.yaml")
     if not path.is_file():
         path = Path(__file__).resolve().parents[2] / "seeds" / "aquasure.yaml"
+    card = load_rate_card(path)
+    codes = tuple(item.item_code for item in card.items)
     return PublishedPolicy(
         policy=load_policy(path),
-        rate_card=RateCard(
-            vat_inclusive=True,
-            site_visit_fee=Money("750.00"),
-            items=(
-                RateCardItem(item_code="TANK-2500", description="2500 L tank", unit_price=Money("2850.00")),
-                RateCardItem(item_code="TANK-5000", description="5000 L tank", unit_price=Money("4250.00")),
-                RateCardItem(item_code="TANK-10000", description="10000 L tank", unit_price=Money("7900.00")),
-            ),
-        ),
+        rate_card=card,
         clause_policy=ClausePolicy(
             templates=(),
             settings={"deposit_percent": 30, "validity_days": 14},
-            rate_card_codes=("TANK-2500", "TANK-5000", "TANK-10000"),
+            rate_card_codes=codes,
         ),
         playbook=load_playbook(path),
     )
@@ -663,6 +672,9 @@ def policy_draft(bundle: PublishedPolicy, discount_cap_percent: Decimal) -> Poli
                 description=item.description,
                 unit=item.unit,
                 role=item.role,
+                applies_to=item.applies_to,
+                job_types=item.job_types,
+                when=item.when,
             )
             for item in bundle.rate_card.items
         ),

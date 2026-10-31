@@ -138,4 +138,5 @@ class TurnPrompt(BaseModel):
     business: BusinessView = Field(default_factory=BusinessView)
     task: str = ""
     effort: Literal["low", "medium"] = "medium"
+    conversation_id: str = ""
     exchanges: tuple[dict[str, Any], ...] = ()

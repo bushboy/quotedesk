@@ -55,6 +55,13 @@ def test_signature_is_required_when_an_app_secret_is_set(monkeypatch):
     assert (signed.status_code, signed.text) == (200, "")
 
 
+def test_a_profile_name_is_stored_for_the_number(monkeypatch):
+    app = _app(monkeypatch)
+    response = TestClient(app).post("/whatsapp/webhook", json=_payload())
+    assert response.status_code == 200
+    assert app.state.conversations.name(TENANT_A, "15550002222") == "Thabo"
+
+
 def test_status_updates_are_accepted_and_store_nothing(monkeypatch):
     app = _app(monkeypatch)
     body = _payload()
@@ -136,7 +143,8 @@ def test_running_app_replies_after_the_quiet_window(monkeypatch):
             time.sleep(0.2)
             rows = client.get("/whatsapp/outbox", params={"wa_id": "15550002222", "after": 0}).json()
     assert len(rows) == 1
-    assert "R 4 250" in rows[0]["body"]
+    assert "R 5550.00" in rows[0]["body"]
+    assert "Swap labour R 850.00" in rows[0]["body"]
     found = re.search(r"/card/(QD-\d+)\?code=(\d+)", rows[0]["body"])
     assert found is not None
     page = TestClient(app).get(f"/card/{found.group(1)}", params={"code": found.group(2)})

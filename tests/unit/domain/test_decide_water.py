@@ -188,7 +188,7 @@ def test_water_e02_still_fires_when_confidence_is_low():
     )
     decision, policy = quoted(case)
     expect(decision, policy, "WATER-E02", case)
-    assert decision.confidence_band == ConfidenceBand.LOW
+    assert decision.confidence_band == ConfidenceBand.MEDIUM
     assert decision.rule_id != RuleId("WATER-L01")
 
 
@@ -220,12 +220,11 @@ def test_water_f01_like_for_like():
     assert decision.outcome.value == "fixed_offer"
 
 
-def test_water_f01_requires_high_confidence():
-    case = replacement(checks=checks(agreement=False))
+def test_a_confirmed_swap_quotes_when_the_photo_disagrees():
+    case = replacement(checks=checks(agreement=False, media_usable=False))
     decision, policy = quoted(case)
-    assert decision.rule_id != RuleId("WATER-F01")
-    expect(decision, policy, "WATER-R02", case)
-    assert decision.outcome.value == "indicative_range"
+    expect(decision, policy, "WATER-F01", case)
+    assert decision.confidence_band.value == "high"
 
 
 def test_water_f01_requires_a_stated_size():
@@ -249,7 +248,7 @@ def test_water_r01_new_system_unconfirmed_base():
     )
     decision, policy = quoted(medium)
     expect(decision, policy, "WATER-R01", medium)
-    assert decision.confidence_band == ConfidenceBand.MEDIUM
+    assert decision.confidence_band == ConfidenceBand.HIGH
 
     high = CaseFacts(
         checks=checks(),
@@ -268,31 +267,47 @@ def test_water_r01_new_system_unconfirmed_base():
         base_unconfirmed=True,
     )
     visit, fixture = quoted(low)
-    assert visit.rule_id != RuleId("WATER-R01")
-    expect(visit, fixture, "WATER-L01", low)
+    assert visit.rule_id != RuleId("WATER-L01")
+    expect(visit, fixture, "WATER-R01", low)
 
 
-def test_water_l01_low_confidence():
+def test_an_unconfirmed_case_is_not_a_low_confidence_visit():
     case = CaseFacts(checks=checks(required_fields=False, media_usable=False), job=JobKind.UNKNOWN)
     decision, policy = quoted(case)
-    expect(decision, policy, "WATER-L01", case)
-    assert decision.confidence_band == ConfidenceBand.LOW
+    expect(decision, policy, "WATER-L02", case)
+    assert decision.confidence_band == ConfidenceBand.MEDIUM
 
 
 def test_known_tank_size_is_an_indicative_quote():
     swap = replacement(checks=checks(required_fields=False, media_usable=False), item_codes=(), existing_level_base=False)
     decision, policy = quoted(swap)
     expect(decision, policy, "WATER-R02", swap)
-    install = CaseFacts(checks=checks(), job=JobKind.NEW_SYSTEM, size_litres=2500, size_source=SizeSource.CUSTOMER_STATED)
-    quoted_install, same = quoted(install)
-    expect(quoted_install, same, "WATER-R02", install)
+    other = CaseFacts(checks=checks(), job=JobKind.NEW_SYSTEM, size_litres=3000, size_source=SizeSource.CUSTOMER_STATED)
+    quoted_other, same = quoted(other)
+    expect(quoted_other, same, "WATER-R02", other)
+
+
+def test_a_new_tank_of_a_known_size_is_a_fixed_quote():
+    for litres in (2500, 5000, 10000):
+        install = CaseFacts(
+            checks=checks(),
+            job=JobKind.NEW_SYSTEM,
+            size_litres=litres,
+            size_source=SizeSource.CUSTOMER_STATED,
+        )
+        decision, policy = quoted(install)
+        assert decision.outcome.value == "fixed_offer"
+        expect(decision, policy, "WATER-F02", install)
+    swap = replacement()
+    decision, policy = quoted(swap)
+    expect(decision, policy, "WATER-F01", swap)
 
 
 def test_water_l02_unmatched_medium():
     case = CaseFacts(checks=checks(measurement=False), job=JobKind.UNKNOWN)
     decision, policy = quoted(case)
     expect(decision, policy, "WATER-L02", case)
-    assert decision.confidence_band == ConfidenceBand.MEDIUM
+    assert decision.confidence_band == ConfidenceBand.HIGH
 
 
 def test_water_first_match_only():

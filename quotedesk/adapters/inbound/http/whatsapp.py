@@ -10,6 +10,7 @@ from fastapi.responses import PlainTextResponse, Response
 
 from quotedesk.application.dto.inbound import InboundMessage
 from quotedesk.application.dto.tenant import TenantContext
+from quotedesk.application.use_cases.conversation.run_agent_turn import keep_profile_name
 
 router = APIRouter()
 _log = logging.getLogger(__name__)
@@ -57,6 +58,12 @@ async def webhook(request: Request, background: BackgroundTasks) -> Response:
         _log.info("WhatsApp inbound with no customer message")
     for message in messages:
         message = message.model_copy(update={"conversation_id": _resume(request, message.wa_id, tenant_id)})
+        keep_profile_name(
+            request.app.state.conversations,
+            tenant_id,
+            message.wa_id,
+            profile_name(payload, message.wa_id),
+        )
         message = _measured(request, message)
         _note_image(request, message)
         result = request.app.state.receive.execute(context, message, request.app.state.flags, request.app.state.limits)
@@ -143,6 +150,20 @@ def _for_tenant(conversations, tenant_id, conversation_id):
     if place is None:
         return conversation_id
     return place(tenant_id, conversation_id)
+
+
+def profile_name(payload: dict, wa_id: str) -> str | None:
+    """The name WhatsApp sends with this number. The message body does not carry it."""
+    for entry in payload.get("entry") or ():
+        for change in entry.get("changes") or ():
+            value = change.get("value") or {}
+            for contact in value.get("contacts") or ():
+                if str(contact.get("wa_id") or "") != wa_id:
+                    continue
+                name = (contact.get("profile") or {}).get("name")
+                if isinstance(name, str) and name.strip():
+                    return name.strip()
+    return None
 
 
 def inbound_messages(payload: dict, conversation_id) -> list[InboundMessage]:

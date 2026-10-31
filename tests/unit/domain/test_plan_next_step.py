@@ -7,6 +7,7 @@ from quotedesk.domain.case.case_file import CaseFile
 from quotedesk.domain.policy.rules import Policy
 from quotedesk.domain.services.plan import StepKind, plan_next_step
 from quotedesk.domain.shared.ids import PolicyVersionId
+from tests.unit.domain.fabricator_policy import fabricator_policy
 from tests.unit.domain.water_policy import aquasure_policy
 
 TENANT = UUID("11111111-1111-4111-8111-111111111111")
@@ -42,7 +43,7 @@ def test_a_missing_fact_asks_that_facts_question_for_either_business():
     assert frames.kind is StepKind.ASK
     assert frames.fact_key == "sheet"
     assert frames.sentence.startswith("Which roof would you like?")
-    assert "Economy sheeting" in frames.sentence
+    assert "Galvanised IBR sheeting" in frames.sentence
     assert "tank" not in frames.sentence.casefold()
 
 
@@ -103,10 +104,10 @@ def test_a_greeting_and_a_common_question_move_toward_the_job():
     greeting = plan_next_step(empty, hours, aquasure_policy(), customer_text="hello")
     assert greeting.kind is StepKind.ASK
     assert greeting.sentence.startswith("Weekdays 8 to 5.")
-    assert "Which tank size do you want?" in greeting.sentence
+    assert "What can we help with: Swap an existing tank, Install a new tank, Fit a pump on an existing tank?" in greeting.sentence
     delivery = plan_next_step(empty, AQUA, aquasure_policy(), customer_text="What about delivery?")
     assert delivery.sentence.startswith("We deliver inside the service area.")
-    assert "Which tank size do you want?" in delivery.sentence
+    assert "What can we help with:" in delivery.sentence
 
 
 def test_an_out_of_scope_request_uses_the_playbook_reply():
@@ -183,3 +184,38 @@ def test_a_low_confidence_photo_is_asked_with_the_choices():
     assert step.kind is StepKind.ASK
     assert step.fact_key == "size_litres"
     assert "5000 L tank" in step.sentence
+
+
+def test_a_named_swap_does_not_ask_about_the_stand():
+    tank = CaseFile.open(CONVERSATION, TENANT).add_job("tank", "replacement")
+    step = plan_next_step(tank, AQUA, aquasure_policy())
+    assert step.kind is StepKind.ASK
+    assert step.fact_key == "size_litres"
+    assert "stand" not in step.sentence.casefold()
+
+
+def test_an_unnamed_tank_job_asks_whether_the_stand_is_there():
+    tank = CaseFile.open(CONVERSATION, TENANT).add_job("tank", "tank")
+    tank = tank.record_fact("tank", uuid4(), "size_litres", "5000", "customer_text", EVENT)
+    tank = tank.record_fact("tank", uuid4(), "existing_level_base", "true", "customer_text", EVENT)
+    step = plan_next_step(tank, AQUA, aquasure_policy())
+    assert step.kind is StepKind.ASK
+    assert step.fact_key == "stand_present"
+    assert step.sentence == "Is the stand already there?"
+
+
+def test_a_new_carport_asks_the_sheet_before_the_size():
+    bay = CaseFile.open(CONVERSATION, TENANT).add_job("bay", "carport")
+    bay = bay.record_fact("bay", uuid4(), "opening", "new", "customer_text", EVENT)
+    step = plan_next_step(bay, FRAMES, fabricator_policy())
+    assert step.kind is StepKind.ASK
+    assert step.fact_key == "sheet"
+    assert step.kind is not StepKind.INSPECTION
+
+
+def test_a_widened_opening_is_still_a_site_measure():
+    bay = CaseFile.open(CONVERSATION, TENANT).add_job("bay", "carport")
+    bay = bay.record_fact("bay", uuid4(), "opening", "widened", "customer_text", EVENT)
+    step = plan_next_step(bay, FRAMES, fabricator_policy())
+    assert step.kind is StepKind.INSPECTION
+    assert "total" not in step.sentence

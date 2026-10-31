@@ -1,0 +1,20 @@
+{
+  "state": "range_shared",
+  "headline": "Price range",
+  "business_name": "FrameWorks",
+  "quote_id": "QD-2001",
+  "rule_id": "FAB-R02",
+  "body": "The price depends on the sheet.",
+  "lines": [],
+  "amount_display": null,
+  "range_min_display": "R 8 050.00",
+  "range_max_display": "R 10 850.00",
+  "shared": "Steel frame",
+  "fee_display": null,
+  "expiry_display": "7 November 2026",
+  "status_line": "ISSUED · version 1 · 7 November 2026 · none",
+  "window_display": null,
+  "hold_until_display": null,
+  "clauses": [],
+  "next_step": null
+}

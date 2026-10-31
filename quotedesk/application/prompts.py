@@ -45,7 +45,7 @@ def render_task(playbook: BusinessPlaybook | None, customer_name: str | None = N
     if reference:
         task = f"{task}\n{_FENCE}\n```business\n{reference}\n```"
     if customer_name:
-        task = f"{task}\nThe customer's name is {customer_name}. Use that name."
+        task = f"{task}\nThe customer's name is {customer_name}. Use that name. Do not ask for it."
     return task
 
 

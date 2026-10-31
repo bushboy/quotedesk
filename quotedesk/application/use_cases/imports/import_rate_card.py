@@ -34,6 +34,7 @@ class ImportedRow(BaseModel):
     item_code: str
     unit_price: Decimal | None
     unit: str
+    applies_to: str = "both"
     flags: tuple[str, ...]
     status: Literal["ready", "needs_review"]
     cell: str
@@ -104,6 +105,8 @@ def _replace_rows(draft: PolicyDraft, rows: tuple[ImportedRow, ...]) -> PolicyDr
             unit_price=row.unit_price,
             vat_inclusive=draft.vat_inclusive,
             description=names.get(row.item_code, ""),
+            unit=row.unit or "each",
+            applies_to=row.applies_to if row.applies_to in ("both", "swap", "new") else "both",
         )
         for row in rows
         if row.unit_price is not None
@@ -146,8 +149,15 @@ def _item(
 ) -> ImportedRow:
     price_value, price_cell = _at(row, columns.get("unit_price"))
     unit_value, _unit_cell = _at(row, columns.get("unit"))
+    applies_index = columns.get("applies_to")
+    if applies_index is None:
+        applies_index = columns.get("applies to")
+    applies_value, _applies_cell = _at(row, applies_index)
     price = _price(price_value)
     unit = _text(unit_value) or ""
+    applies = (_text(applies_value) or "both").casefold()
+    if applies not in ("both", "swap", "new"):
+        applies = "both"
     flags: list[str] = []
     if price is None:
         flags.append("missing_price")
@@ -159,6 +169,7 @@ def _item(
         item_code=code,
         unit_price=price,
         unit=unit,
+        applies_to=applies,
         flags=tuple(flags),
         status="ready" if not flags else "needs_review",
         cell=price_cell,

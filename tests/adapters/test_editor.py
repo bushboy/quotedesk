@@ -182,11 +182,13 @@ def _rates(**changes: str) -> dict[str, str]:
 def test_the_draft_lists_the_rate_card_with_an_empty_row_to_add(monkeypatch):
     page = _text(_client(monkeypatch).get("/console"))
 
-    assert 'name="code-0" value="TANK-2500"' in page
-    assert 'name="name-1" value="5000 L tank"' in page
-    assert 'name="price-1" value="4250.00"' in page
-    assert 'name="code-2" value="TANK-10000"' in page
-    assert 'name="code-3" value=""' in page
+    assert 'name="code-0" value="TANK-1000"' in page
+    assert 'value="5000 L tank"' in page
+    assert 'value="4250.00"' in page
+    assert 'value="TANK-10000"' in page
+    assert 'placeholder="New code"' in page
+    assert 'name="job-types-0"' in page
+    assert "size_litres is one of 1000, 2500" in page
 
 
 def test_a_new_price_an_added_item_and_a_removal_publish_together(monkeypatch):

@@ -10,7 +10,7 @@ from quotedesk.application.dto.tool_outputs import GetQuoteResult
 from quotedesk.application.errors import CaseNotFound, TenantRequired
 from quotedesk.application.ports.repositories import CaseFileRepository, PolicyRepository, VerificationCodes
 from quotedesk.application.ports.runtime import Clock, IdGenerator, UnitOfWork
-from quotedesk.domain.case.case_file import CaseFile
+from quotedesk.domain.case.case_file import CaseFile, ready_values, status_of
 from quotedesk.domain.case.facts import CaseFacts, ExtractionFacts, JobKind, SegmentationFacts
 from quotedesk.domain.policy.clauses import ClauseFacts, ClauseSelection
 from quotedesk.domain.policy.rules import Decision, Outcome
@@ -137,7 +137,7 @@ class GetQuote:
             lines=current.lines,
             clauses=current.clauses,
             price_type=priced.price_type,
-            total=current.lines[0].total if len(current.lines) == 1 else None,
+            total=_fixed_total(priced, current.lines),
             range_min=priced.range_min,
             range_max=priced.range_max,
             site_visit_fee=priced.site_visit_fee,
@@ -157,9 +157,13 @@ _RANK = {
 
 
 def _quote_job(case: CaseFile, job, bundle):
-    case_facts, extraction = _facts(case, job, bundle.playbook, bundle.rate_card)
+    case_facts, extraction, values = _facts(case, job, bundle.playbook, bundle.rate_card)
     decision = decide(case_facts, extraction, SegmentationFacts(), bundle.policy)
-    priced = price(decision, _price_facts(case_facts, bundle.rate_card, bundle.playbook), bundle.rate_card)
+    priced = price(
+        decision,
+        _price_facts(case_facts, bundle.rate_card, bundle.playbook, job.job_type, values),
+        bundle.rate_card,
+    )
     return decision, case_facts, priced
 
 
@@ -185,15 +189,15 @@ def _combine(quoted, priced: PricedQuote) -> PricedQuote:
     )
 
 
-def _facts(case: CaseFile, job, playbook=None, rate_card=None) -> tuple[CaseFacts, ExtractionFacts]:
-    values = {
-        fact.key: fact.value
-        for fact in case.facts(job.job_id)
-        if fact.superseded_by is None and not fact.contested
-    }
+def _facts(case: CaseFile, job, playbook=None, rate_card=None) -> tuple[CaseFacts, ExtractionFacts, dict[str, str]]:
+    recorded = tuple(
+        fact for fact in case.facts(job.job_id) if fact.superseded_by is None and not fact.contested
+    )
+    values = {fact.key: fact.value for fact in recorded}
+    confirmed = ready_values(recorded)
 
-    def flag(key: str, default: bool) -> bool:
-        raw = values.get(key)
+    def flag(source: dict[str, str], key: str, default: bool) -> bool:
+        raw = source.get(key)
         if raw is None:
             return default
         if raw == "true":
@@ -202,61 +206,66 @@ def _facts(case: CaseFile, job, playbook=None, rate_card=None) -> tuple[CaseFact
             return False
         raise PolicyViolation(code="policy.violation", sentence=_NOT_A_FLAG)
 
-    size = values.get("size_litres")
+    size = confirmed.get("size_litres")
     stand = values.get("stand_condition")
-    width = _decimal(values.get("width_m"))
-    length = _decimal(values.get("length_m"))
-    codes, finish = _chosen(values, job.job_type or values.get("job_type"), playbook, rate_card)
-    opening = values.get("opening")
+    width = _decimal(confirmed.get("width_m"))
+    length = _decimal(confirmed.get("length_m"))
+    codes, finish = _chosen(confirmed, job.job_type or confirmed.get("job_type") or job.job_type, playbook, rate_card)
+    opening = confirmed.get("opening")
     stated = _size_source(case, job.job_id)
     case_facts = CaseFacts(
         checks=ConfidenceChecks(
-            required_fields=flag("required_fields", False),
-            agreement=flag("agreement", False),
-            measurement=flag("measurement", False),
-            media_usable=flag("media_usable", False),
-            rate_card=flag("rate_card", False),
+            required_fields=flag(values, "required_fields", False),
+            agreement=flag(values, "agreement", False),
+            measurement=flag(values, "measurement", False),
+            media_usable=flag(values, "media_usable", False),
+            rate_card=flag(values, "rate_card", False),
         ),
-        job=_job_kind(job.job_type or values.get("job_type")),
+        job=_job_kind(job.job_type or confirmed.get("job_type") or values.get("job_type")),
         customer_text=values.get("customer_text"),
         size_litres=_litres(size),
         size_source=stated,
-        existing_level_base=flag("existing_level_base", False),
-        installation_damaged=flag("installation_damaged", False),
-        simple_swap=_optional_flag(values.get("simple_swap")),
-        base_unconfirmed=flag("base_unconfirmed", False),
-        new_tank_and_pump=flag("new_tank_and_pump", False),
-        sloped_ground=flag("sloped_ground", False),
-        pipe_run_unknown=flag("pipe_run_unknown", False),
+        existing_level_base=flag(confirmed, "existing_level_base", False),
+        installation_damaged=flag(values, "installation_damaged", False),
+        simple_swap=_optional_flag(confirmed.get("simple_swap")),
+        base_unconfirmed=flag(confirmed, "base_unconfirmed", False),
+        new_tank_and_pump=flag(confirmed, "new_tank_and_pump", False),
+        sloped_ground=flag(values, "sloped_ground", False),
+        pipe_run_unknown=flag(values, "pipe_run_unknown", False),
         item_codes=codes,
         width_m=width,
         length_m=length,
         finish=finish,
         opening=opening if opening in ("existing", "new", "widened") else None,
-        above_ground_floor=flag("above_ground_floor", False),
-        multi_unit=flag("multi_unit", False),
-        standard_band=flag("standard_band", False),
-        budget=_decimal(values.get("budget")),
-        job_type=_job_type(values.get("job_type") or job.job_type),
+        above_ground_floor=flag(values, "above_ground_floor", False),
+        multi_unit=flag(values, "multi_unit", False),
+        standard_band=flag(confirmed, "standard_band", False),
+        budget=_decimal(confirmed.get("budget")),
+        job_type=_job_type(confirmed.get("job_type") or job.job_type),
+        stand_present=_optional_flag(confirmed.get("stand_present")),
+        existing_frame=_optional_flag(confirmed.get("existing_frame")),
+        pump=(confirmed.get("pump") or "").strip() or None,
     )
     stand_value = stand if stand in ("sound", "leaning", "cracked", "sagging") else None
     extraction = ExtractionFacts(
         stand_condition=stand_value,
-        elevated=flag("elevated", False),
-        structure_damage=flag("structure_damage", False),
-        exposed_wiring=flag("exposed_wiring", False),
-        active_flooding=flag("active_flooding", False),
-        lintel_cracked=flag("lintel_cracked", False),
-        glass_broken=flag("glass_broken", False),
-        possible_asbestos=flag("possible_asbestos", False),
+        elevated=flag(values, "elevated", False),
+        structure_damage=flag(values, "structure_damage", False),
+        exposed_wiring=flag(values, "exposed_wiring", False),
+        active_flooding=flag(values, "active_flooding", False),
+        lintel_cracked=flag(values, "lintel_cracked", False),
+        glass_broken=flag(values, "glass_broken", False),
+        possible_asbestos=flag(values, "possible_asbestos", False),
     )
-    return case_facts, extraction
+    return case_facts, extraction, values
 
 
 def _size_source(case: CaseFile, job_id: str):
     stated = None
     for fact in case.facts(job_id):
         if fact.superseded_by is not None or fact.contested:
+            continue
+        if status_of(fact) not in ("stated", "confirmed"):
             continue
         if fact.key == "size_source" and fact.value in ("photo_inferred", "customer_stated", "reference_object"):
             return SizeSource(fact.value)
@@ -290,6 +299,8 @@ def _job_kind(raw: str | None) -> JobKind:
         return JobKind.NEW_SYSTEM
     if folded == "borehole":
         return JobKind.BOREHOLE
+    if folded == "pump":
+        return JobKind.PUMP
     return JobKind.UNKNOWN
 
 
@@ -337,24 +348,77 @@ def _codes(raw: str | None) -> tuple[str, ...]:
     return tuple(part.strip() for part in raw.split(",") if part.strip())
 
 
-def _price_facts(case_facts: CaseFacts, rate_card=None, playbook=None) -> PriceFacts:
-    codes = case_facts.item_codes or _tank_codes(case_facts.size_litres, rate_card) or _sheet_codes(case_facts, rate_card)
+def _fixed_total(priced: PricedQuote, lines: tuple[QuoteLine, ...]):
+    if priced.price_type != "fixed" or not lines:
+        return None
+    total = lines[0].total
+    for line in lines[1:]:
+        total = total + line.total
+    return total
+
+
+def _price_facts(
+    case_facts: CaseFacts,
+    rate_card=None,
+    playbook=None,
+    job_key: str | None = None,
+    values: dict[str, str] | None = None,
+) -> PriceFacts:
+    recorded = dict(values or {})
+    codes = (
+        case_facts.item_codes
+        or _tank_codes(case_facts.size_litres, rate_card, recorded.get("size_litres"))
+        or _sheet_codes(case_facts, rate_card, playbook, job_key)
+    )
+    if case_facts.existing_level_base:
+        recorded["existing_level_base"] = "true"
+    elif "existing_level_base" not in recorded:
+        recorded["existing_level_base"] = "false"
+    if case_facts.size_litres is not None:
+        recorded["size_litres"] = str(case_facts.size_litres)
     return PriceFacts(
         items=tuple(RequestedItem(item_code=code, quantity=Decimal("1")) for code in codes),
         discount_percent=Decimal("0"),
         width_m=case_facts.width_m,
         length_m=case_facts.length_m,
-        roles=_roles(playbook, case_facts.job_type),
+        roles=_roles(playbook, job_key),
+        work=_work(case_facts),
+        job_type=job_key or "",
+        values=recorded,
     )
 
 
-def _roles(playbook, job_type: str | None) -> tuple[str, ...]:
-    if playbook is None or not job_type:
+_PRICE_ROLES = ("product", "frame", "hardware", "installation", "delivery", "inspection")
+_TANK_KEYS = ("replacement", "new_system", "tank")
+
+
+def _roles(playbook, job_key: str | None) -> tuple[str, ...]:
+    if playbook is None:
         return ()
-    for job in playbook.job_types:
-        if job.key == job_type:
-            return tuple(role for role in job.roles if role in ("product", "frame", "hardware", "installation", "delivery", "inspection"))
+    keys: list[str] = []
+    if job_key:
+        keys.append(job_key)
+    if job_key in ("replacement", "new_system", "tank", None, ""):
+        for key in _TANK_KEYS:
+            if key not in keys:
+                keys.append(key)
+    for key in keys:
+        for job in playbook.job_types:
+            if job.key == key and job.roles:
+                return tuple(role for role in job.roles if role in _PRICE_ROLES)
     return ()
+
+
+def _work(case_facts: CaseFacts):
+    if case_facts.job == JobKind.REPLACEMENT or case_facts.opening == "existing":
+        return "swap"
+    if case_facts.job == JobKind.NEW_SYSTEM or case_facts.opening == "new":
+        return "new"
+    if case_facts.stand_present is True or case_facts.existing_frame is True:
+        return "swap"
+    if case_facts.stand_present is False or case_facts.existing_frame is False:
+        return "new"
+    return None
 
 
 def _facts_used(case: CaseFile) -> tuple[str, ...]:
@@ -387,19 +451,28 @@ def _terms(priced) -> dict:
         "range_max": priced.range_max,
         "deposit": priced.deposit,
         "site_visit_fee": priced.site_visit_fee,
+        "included": priced.included,
     }
 
 
-def _sheet_codes(case_facts: CaseFacts, rate_card) -> tuple[str, ...]:
+def _sheet_codes(case_facts: CaseFacts, rate_card, playbook=None, job_key: str | None = None) -> tuple[str, ...]:
     if case_facts.width_m is None or case_facts.length_m is None or rate_card is None:
         return ()
-    return tuple(item.item_code for item in rate_card.items if item.item_code.startswith("SHEET-"))
+    published = {item.item_code for item in rate_card.items}
+    options = _sheet_options(playbook, job_key or case_facts.job_type)
+    if options:
+        codes = [code for option in options for code in (option.item_codes or (option.value,))]
+        return tuple(code for code in dict.fromkeys(codes) if code in published)
+    return tuple(item.item_code for item in rate_card.items if item.item_code.startswith("SHEET-") or item.item_code == "SHADE-NET")
 
 
-def _tank_codes(litres: int | None, rate_card) -> tuple[str, ...]:
+def _tank_codes(litres: int | None, rate_card, raw: str | None = None) -> tuple[str, ...]:
     if litres is None or rate_card is None:
         return ()
-    exact = {2500: "TANK-2500", 5000: "TANK-5000", 10000: "TANK-10000"}.get(litres)
+    if raw and "slim" in raw.casefold():
+        exact = "TANK-SLIM-1000"
+    else:
+        exact = {1000: "TANK-1000", 2500: "TANK-2500", 5000: "TANK-5000", 10000: "TANK-10000"}.get(litres)
     published = tuple(item.item_code for item in rate_card.items)
     if exact in published:
         return (exact,)

@@ -336,6 +336,37 @@ def test_publish_requires_a_tenant() -> None:
         PublishPolicy(library, unit, Clock()).execute(None, PublishInput(reason="Raise the deposit.", idempotency_key="publish-1"))
 
 
+def test_publish_keeps_applies_to() -> None:
+    named = _draft().model_copy(
+        update={
+            "rate_rows": (
+                DraftRateRow(
+                    item_code="TANK-5000",
+                    unit_price=Decimal("4250.00"),
+                    vat_inclusive=True,
+                    description="5000 L tank",
+                ),
+                DraftRateRow(
+                    item_code="STAND",
+                    unit_price=Decimal("900.00"),
+                    vat_inclusive=True,
+                    description="Stand and base",
+                    role="frame",
+                    applies_to="new",
+                ),
+            )
+        }
+    )
+    library, unit, _ = _world(30, named)
+
+    _publish(library, unit)
+
+    items = {item.item_code: item for item in library.published(TENANT).rate_card.items}
+    assert items["TANK-5000"].applies_to == "both"
+    assert items["STAND"].role == "frame"
+    assert items["STAND"].applies_to == "new"
+
+
 def test_publish_keeps_the_item_names_from_the_draft() -> None:
     named = _draft().model_copy(
         update={

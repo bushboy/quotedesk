@@ -407,3 +407,128 @@ def test_the_owner_can_release_a_held_conversation(monkeypatch):
     response = client.post("/console/release", data={"conversation_id": str(FIRST)}, follow_redirects=False)
     assert response.status_code == 303
     assert not client.app.state.conversations.escalation_held(TENANT_A, FIRST)
+
+
+def _live(page: str) -> str:
+    return page.split('id="live-title"', 1)[1].split('id="draft-title"', 1)[0]
+
+
+def _card_form() -> dict[str, str]:
+    rows = (
+        ("TANK-2500", "2500 L tank", "2850.00"),
+        ("TANK-5000", "5000 L tank", "4250.00"),
+        ("TANK-10000", "10000 L tank", "7900.00"),
+    )
+    form = {"deposit": "30"}
+    for index, (code, name, price) in enumerate(rows):
+        form[f"code-{index}"] = code
+        form[f"name-{index}"] = name
+        form[f"price-{index}"] = price
+        form[f"unit-{index}"] = "each"
+        form[f"role-{index}"] = "product"
+        form[f"applies-to-{index}"] = "both"
+    return form
+
+
+def _issued(app) -> None:
+    line = QuoteLine(
+        item_code="TANK-5000",
+        description="5000 L tank",
+        quantity=Decimal("1"),
+        unit_price=Money("4250.00"),
+        total=Money("4250.00"),
+    )
+    quote = Quote.open(QuoteId("QD-1042"), EXPIRY)
+    app.state.unit.committed[(TENANT_A, FIRST)] = quote.set_lines(1, (line,)).issue(
+        Outcome.FIXED_OFFER, version=1, at=ISSUED_AT
+    )
+
+
+def test_the_draft_shows_unit_role_and_applies_to(monkeypatch):
+    page = _text(_client(monkeypatch).get("/console"))
+    live = _live(page)
+    assert "each · Product · Both" in live
+    assert 'type="hidden" name="unit-' not in page
+    assert 'type="hidden" name="role-' not in page
+    assert 'name="unit-0"' in page
+    assert 'name="role-0"' in page
+    assert 'name="applies-to-0"' in page
+    assert 'name="unit-0"' in page and 'value="each" selected' in page
+    assert 'value="product" selected' in page
+    assert 'value="both" selected' in page
+
+
+def test_publishing_a_stand_shows_it_on_the_live_card(monkeypatch):
+    client = _client(monkeypatch)
+    _issued(client.app)
+    form = _card_form()
+    form.update(
+        {
+            "code-3": "STAND",
+            "name-3": "Stand and base",
+            "price-3": "900.00",
+            "unit-3": "each",
+            "role-3": "frame",
+            "applies-to-3": "new",
+            "reason": "Add the stand",
+        }
+    )
+    page = _text(client.post("/editor/publish", data=form))
+    live = _live(page)
+    assert "STAND" in live
+    assert "Frame" in live
+    assert "A new installation" in live
+    stored = client.app.state.unit.committed[(TENANT_A, FIRST)]
+    assert [(line.item_code, line.unit_price) for line in stored.current.lines] == [("TANK-5000", Money("4250.00"))]
+
+
+def test_two_rows_of_one_role_are_published(monkeypatch):
+    client = _client(monkeypatch)
+    published = client.app.state.policies.published(TENANT_A)
+    form = {"deposit": "30", "reason": "Two labour prices"}
+    for index, item in enumerate(published.rate_card.items):
+        form[f"code-{index}"] = item.item_code
+        form[f"name-{index}"] = item.description
+        form[f"price-{index}"] = str(item.unit_price.amount)
+        form[f"unit-{index}"] = item.unit
+        form[f"role-{index}"] = item.role
+        form[f"applies-to-{index}"] = item.applies_to
+        form[f"job-types-{index}"] = ", ".join(item.job_types)
+    start = len(published.rate_card.items)
+    form.update(
+        {
+            f"code-{start}": "FIT-NEW-A",
+            f"name-{start}": "New connection",
+            f"price-{start}": "400.00",
+            f"unit-{start}": "each",
+            f"role-{start}": "installation",
+            f"applies-to-{start}": "new",
+            f"job-types-{start}": "new_system",
+            f"code-{start + 1}": "FIT-NEW-B",
+            f"name-{start + 1}": "Second connection",
+            f"price-{start + 1}": "450.00",
+            f"unit-{start + 1}": "each",
+            f"role-{start + 1}": "installation",
+            f"applies-to-{start + 1}": "new",
+            f"job-types-{start + 1}": "new_system",
+        }
+    )
+    response = client.post("/editor/publish", data=form)
+    assert response.status_code == 200
+    page = _text(response)
+    assert "FIT-NEW-A" in page
+    assert "FIT-NEW-B" in page
+    published = client.app.state.policies.published(TENANT_A)
+    assert [item.item_code for item in published.rate_card.items][-2:] == ["FIT-NEW-A", "FIT-NEW-B"]
+    assert published.rate_card.items[-1].job_types == ("new_system",)
+
+
+def test_an_unknown_applies_to_keeps_the_draft(monkeypatch):
+    client = _client(monkeypatch)
+    before = client.app.state.policies.draft(TENANT_A)
+    form = _card_form()
+    form.update({"applies-to-0": "roof", "reason": "Testing"})
+    response = client.post("/editor/publish", data=form)
+    assert response.status_code == 422
+    assert "Say whether a row applies to both, a swap, or a new installation." in _text(response)
+    assert client.app.state.policies.draft(TENANT_A) == before

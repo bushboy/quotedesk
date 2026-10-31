@@ -144,8 +144,8 @@ def _post(client, wa_id, body):
     assert client.post("/whatsapp/webhook", json=payload).status_code == 200
 
 
-def _wait(client, wa_id, needle):
-    deadline = time.monotonic() + 8
+def _wait(client, wa_id, needle, seconds: float = 8):
+    deadline = time.monotonic() + seconds
     rows = []
     while time.monotonic() < deadline:
         rows = client.get("/whatsapp/outbox", params={"wa_id": wa_id, "after": 0}).json()
@@ -180,7 +180,7 @@ def test_two_customers_get_their_own_quotes(monkeypatch):
         assert small_id != large_id
         assert "R 4 250.00" in small_page
         assert "R 7 900.00" in large_page
-        assert "Deposit R 1 275.00" in small_page
+        assert "Deposit R 1 665.00" in small_page
         assert "R 4 250.00" not in large_page
         assert client.get(f"/card/{large_id}", params={"code": small_code}).status_code == 404
         assert client.get(f"/card/{small_id}", params={"code": large_code}).status_code == 404
@@ -219,9 +219,12 @@ def test_a_restart_still_opens_the_card(monkeypatch):
     app.state.slot.model = Caller()
     wa_id = "15553330001"
     quote_id = None
+    _forget_customer(wa_id, "QD-1042")
     try:
         with TestClient(app) as client:
             _post(client, wa_id, "Please quote a 5000 L replacement.")
+            time.sleep(2.2)
+            app.state.run_turn()
             rows = _wait(client, wa_id, "/card/QD-")
             assert rows
             quote_id, code, page = _card(client, rows[-1]["body"])

@@ -80,9 +80,14 @@
       .rate-edit th { padding: 0 6px 6px 0; color: var(--muted); font-size: 0.8125rem; font-weight: 600; text-align: left; }
       .rate-edit td { padding: 4px 6px 4px 0; vertical-align: middle; }
       .rate-edit .hint { margin: 0 0 10px; }
-      .rate-edit .c-code { width: 26%; }
-      .rate-edit .c-price { width: 20%; }
+      .rate-edit { overflow-x: auto; }
+      .rate-edit .c-code { width: 8.5rem; }
+      .rate-edit .c-unit { width: 6.5rem; }
+      .rate-edit .c-role { width: 8rem; }
+      .rate-edit .c-applies { width: 10.5rem; }
+      .rate-edit .c-price { width: 7rem; }
       .rate-edit .c-remove { width: 6rem; }
+      .rate-edit select { width: 100%; }
       .rate-edit input[name^="price-"] { font-variant-numeric: tabular-nums; text-align: right; }
       .rate-edit .remove { display: flex; align-items: center; gap: 6px; margin: 0; color: var(--muted); font-size: 0.875rem; font-weight: 400; }
       .rate-edit .remove input { width: auto; }
@@ -300,7 +305,12 @@
             <ul class="rates">
               {% for item in bundle.rate_card.items %}
               {% set name = p.names.get(item.item_code, item.description) %}
-              <li><span>{{ name }}{% if name != item.item_code %} <span class="code">{{ item.item_code }}</span>{% endif %}</span><span class="amount">{{ item.unit_price|rand }}</span></li>
+              <li>
+                <span>{{ name }}{% if name != item.item_code %} <span class="code">{{ item.item_code }}</span>{% endif %}
+                  <span class="code">{{ item.unit }} · {{ {"product": "Product", "frame": "Frame", "hardware": "Hardware", "installation": "Installation", "delivery": "Delivery", "inspection": "Inspection"}.get(item.role, item.role) }} · {{ {"both": "Both", "swap": "A swap", "new": "A new installation"}.get(item.applies_to, item.applies_to) }}{% if item.job_types %} · {{ item.job_types|join(", ") }}{% endif %}</span>
+                </span>
+                <span class="amount">{{ item.unit_price|rand }}</span>
+              </li>
               {% endfor %}
             </ul>
             <p class="hint" id="storage">{% if p.storage %}Saved in the database.{% else %}The database isn't reachable, so price changes last until the app restarts.{% endif %}</p>
@@ -322,7 +332,17 @@
                 <p class="hint" id="rates-hint">Prices in rand, {% if p.draft.vat_inclusive %}including{% else %}excluding{% endif %} VAT. Fill in the empty row to add an item.</p>
                 <table>
                   <thead>
-                    <tr><th scope="col" class="c-code">Code</th><th scope="col">Name</th><th scope="col" class="c-price">Price</th><th scope="col" class="c-remove"><span hidden>Remove</span></th></tr>
+                    <tr>
+                      <th scope="col" class="c-code">Code</th>
+                      <th scope="col">Name</th>
+                      <th scope="col" class="c-unit">Unit</th>
+                      <th scope="col" class="c-role">Role</th>
+                      <th scope="col" class="c-applies">Applies to</th>
+                      <th scope="col">Jobs</th>
+                      <th scope="col">When</th>
+                      <th scope="col" class="c-price">Price</th>
+                      <th scope="col" class="c-remove"><span hidden>Remove</span></th>
+                    </tr>
                   </thead>
                   <tbody>
                     {% for row in p.rows %}
@@ -330,7 +350,33 @@
                     <tr{% if row.blank %} class="new"{% endif %}>
                       <td><input name="code-{{ i }}" value="{{ row.code }}" autocomplete="off" spellcheck="false" aria-label="{% if row.blank %}New item code{% else %}Code, row {{ loop.index }}{% endif %}"{% if row.blank %} placeholder="New code"{% endif %}></td>
                       <td><input name="name-{{ i }}" value="{{ row.name }}" autocomplete="off" aria-label="{% if row.blank %}New item name{% else %}Name, row {{ loop.index }}{% endif %}"></td>
-                      <td><input name="price-{{ i }}" value="{{ row.price }}" inputmode="decimal" autocomplete="off" aria-label="{% if row.blank %}New item price{% else %}Price, row {{ loop.index }}{% endif %}"><input type="hidden" name="unit-{{ i }}" value="{{ row.unit }}"><input type="hidden" name="role-{{ i }}" value="{{ row.role }}"></td>
+                      <td>
+                        <select name="unit-{{ i }}" aria-label="{% if row.blank %}New item unit{% else %}Unit, row {{ loop.index }}{% endif %}">
+                          {% for value in ("each", "per m²", "per metre") %}
+                          <option value="{{ value }}"{% if row.unit == value %} selected{% endif %}>{{ value }}</option>
+                          {% endfor %}
+                        </select>
+                      </td>
+                      <td>
+                        <select name="role-{{ i }}" aria-label="{% if row.blank %}New item role{% else %}Role, row {{ loop.index }}{% endif %}">
+                          {% for value, label in (("product", "Product"), ("frame", "Frame"), ("hardware", "Hardware"), ("installation", "Installation"), ("delivery", "Delivery"), ("inspection", "Inspection")) %}
+                          <option value="{{ value }}"{% if row.role == value %} selected{% endif %}>{{ label }}</option>
+                          {% endfor %}
+                        </select>
+                      </td>
+                      <td>
+                        <select name="applies-to-{{ i }}" aria-label="{% if row.blank %}New item applies to{% else %}Applies to, row {{ loop.index }}{% endif %}">
+                          {% for value, label in (("both", "Both"), ("swap", "A swap"), ("new", "A new installation")) %}
+                          <option value="{{ value }}"{% if row.applies_to == value %} selected{% endif %}>{{ label }}</option>
+                          {% endfor %}
+                        </select>
+                      </td>
+                      <td><input name="job-types-{{ i }}" value="{{ row.job_types }}" autocomplete="off" aria-label="{% if row.blank %}New item jobs{% else %}Jobs, row {{ loop.index }}{% endif %}"{% if row.blank %} placeholder="Every job"{% endif %}></td>
+                      <td>
+                        <span>{{ row.when_summary }}</span>
+                        <input type="hidden" name="when-{{ i }}" value="{{ row.when }}">
+                      </td>
+                      <td><input name="price-{{ i }}" value="{{ row.price }}" inputmode="decimal" autocomplete="off" aria-label="{% if row.blank %}New item price{% else %}Price, row {{ loop.index }}{% endif %}"></td>
                       <td>{% if not row.blank %}<label class="remove"><input type="checkbox" name="remove-{{ i }}"{% if row.remove %} checked{% endif %}> Remove</label>{% endif %}</td>
                     </tr>
                     {% endfor %}

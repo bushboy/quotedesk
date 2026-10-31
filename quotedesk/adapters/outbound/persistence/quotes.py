@@ -30,11 +30,11 @@ class QuoteTables:
                     """
                     INSERT INTO quote_version (
                         quote_id, number, state, expiry, at, price_type, range_min, range_max, deposit, site_visit_fee,
-                        outcome, rule_id, reasons, policy_version, facts_used
+                        outcome, rule_id, reasons, policy_version, facts_used, included
                     )
                     VALUES (
                         :quote_id, :number, :state, :expiry, :at, :price_type, :range_min, :range_max, :deposit,
-                        :site_visit_fee, :outcome, :rule_id, :reasons, :policy_version, :facts_used
+                        :site_visit_fee, :outcome, :rule_id, :reasons, :policy_version, :facts_used, :included
                     )
                     """
                 ),
@@ -54,6 +54,7 @@ class QuoteTables:
                     "reasons": "\n".join(version.reasons),
                     "policy_version": version.policy_version,
                     "facts_used": "\n".join(version.facts_used),
+                    "included": "\n".join(version.included),
                 },
             )
             for position, line in enumerate(version.lines):
@@ -188,7 +189,7 @@ class QuoteTables:
             text(
                 """
                 SELECT number, state, expiry, at, price_type, range_min, range_max, deposit, site_visit_fee,
-                       outcome, rule_id, reasons, policy_version, facts_used
+                       outcome, rule_id, reasons, policy_version, facts_used, included
                 FROM quote_version
                 WHERE quote_id = :quote_id
                 ORDER BY number
@@ -271,6 +272,7 @@ class QuoteTables:
                     reasons=_lines(version.reasons),
                     policy_version=version.policy_version or "",
                     facts_used=_lines(version.facts_used),
+                    included=_lines(version.included),
                 )
             )
         return Quote(quote_id=QuoteId(quote_id), versions=tuple(versions))

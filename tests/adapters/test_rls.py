@@ -40,60 +40,69 @@ def _set(connection, tenant_id: UUID | None) -> None:
 def test_rls_hides_other_tenants():
     _upgrade()
     database = engine(URL)
-    with database.begin() as connection:
-        for tenant, conversation, quote_id, policy_id in (
-            (TENANT_A, CONVERSATION_A, "QD-1042", "water-policy-v1.0"),
-            (TENANT_B, CONVERSATION_B, "QD-2042", "fab-policy-v1.0"),
-        ):
-            _set(connection, tenant)
-            connection.execute(text("DELETE FROM policy_row WHERE tenant_id = :tenant_id"), {"tenant_id": tenant})
-            connection.execute(text("DELETE FROM quote WHERE tenant_id = :tenant_id"), {"tenant_id": tenant})
-            connection.execute(text("DELETE FROM case_fact WHERE tenant_id = :tenant_id"), {"tenant_id": tenant})
-            connection.execute(text("DELETE FROM case_file WHERE tenant_id = :tenant_id"), {"tenant_id": tenant})
-            connection.execute(
-                text("DELETE FROM conversation_event WHERE tenant_id = :tenant_id"),
-                {"tenant_id": tenant},
-            )
-            connection.execute(text("DELETE FROM conversation WHERE tenant_id = :tenant_id"), {"tenant_id": tenant})
-            connection.execute(
-                text("INSERT INTO quote (quote_id, tenant_id, conversation_id) VALUES (:quote_id, :tenant_id, :conversation_id)"),
-                {"quote_id": quote_id, "tenant_id": tenant, "conversation_id": conversation},
-            )
-            connection.execute(
-                text("INSERT INTO case_file (conversation_id, tenant_id) VALUES (:conversation_id, :tenant_id)"),
-                {"conversation_id": conversation, "tenant_id": tenant},
-            )
-            connection.execute(
-                text("INSERT INTO conversation (conversation_id, tenant_id) VALUES (:conversation_id, :tenant_id)"),
-                {"conversation_id": conversation, "tenant_id": tenant},
-            )
-            connection.execute(
-                text("INSERT INTO policy_row (tenant_id, policy_id) VALUES (:tenant_id, :policy_id)"),
-                {"tenant_id": tenant, "policy_id": policy_id},
-            )
-            connection.execute(
-                text("INSERT INTO audit_event (tenant_id, action, quote_id, version) VALUES (:tenant_id, 'quote.issued', :quote_id, 1)"),
-                {"tenant_id": tenant, "quote_id": quote_id},
-            )
-        _set(connection, TENANT_A)
-        visible = {
-            "quote": connection.execute(text("SELECT quote_id FROM quote")).scalars().all(),
-            "case_file": connection.execute(text("SELECT conversation_id FROM case_file")).scalars().all(),
-            "conversation": connection.execute(text("SELECT conversation_id FROM conversation")).scalars().all(),
-            "policy_row": connection.execute(text("SELECT tenant_id FROM policy_row")).scalars().all(),
-            "audit_event": connection.execute(text("SELECT tenant_id FROM audit_event")).scalars().all(),
-        }
-        assert visible["quote"] == ["QD-1042"]
-        assert visible["case_file"] == [CONVERSATION_A]
-        assert visible["conversation"] == [CONVERSATION_A]
-        assert TENANT_B not in visible["policy_row"]
-        assert TENANT_A in visible["policy_row"]
-        assert TENANT_B not in visible["audit_event"]
-        assert TENANT_A in visible["audit_event"]
-        _set(connection, None)
-        for table in ("quote", "case_file", "conversation", "policy_row", "audit_event"):
-            count = connection.execute(text(f"SELECT count(*) FROM {table}")).scalar_one()
-            assert count == 0
+    connection = database.connect()
+    transaction = connection.begin()
+    try:
+        _hide_other_tenants(connection)
+    finally:
+        transaction.rollback()
+        connection.close()
+
+
+def _hide_other_tenants(connection) -> None:
+    for tenant, conversation, quote_id, policy_id in (
+        (TENANT_A, CONVERSATION_A, "QD-1042", "water-policy-v1.0"),
+        (TENANT_B, CONVERSATION_B, "QD-2042", "fab-policy-v1.0"),
+    ):
+        _set(connection, tenant)
+        connection.execute(text("DELETE FROM policy_row WHERE tenant_id = :tenant_id"), {"tenant_id": tenant})
+        connection.execute(text("DELETE FROM quote WHERE tenant_id = :tenant_id"), {"tenant_id": tenant})
+        connection.execute(text("DELETE FROM case_fact WHERE tenant_id = :tenant_id"), {"tenant_id": tenant})
+        connection.execute(text("DELETE FROM case_file WHERE tenant_id = :tenant_id"), {"tenant_id": tenant})
+        connection.execute(
+            text("DELETE FROM conversation_event WHERE tenant_id = :tenant_id"),
+            {"tenant_id": tenant},
+        )
+        connection.execute(text("DELETE FROM conversation WHERE tenant_id = :tenant_id"), {"tenant_id": tenant})
+        connection.execute(
+            text("INSERT INTO quote (quote_id, tenant_id, conversation_id) VALUES (:quote_id, :tenant_id, :conversation_id)"),
+            {"quote_id": quote_id, "tenant_id": tenant, "conversation_id": conversation},
+        )
+        connection.execute(
+            text("INSERT INTO case_file (conversation_id, tenant_id) VALUES (:conversation_id, :tenant_id)"),
+            {"conversation_id": conversation, "tenant_id": tenant},
+        )
+        connection.execute(
+            text("INSERT INTO conversation (conversation_id, tenant_id) VALUES (:conversation_id, :tenant_id)"),
+            {"conversation_id": conversation, "tenant_id": tenant},
+        )
+        connection.execute(
+            text("INSERT INTO policy_row (tenant_id, policy_id) VALUES (:tenant_id, :policy_id)"),
+            {"tenant_id": tenant, "policy_id": policy_id},
+        )
+        connection.execute(
+            text("INSERT INTO audit_event (tenant_id, action, quote_id, version) VALUES (:tenant_id, 'quote.issued', :quote_id, 1)"),
+            {"tenant_id": tenant, "quote_id": quote_id},
+        )
+    _set(connection, TENANT_A)
+    visible = {
+        "quote": connection.execute(text("SELECT quote_id FROM quote")).scalars().all(),
+        "case_file": connection.execute(text("SELECT conversation_id FROM case_file")).scalars().all(),
+        "conversation": connection.execute(text("SELECT conversation_id FROM conversation")).scalars().all(),
+        "policy_row": connection.execute(text("SELECT tenant_id FROM policy_row")).scalars().all(),
+        "audit_event": connection.execute(text("SELECT tenant_id FROM audit_event")).scalars().all(),
+    }
+    assert visible["quote"] == ["QD-1042"]
+    assert visible["case_file"] == [CONVERSATION_A]
+    assert visible["conversation"] == [CONVERSATION_A]
+    assert TENANT_B not in visible["policy_row"]
+    assert TENANT_A in visible["policy_row"]
+    assert TENANT_B not in visible["audit_event"]
+    assert TENANT_A in visible["audit_event"]
+    _set(connection, None)
+    for table in ("quote", "case_file", "conversation", "policy_row", "audit_event"):
+        count = connection.execute(text(f"SELECT count(*) FROM {table}")).scalar_one()
+        assert count == 0
 
 
 def test_audit_is_insert_only():

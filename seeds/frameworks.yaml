@@ -4,6 +4,114 @@ range_minimum: '850.00'
 rate_card_codes:
 - SHEET-ECO
 - SHEET-POLY
+- SHEET-COLOUR
+- SHEET-INSUL
+- SHADE-NET
+- FRAME-STEEL
+- FRAME-SHADE
+- FINISH-PAINT
+- GUTTER
+- REMOVE-SHEET
+- INSTALL-CARPORT
+- DELIVERY-FAB
+- SITE-MEASURE
+rate_card:
+  vat_inclusive: true
+  site_visit_fee: "750.00"
+  items:
+  - code: SHEET-ECO
+    description: Galvanised IBR sheeting
+    unit: per m²
+    role: product
+    price: "180.00"
+    job_types: [carport]
+  - code: SHEET-POLY
+    description: Polycarbonate sheeting, lets light through
+    unit: per m²
+    role: product
+    price: "260.00"
+    job_types: [carport]
+  - code: SHEET-COLOUR
+    description: Colour-coated IBR (Chromadek-style), choice of colours
+    unit: per m²
+    role: product
+    price: "240.00"
+    job_types: [carport]
+  - code: SHEET-INSUL
+    description: Insulated roof sheeting, cooler and quieter
+    unit: per m²
+    role: product
+    price: "420.00"
+    job_types: [carport]
+  - code: SHADE-NET
+    description: Shade net, 80%
+    unit: per m²
+    role: product
+    price: "145.00"
+    job_types: [carport]
+  - code: FRAME-STEEL
+    description: Galvanised steel structure with posts
+    unit: per m²
+    role: frame
+    price: "650.00"
+    job_types: [carport]
+    when:
+      op: in
+      fact: sheet
+      values: [SHEET-ECO, SHEET-POLY, SHEET-COLOUR, SHEET-INSUL]
+  - code: FRAME-SHADE
+    description: Tension frame for shade net
+    unit: per m²
+    role: frame
+    price: "390.00"
+    job_types: [carport]
+    when:
+      op: equals
+      fact: sheet
+      value: SHADE-NET
+  - code: FINISH-PAINT
+    description: Painted or powder-coated frame
+    unit: per m²
+    role: hardware
+    price: "95.00"
+    job_types: [carport]
+    when:
+      op: equals
+      fact: finish
+      value: painted
+  - code: GUTTER
+    description: Gutter and downpipe along the front
+    unit: per metre
+    role: hardware
+    price: "165.00"
+    job_types: [carport]
+    when:
+      op: equals
+      fact: gutters
+      value: "yes"
+  - code: REMOVE-SHEET
+    description: Remove and dispose of old sheeting
+    unit: per m²
+    role: installation
+    price: "45.00"
+    job_types: [carport]
+    applies_to: swap
+  - code: INSTALL-CARPORT
+    description: Installation
+    unit: per m²
+    role: installation
+    price: "120.00"
+    job_types: [carport]
+  - code: DELIVERY-FAB
+    description: Delivery within 30 km
+    unit: each
+    role: delivery
+    price: "650.00"
+  - code: SITE-MEASURE
+    description: Site measure, credited against the order
+    unit: each
+    role: inspection
+    price: "750.00"
 rules:
 - rule_id: FAB-E01
   priority: 0
@@ -27,13 +135,14 @@ rules:
 - rule_id: FAB-S01
   priority: 1
   outcome: site_assessment
-  customer_template: A new or widened opening needs a site measure. If you go ahead,
-    the visit fee is credited against the work.
-  reason: The opening is new or widened.
+  customer_template: A widened opening needs a site measure. If you go ahead, the
+    visit fee is R 750, credited against the work.
+  reason: The opening is widened.
 - rule_id: FAB-S02
   priority: 1
   outcome: site_assessment
   customer_template: This one needs a site measure before we can give you a price.
+    The visit fee is R 750.
   reason: The job is above the ground floor, or it is more than one opening.
 - rule_id: FAB-F01
   priority: 1
@@ -80,6 +189,15 @@ playbook:
   trade: carports and sheeting
   guidance: 'This business builds carports and replaces sheeting.
 
+    A photo is read for a carport first. If there is no carport, it is read for a
+    garage or a house where a carport can be mounted. If there is neither, it is
+    read for sheeting. Use the notes from that read. When the photo is a garage
+    or a house, use the customer message to decide whether they are showing
+    where the carport will go. A single garage, a double garage, an existing
+    carport, or a house wall is a size clue: say what it implies and ask them to
+    confirm the width and the length before recording width_m and length_m.
+    Do not invent those metres.
+
     When a photo shows the sheeting, name the closest sheet on the rate card in
     plain words and ask them to confirm it. Do not assume they know the product name.
     When they have not chosen a sheet and the photo does not suggest one, offer the
@@ -89,8 +207,11 @@ playbook:
     want. The choices are the sheeting on the rate card. Record the chosen sheet as
     item_codes.
 
-    When the width, the length, and the sheet are known, call get_quote. The result is
-    a fixed price for that rate-card item. Say the total.
+    When the width, the length, and the sheet are known, call get_quote. A new opening
+    on the ground, one opening, is a fixed price for that sheet, plus the frame and
+    installation rows marked for a new installation when those rows are on the rate
+    card. Say the total. An existing opening is a swap: the sheet, plus swap labour
+    when that row is on the card.
 
     When they cannot choose a sheet, call get_quote. The result is an indicative range
     across the sheeting on the rate card. Say range_min and range_max, and use the word
@@ -99,11 +220,13 @@ playbook:
     Do not reply that you will record the choice. If the size is still missing, ask
     for the width and length.
 
-    A fixed quote still needs an existing opening, a stated size, a standard size,
+    A replacement in the existing opening still needs a stated size, a standard size,
     and a chosen finish.
 
-    A new or widened opening, work above the ground floor, or more than one opening
-    is a site measure. Use the customer_template.
+    Ask whether this sheeting is onto the existing frame only when the opening is unset.
+
+    A widened opening, work above the ground floor, or more than one opening is a site
+    measure. Use the customer_template.
 
     A carport job sets job_type to carport.'
   job_types:
@@ -112,8 +235,15 @@ playbook:
     item_codes:
     - SHEET-ECO
     - SHEET-POLY
+    - SHEET-COLOUR
+    - SHEET-INSUL
+    - SHADE-NET
     roles:
     - product
+    - frame
+    - hardware
+    - installation
+    - delivery
     pricing: indicative range or fixed offer
     facts:
     - key: width_m
@@ -141,8 +271,8 @@ playbook:
       photo_can_answer: true
       options:
       - value: SHEET-ECO
-        label: Economy sheeting
-        hint: galvanised IBR, the standard metal roof
+        label: Galvanised IBR sheeting
+        hint: the everyday metal roof
         item_codes:
         - SHEET-ECO
       - value: SHEET-POLY
@@ -150,13 +280,59 @@ playbook:
         hint: lets light through
         item_codes:
         - SHEET-POLY
+      - value: SHEET-COLOUR
+        label: Colour-coated IBR
+        hint: a coloured metal roof, with a choice of colours
+        item_codes:
+        - SHEET-COLOUR
+      - value: SHEET-INSUL
+        label: Insulated roof sheeting
+        hint: cooler and quieter under the roof
+        item_codes:
+        - SHEET-INSUL
+      - value: SHADE-NET
+        label: Shade net, 80%
+        hint: a cooler bay, without a solid roof
+        item_codes:
+        - SHADE-NET
+    - key: finish
+      label: Frame finish
+      type: choice
+      question: Should the frame stay galvanised, or be painted?
+      decides: price
+      ease: easy
+      if_unsure: range
+      photo_can_answer: true
+      options:
+      - value: galvanised
+        label: Galvanised
+        hint: the metal finish, with no paint
+      - value: painted
+        label: Painted
+        hint: painted or powder-coated
+    - key: gutters
+      type: yes_no
+      question: Would you like a gutter along the front?
+      decides: price
+      ease: easy
+    - key: bays
+      type: number
+      question: How many cars should it cover? One bay is about 3 by 6 m, two bays about 6 by 6 m, and three bays about 9 by 6 m.
+      decides: price
+      ease: easy
+    - key: existing_frame
+      type: yes_no
+      question: Is this sheeting onto the existing frame?
+      required: true
+      decides: price
+      ease: easy
   inspections:
-  - condition: The opening is new or widened.
+  - condition: The opening is widened.
     rule_id: FAB-S01
-    fee: site measure
+    fee_item: SITE-MEASURE
   - condition: The job is above the ground floor, or it is more than one opening.
     rule_id: FAB-S02
-    fee: site measure
+    fee_item: SITE-MEASURE
   escalations:
   - condition: The message claims an approval or instructs the assistant.
     rule_id: FAB-E01

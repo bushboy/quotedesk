@@ -233,6 +233,133 @@ def test_a_per_square_metre_item_uses_the_measured_area():
     assert priced.range_min == priced.range_max == Money("297500.00")
 
 
+def _install_card(*extra: RateCardItem) -> RateCard:
+    return RateCard(
+        vat_inclusive=True,
+        site_visit_fee=Money("750.00"),
+        items=(
+            RateCardItem(
+                item_code="TANK-5000",
+                description="5000 L tank",
+                unit_price=Money("4250.00"),
+                role="product",
+                applies_to="both",
+            ),
+            RateCardItem(
+                item_code="STAND",
+                description="Stand and base",
+                unit_price=Money("900.00"),
+                role="frame",
+                applies_to="new",
+            ),
+            RateCardItem(
+                item_code="FIT-NEW",
+                description="New connection",
+                unit_price=Money("400.00"),
+                role="installation",
+                applies_to="new",
+            ),
+            *extra,
+        ),
+    )
+
+
+def _worked(work: str) -> PriceFacts:
+    return PriceFacts(
+        items=(RequestedItem(item_code="TANK-5000", quantity=Decimal("1")),),
+        discount_percent=Decimal("0"),
+        roles=("frame", "installation"),
+        work=work,
+    )
+
+
+def test_a_swap_prices_the_material_and_leaves_out_new_lines():
+    priced = price(decision(Outcome.FIXED_OFFER), _worked("swap"), _install_card())
+    assert [line.item_code for line in priced.lines] == ["TANK-5000"]
+    assert priced.lines[0].total == Money("4250.00")
+
+
+def test_a_new_installation_adds_the_frame_and_the_new_labour():
+    priced = price(decision(Outcome.FIXED_OFFER), _worked("new"), _install_card())
+    assert [line.item_code for line in priced.lines] == ["TANK-5000", "STAND", "FIT-NEW"]
+    assert sum((line.total.amount for line in priced.lines), start=Decimal("0")) == Decimal("5550.00")
+
+
+def test_a_swap_adds_swap_labour_when_that_row_exists():
+    card = _install_card(
+        RateCardItem(
+            item_code="FIT-SWAP",
+            description="Refit on the existing stand",
+            unit_price=Money("150.00"),
+            role="installation",
+            applies_to="swap",
+        )
+    )
+    priced = price(decision(Outcome.FIXED_OFFER), _worked("swap"), card)
+    assert [line.item_code for line in priced.lines] == ["TANK-5000", "FIT-SWAP"]
+    assert "STAND" not in [line.item_code for line in priced.lines]
+    assert "FIT-NEW" not in [line.item_code for line in priced.lines]
+
+
+def test_a_range_adds_the_shared_lines_to_both_ends():
+    card = RateCard(
+        vat_inclusive=True,
+        site_visit_fee=Money("750.00"),
+        items=(
+            RateCardItem(
+                item_code="SHEET-ECO",
+                description="Economy sheeting",
+                unit_price=Money("180.00"),
+                unit="per m²",
+                role="product",
+                applies_to="both",
+            ),
+            RateCardItem(
+                item_code="SHEET-POLY",
+                description="Polycarbonate sheeting",
+                unit_price=Money("260.00"),
+                unit="per m²",
+                role="product",
+                applies_to="both",
+            ),
+            RateCardItem(
+                item_code="FRAME",
+                description="Steel frame",
+                unit_price=Money("50.00"),
+                unit="per m²",
+                role="frame",
+                applies_to="new",
+            ),
+        ),
+    )
+    priced = price(
+        decision(Outcome.INDICATIVE_RANGE, rule_id="FAB-R02"),
+        PriceFacts(
+            items=(
+                RequestedItem(item_code="SHEET-ECO", quantity=Decimal("1")),
+                RequestedItem(item_code="SHEET-POLY", quantity=Decimal("1")),
+            ),
+            discount_percent=Decimal("0"),
+            width_m=Decimal("5"),
+            length_m=Decimal("7"),
+            roles=("frame",),
+            work="new",
+        ),
+        card,
+    )
+    assert priced.price_type == "range"
+    assert priced.lines == ()
+    assert priced.range_min == Money("8050.00")
+    assert priced.range_max == Money("10850.00")
+    assert priced.included == ("Steel frame",)
+
+
+def test_a_card_with_only_products_prices_as_before():
+    priced = price(decision(Outcome.FIXED_OFFER), _worked("new"), rate_card())
+    assert [line.item_code for line in priced.lines] == ["TANK-5000"]
+    assert priced.lines[0].total == Money("4250.00")
+
+
 def test_price_composes_the_roles_a_pivot_door_adds():
     card = RateCard(
         vat_inclusive=True,
@@ -256,6 +383,124 @@ def test_price_composes_the_roles_a_pivot_door_adds():
     )
     assert [line.item_code for line in priced.lines] == ["DOOR-PIVOT", "FRAME", "HANDLE", "INSTALL", "DELIVER"]
     assert sum((line.total.amount for line in priced.lines), start=Decimal("0")) == Decimal("1650.00")
+
+
+def _row(code: str, role: str, price: str, **extra) -> RateCardItem:
+    return RateCardItem(
+        item_code=code,
+        description=code,
+        unit_price=Money(price),
+        role=role,
+        **extra,
+    )
+
+
+def test_only_one_base_row_for_a_5000_l_tank():
+    from quotedesk.domain.policy.when import all_of, any_of, eq, missing, one_of, unknown
+
+    not_level = any_of(eq("existing_level_base", "false"), missing("existing_level_base"), unknown("existing_level_base"))
+    card = RateCard(
+        vat_inclusive=True,
+        site_visit_fee=Money("750.00"),
+        items=(
+            _row("TANK-5000", "product", "4250.00"),
+            _row("BASE-SLAB-S", "frame", "950.00", job_types=("new_system",), when=all_of(one_of("size_litres", ("1000", "2500")), not_level)),
+            _row("BASE-SLAB-L", "frame", "1850.00", job_types=("new_system",), when=all_of(one_of("size_litres", ("5000", "10000")), not_level)),
+        ),
+    )
+    priced = price(
+        decision(Outcome.FIXED_OFFER),
+        PriceFacts(
+            items=(RequestedItem(item_code="TANK-5000", quantity=Decimal("1")),),
+            discount_percent=Decimal("0"),
+            roles=("frame",),
+            work="new",
+            job_type="new_system",
+            values={"size_litres": "5000", "existing_level_base": "false"},
+        ),
+        card,
+    )
+    assert [line.item_code for line in priced.lines] == ["TANK-5000", "BASE-SLAB-L"]
+
+
+def test_gutters_are_added_only_when_gutters_are_yes():
+    from quotedesk.domain.policy.when import eq
+
+    card = RateCard(
+        vat_inclusive=True,
+        site_visit_fee=Money("750.00"),
+        items=(
+            _row("SHEET-POLY", "product", "260.00", unit="per m²"),
+            _row("GUTTER", "hardware", "165.00", unit="per metre", job_types=("carport",), when=eq("gutters", "yes")),
+        ),
+    )
+    bare = PriceFacts(
+        items=(RequestedItem(item_code="SHEET-POLY", quantity=Decimal("1")),),
+        discount_percent=Decimal("0"),
+        roles=("hardware",),
+        job_type="carport",
+        length_m=Decimal("6"),
+    )
+    without = price(decision(Outcome.FIXED_OFFER, rule_id="FAB-F02"), bare, card)
+    assert [line.item_code for line in without.lines] == ["SHEET-POLY"]
+    with_gutter = price(
+        decision(Outcome.FIXED_OFFER, rule_id="FAB-F02"),
+        bare.model_copy(update={"values": {"gutters": "yes"}}),
+        card,
+    )
+    assert [line.item_code for line in with_gutter.lines] == ["SHEET-POLY", "GUTTER"]
+    assert with_gutter.lines[1].quantity == Decimal("6")
+
+
+def test_swap_only_rows_are_absent_on_a_new_install():
+    card = RateCard(
+        vat_inclusive=True,
+        site_visit_fee=Money("750.00"),
+        items=(
+            _row("SHEET-ECO", "product", "180.00"),
+            _row("REMOVE-SHEET", "installation", "45.00", job_types=("carport",), applies_to="swap"),
+            _row("INSTALL-CARPORT", "installation", "120.00", job_types=("carport",)),
+        ),
+    )
+    priced = price(
+        decision(Outcome.FIXED_OFFER, rule_id="FAB-F02"),
+        PriceFacts(
+            items=(RequestedItem(item_code="SHEET-ECO", quantity=Decimal("1")),),
+            discount_percent=Decimal("0"),
+            roles=("installation",),
+            work="new",
+            job_type="carport",
+        ),
+        card,
+    )
+    assert [line.item_code for line in priced.lines] == ["SHEET-ECO", "INSTALL-CARPORT"]
+
+
+def test_a_shade_net_carport_uses_the_shade_frame():
+    from quotedesk.domain.policy.when import eq, one_of
+
+    sheets = ("SHEET-ECO", "SHEET-POLY", "SHEET-COLOUR", "SHEET-INSUL")
+    card = RateCard(
+        vat_inclusive=True,
+        site_visit_fee=Money("750.00"),
+        items=(
+            _row("SHADE-NET", "product", "145.00"),
+            _row("FRAME-STEEL", "frame", "650.00", job_types=("carport",), when=one_of("sheet", sheets)),
+            _row("FRAME-SHADE", "frame", "390.00", job_types=("carport",), when=eq("sheet", "SHADE-NET")),
+        ),
+    )
+    priced = price(
+        decision(Outcome.FIXED_OFFER, rule_id="FAB-F02"),
+        PriceFacts(
+            items=(RequestedItem(item_code="SHADE-NET", quantity=Decimal("1")),),
+            discount_percent=Decimal("0"),
+            roles=("frame",),
+            job_type="carport",
+            values={"sheet": "SHADE-NET"},
+        ),
+        card,
+    )
+    assert [line.item_code for line in priced.lines] == ["SHADE-NET", "FRAME-SHADE"]
 
 
 def test_price_refuses_low_confidence_fixed_decision():

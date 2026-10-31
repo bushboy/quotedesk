@@ -182,7 +182,7 @@ def test_clean_photo_keeps_water_f01():
     quote = next(item for item in second.tool_payloads if item.name == "get_quote")
     assert quote.body["rule_id"]["value"] == "WATER-F01"
     assert quote.body["outcome"] == "fixed_offer"
-    assert quote.body["total"]["amount"] == "4250.00"
+    assert quote.body["total"]["amount"] == "5550.00"
     assert sender.sent == [(WA, QUOTE)]
     assert cases.case.current("tank", "agreement") == "true"
 
@@ -197,18 +197,17 @@ def test_photo_inferred_size_does_not_issue_a_fixed_price():
     assert "fixed" not in sender.sent[0][1]
 
 
-def test_blur_does_not_issue_a_fixed_price():
+def test_a_blurry_photo_still_quotes_a_confirmed_replacement():
     model = Speaking(replacement_calls)
     conversations, cases, sender, turn = harness(model, Enricher(tank_mask(blur=True)))
     text(conversations, TANK, 0, str(EVENT))
     picture(conversations, CAPTION, 1, IMAGE)
     turn.execute(CONTEXT, CONVERSATION)
     assert cases.case.current("tank", "media_usable") == "false"
-    assert sender.sent == [(WA, "The indicative range for that tank is in this result. It can change once we confirm the base. /card/QD-1042?code=1042")]
-    assert "fixed" not in sender.sent[0][1]
+    assert sender.sent == [(WA, "We can send a fixed quote for this replacement. /card/QD-1042?code=1042")]
 
 
-def test_sam_error_does_not_issue_a_fixed_price():
+def test_a_sam_miss_still_quotes_a_confirmed_replacement():
     failed = ExtractionResult(
         summary=SUMMARY,
         objects=("tank",),
@@ -221,8 +220,7 @@ def test_sam_error_does_not_issue_a_fixed_price():
     picture(conversations, CAPTION, 1, IMAGE)
     turn.execute(CONTEXT, CONVERSATION)
     assert cases.case.current("tank", "agreement") == "false"
-    assert sender.sent == [(WA, "The indicative range for that tank is in this result. It can change once we confirm the base. /card/QD-1042?code=1042")]
-    assert "fixed" not in sender.sent[0][1]
+    assert sender.sent == [(WA, "We can send a fixed quote for this replacement. /card/QD-1042?code=1042")]
 
 
 def test_image_bytes_are_not_in_the_prompt():

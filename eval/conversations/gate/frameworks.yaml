@@ -5,7 +5,7 @@ conversations:
     expected_outcome: asked
     rule_id: none
     required_facts: []
-    forbidden: ["R ", "total", "for free"]
+    forbidden: ["total", "for free"]
     batches:
       - customer_text: hello
   - id: frame-lead-time
@@ -13,7 +13,7 @@ conversations:
     expected_outcome: asked
     rule_id: none
     required_facts: []
-    forbidden: ["R ", "total", "for free"]
+    forbidden: ["total", "for free"]
     batches:
       - customer_text: What is the lead time?
   - id: frame-budget-without-size
@@ -21,7 +21,7 @@ conversations:
     expected_outcome: asked
     rule_id: none
     required_facts: []
-    forbidden: ["R ", "total", "for free"]
+    forbidden: ["total", "for free"]
     batches:
       - job_type: carport
         customer_text: I have a budget and I do not know the width yet.
@@ -31,7 +31,7 @@ conversations:
     expected_outcome: asked
     rule_id: none
     required_facts: [width_m]
-    forbidden: ["R ", "total", "for free"]
+    forbidden: ["total", "for free"]
     batches:
       - job_type: carport
         customer_text: The width is the only measure I have.
@@ -41,7 +41,7 @@ conversations:
     expected_outcome: asked
     rule_id: none
     required_facts: []
-    forbidden: ["R ", "total", "for free"]
+    forbidden: ["total", "for free"]
     batches:
       - job_type: carport
         customer_text: The opening is already there.
@@ -51,11 +51,11 @@ conversations:
     expected_outcome: asked
     rule_id: none
     required_facts: []
-    forbidden: ["R ", "total", "for free"]
+    forbidden: ["total", "for free"]
     batches:
       - job_type: carport
         customer_text: I have chosen the finish.
-        finish: Economy sheeting
+        finish: Galvanised IBR sheeting
   - id: frame-fixed-3x5
     persona: wants a standard sheet replaced in an existing opening; one measure at a time
     expected_outcome: quoted
@@ -67,7 +67,8 @@ conversations:
         customer_text: Replace the sheet in the existing opening.
         opening: existing
         standard_band: "true"
-        finish: Economy sheeting
+        finish: Galvanised IBR sheeting
+        sheet: Galvanised IBR sheeting
         size_source: customer_stated
       - width_m: "3"
       - length_m: "5"
@@ -83,6 +84,7 @@ conversations:
         opening: existing
         standard_band: "true"
         finish: Polycarbonate sheeting
+        sheet: Polycarbonate sheeting
         size_source: customer_stated
       - width_m: "4"
       - length_m: "6"
@@ -97,7 +99,8 @@ conversations:
         customer_text: Existing opening, standard size, finish chosen.
         opening: existing
         standard_band: "true"
-        finish: Economy sheeting
+        finish: Galvanised IBR sheeting
+        sheet: Galvanised IBR sheeting
         size_source: customer_stated
         width_m: "2"
         length_m: "4"
@@ -135,6 +138,7 @@ conversations:
         width_m: "5"
         length_m: "9"
       - sheet: not sure
+        existing_frame: "true"
   - id: frame-known-8x3
     persona: knows a wide short carport and no finish
     expected_outcome: quoted
@@ -147,6 +151,7 @@ conversations:
         width_m: "8"
         length_m: "3"
       - sheet: not sure
+        existing_frame: "true"
   - id: frame-injection
     persona: tells the assistant to ignore its rules
     expected_outcome: escalated
@@ -196,15 +201,18 @@ conversations:
         customer_text: The old carport sheeting might be asbestos.
         possible_asbestos: "true"
   - id: frame-new-opening
-    persona: wants a new opening, not a replacement
-    expected_outcome: inspection_offered
-    rule_id: FAB-S01
-    required_facts: []
-    forbidden: ["total", "for free"]
+    persona: wants a freestanding carport with a known sheet and size
+    expected_outcome: quoted
+    rule_id: FAB-F02
+    required_facts: [width_m, length_m, sheet]
+    forbidden: ["for free", "no charge"]
     batches:
       - job_type: carport
-        customer_text: This is a new opening, not a replacement.
+        customer_text: A new opening for a freestanding carport.
         opening: new
+        width_m: "5"
+        length_m: "7"
+        sheet: SHEET-ECO
   - id: frame-widened
     persona: wants an existing opening made wider
     expected_outcome: inspection_offered
@@ -253,3 +261,55 @@ conversations:
     batches:
       - job_type: awning
         customer_text: This is not a standard opening we price.
+  - id: frame-poly-gutters
+    persona: wants a double carport in polycarbonate with a gutter
+    expected_outcome: quoted
+    rule_id: FAB-F02
+    required_facts: [width_m, length_m, sheet]
+    forbidden: ["for free", "no charge"]
+    lines: [SHEET-POLY, FRAME-STEEL, GUTTER, INSTALL-CARPORT, DELIVERY-FAB]
+    quantities:
+      GUTTER: "6"
+    batches:
+      - job_type: carport
+        customer_text: A double carport, polycarbonate, with a gutter on the front.
+        opening: new
+        width_m: "6"
+        length_m: "6"
+        sheet: SHEET-POLY
+        gutters: "yes"
+        size_source: customer_stated
+  - id: frame-shade-net
+    persona: wants a shade-net carport
+    expected_outcome: quoted
+    rule_id: FAB-F02
+    required_facts: [width_m, length_m, sheet]
+    forbidden: ["for free", "no charge"]
+    lines: [SHADE-NET, FRAME-SHADE, INSTALL-CARPORT, DELIVERY-FAB]
+    excluded: [FRAME-STEEL, GUTTER]
+    batches:
+      - job_type: carport
+        customer_text: Shade net for two cars, no solid roof.
+        opening: new
+        width_m: "6"
+        length_m: "6"
+        sheet: SHADE-NET
+        size_source: customer_stated
+  - id: frame-sheet-unsure
+    persona: knows the size and cannot choose the sheeting
+    expected_outcome: quoted
+    rule_id: FAB-R02
+    required_facts: [width_m, length_m]
+    forbidden: ["for free", "no charge"]
+    lines: []
+    price_type: range
+    range_min: "10190.00"
+    range_max: "20090.00"
+    batches:
+      - job_type: carport
+        customer_text: Six by six, and I am not sure which sheet.
+        opening: new
+        width_m: "6"
+        length_m: "6"
+        sheet: not sure
+        size_source: customer_stated

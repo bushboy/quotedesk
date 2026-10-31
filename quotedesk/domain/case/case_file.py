@@ -228,6 +228,18 @@ def price_ready(case: CaseFile, job_id: str, required: tuple[str, ...]) -> bool:
     return True
 
 
+def ready_values(facts: tuple[CaseFact, ...]) -> dict[str, str]:
+    """Values the customer stated or confirmed. A photo inference stays out of the price."""
+    values: dict[str, str] = {}
+    for fact in facts:
+        if fact.superseded_by is not None or fact.contested or fact.key in values:
+            continue
+        if status_of(fact) not in _READY or not fact.value.strip():
+            continue
+        values[fact.key] = fact.value
+    return values
+
+
 def _require_one_current(jobs: Any) -> None:
     for job in jobs:
         facts = job.facts if isinstance(job, Job) else job.get("facts", ())
