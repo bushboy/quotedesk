@@ -22,7 +22,11 @@ WITH CHECK (tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '
 def upgrade() -> None:
     op.execute("ALTER TABLE conversation_event ADD COLUMN status text")
     op.execute("ALTER TABLE conversation_event ADD COLUMN outcome text")
+    # Force row security hides every row when no tenant is set, so the
+    # backfill would change nothing and SET NOT NULL would then fail.
+    op.execute("ALTER TABLE conversation_event NO FORCE ROW LEVEL SECURITY")
     op.execute("UPDATE conversation_event SET status = 'answered' WHERE status IS NULL")
+    op.execute("ALTER TABLE conversation_event FORCE ROW LEVEL SECURITY")
     op.execute("ALTER TABLE conversation_event ALTER COLUMN status SET DEFAULT 'pending'")
     op.execute("ALTER TABLE conversation_event ALTER COLUMN status SET NOT NULL")
     op.execute("ALTER TABLE conversation ADD COLUMN escalated boolean NOT NULL DEFAULT false")

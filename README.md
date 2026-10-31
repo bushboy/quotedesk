@@ -132,24 +132,24 @@ alembic upgrade head
 
 `alembic.ini` uses the same local URL as `.env.example`. Those two tests apply the migrations themselves when the database is up. They need `quotedesk` to be an ordinary role: a superuser skips row-level security.
 
-The published rate card lives in the `rate_card` and `rate_card_item` tables. The migration seeds the AquaSure and FrameWorks prices. Startup reads them, and a publish from the Policy section of `/console` writes them back. With the database down, the app uses the built-in prices and a publish lasts until restart. `tests/adapters/test_rate_card_tables.py` skips itself when nothing listens on port 5432.
+The published rate card lives in the `rate_card` and `rate_card_item` tables. `rate_card_item.applies_to` is `both`, `swap`, or `new`, and it defaults to `both`. The migration seeds the AquaSure and FrameWorks prices. Startup reads them, and a publish from the Policy section of `/console` writes the row, including `applies_to`. With the database down, the app uses the built-in prices and a publish lasts until restart. `tests/adapters/test_rate_card_tables.py` skips itself when nothing listens on port 5432.
 
 ## What this build simulates
 
 The customer channel is the web chat. `GET /whatsapp/webhook` answers Meta's verification handshake when `WHATSAPP_VERIFY_TOKEN` is set. `WHATSAPP_APP_SECRET` turns on the `X-Hub-Signature-256` check. With that secret set, the chat page's unsigned posts are rejected. Outbound delivery is the in-process outbox. `CHANNEL` accepts `outbox` only.
 
-`seeds/frameworks.yaml` is loaded by tests. The running app loads `seeds/aquasure.yaml` only. With `MODEL=spark`, the chat uses `AGENT_PROVIDER` and a photo uses `IMAGE_PROVIDER`, as in [Model settings](#model-settings). With `MODEL=script`, both stay on the fixed reply and the recorded photo. Voice Transcribe is not called yet. Excel import exists as a use case. It is not a page. Approval, publish, and rate card edits are on `/console`. Word, PowerPoint, PDF, and photo import are not in this build. Deposit links, where a use case returns one, are sandbox URLs.
+`seeds/frameworks.yaml` is loaded by tests. The running app loads `seeds/aquasure.yaml` only. With `MODEL=spark`, the chat uses `AGENT_PROVIDER` and a photo uses `IMAGE_PROVIDER`, as in [Model settings](#model-settings). With `MODEL=script`, both stay on the fixed reply and the recorded photo. Voice Transcribe is not called yet. Excel import exists as a use case. It is not a page. Approval, publish, and rate card edits are on `/console`. The Policy draft shows the unit, the role, and whether the row applies to a swap, a new installation, or both. A swap quotes the material. A new installation adds the published frame and installation rows. The built-in cards have none of those rows, so a new installation on a fresh database is the material price until the owner publishes them. Word, PowerPoint, PDF, and photo import are not in this build. Deposit links, where a use case returns one, are sandbox URLs.
 
-`python -m eval.run_gate` runs the release set: 24 scripted conversations for AquaSure and 24 for FrameWorks. The customer is a scripted voice behind the model port. The wording changes with the seed. The expected outcome does not. The command does not call a live model, so it does not replace `eval/results/latency.json`.
+`python -m eval.run_gate` runs the release set: 24 scripted conversations for AquaSure and 24 for FrameWorks. The counts are still 24 and 24. The customer is a scripted voice behind the model port. The wording changes with the seed. The expected outcome does not, except where this build retargeted a conversation: `frame-new-opening` now expects a quote under `FAB-F02`. `aqua-new-system-sized` and `aqua-range-10000` stay quotes and now expect `WATER-F02`. A widened opening still expects `FAB-S01`. A sized replacement still expects `WATER-F01`. The command does not call a live model, so it does not replace `eval/results/latency.json`.
 
-Latest run, 30 October 2026, seed 0:
+Latest run, 31 October 2026, seed 0:
 
 | Business | Conversations | Outcome accuracy | Questions before the outcome | No reply | Unfounded commitments | Re-asked facts | Brief completeness | Median | Slowest 10% | Cost |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| AquaSure | 24 | 1.0 | 0.33 | 0 | 0 | 0 | 1.0 | 0.002s | 0.003s | 0 |
-| FrameWorks | 24 | 1.0 | 0.33 | 0 | 0 | 0 | 1.0 | 0.002s | 0.003s | 0 |
+| AquaSure | 24 | 1.0 | 0.33 | 0 | 0 | 0 | 1.0 | 0.002s | 0.004s | 0 |
+| FrameWorks | 24 | 1.0 | 0.42 | 0 | 0 | 0 | 1.0 | 0.002s | 0.004s | 0 |
 
-That is one passing run. A live WhatsApp number needs three passing runs in a row, so neither business is given one. Kingdom Doors has a set in `eval/conversations/kingdom-doors.yaml` and is not served: no prices, no tenant, no number. The small set of ten per business remains in `eval/results/small-set.json`.
+That is one passing run. A live WhatsApp number needs three passing runs in a row, so neither business is given one. Oakmere Doors has a set in `eval/conversations/oakmere.yaml` and is not served: no prices, no tenant, no number. The small set of ten per business remains in `eval/results/small-set.json`.
 
 ## Licence
 
