@@ -49,7 +49,7 @@ The chat page already records a voice note and posts it with no transcript. `Mus
 
 ## 5. Tests
 
-- [ ] The three receive tests stay: a transcript skips the adapter, a missing transcript uses it, a failure asks the customer to type.
-- [ ] New tests cover a sure spoken yes, an unsure spoken yes, a missing score, a spoken no below the bar, and the playback sentence.
-- [ ] The tests pass the score in. They do not call Muse, and they do not log the audio.
-- [ ] `pytest` is green. Record the count.
+- [x] The three receive tests stay: a transcript skips the adapter, a missing transcript uses it, a failure asks the customer to type.
+- [x] New tests cover a sure spoken yes, an unsure spoken yes, a missing score, a spoken no below the bar, and the playback sentence.
+- [x] The tests pass the score in. They do not call Muse, and they do not log the audio.
+- [x] `pytest` is green. Record the count. Before this plan: 440 passed. After: 453 passed.
