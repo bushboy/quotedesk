@@ -409,6 +409,7 @@ playbook:
       - value: SHADE-NET
         label: Shade net, 80%
         hint: a cooler bay, without a solid roof
+        sags: true
         item_codes:
         - SHADE-NET
     - key: finish

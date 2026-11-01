@@ -312,6 +312,7 @@ class RunAgentTurn:
         cases: CaseFileRepository | None = None,
         book_inspection=None,
         escalate_to_owner=None,
+        pictures=None,
     ) -> None:
         self._conversations = conversations
         self._sender = sender
@@ -341,6 +342,7 @@ class RunAgentTurn:
         self._cases = cases
         self._book = book_inspection
         self._escalate = escalate_to_owner
+        self._pictures = pictures
         self._step = NextStep(kind=StepKind.ASK, sentence="What should I quote for you?")
         self._model_calls = 0
         self._bad_arguments = 0
@@ -603,6 +605,7 @@ class RunAgentTurn:
             finish = getattr(self._conversations, "finish_outbound", None)
             if finish is not None and reserve is not None:
                 finish(context.tenant_id, batch_id)
+            self._follow_with_picture(context, conversation_id, wa_id, named)
         if status == "escalated":
             hold = getattr(self._conversations, "hold_escalation", None)
             if hold is not None:
@@ -626,10 +629,44 @@ class RunAgentTurn:
             saver(context.tenant_id, conversation_id, None)
         self._change_key = None
 
-    def _send_named(self, wa_id: str, body: str) -> None:
-        buttons = ("Accept quote",) if "/card/" in body and "deposit/" not in body else ()
+    def _follow_with_picture(self, context: TenantContext, conversation_id: UUID, wa_id: str, body: str) -> None:
+        pictures = self._pictures
+        if pictures is None:
+            return
         try:
-            self._sender.send(wa_id, body, buttons=buttons, image_url=None)
+            drawn = pictures.after_quote(context, conversation_id, body)
+        except Exception:
+            _log.info("A picture was not drawn")
+            self._send_picture(
+                context,
+                conversation_id,
+                wa_id,
+                "I couldn't draw that carport. The quote above still stands.",
+            )
+            return
+        if drawn is None:
+            return
+        self._send_picture(context, conversation_id, wa_id, drawn.caption, drawn.image_url)
+
+    def _send_picture(
+        self,
+        context: TenantContext,
+        conversation_id: UUID,
+        wa_id: str,
+        body: str,
+        image_url: str | None = None,
+    ) -> None:
+        self._send_named(wa_id, body, image_url)
+        record = getattr(self._conversations, "record_reply", None)
+        if record is not None:
+            record(context.tenant_id, conversation_id, self._clock.now(), body)
+
+    def _send_named(self, wa_id: str, body: str, image_url: str | None = None) -> None:
+        buttons = ()
+        if image_url is None and "/card/" in body and "deposit/" not in body:
+            buttons = ("Accept quote",)
+        try:
+            self._sender.send(wa_id, body, buttons=buttons, image_url=image_url)
         except TypeError:
             self._sender.send(wa_id, body)
 

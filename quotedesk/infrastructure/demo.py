@@ -728,6 +728,15 @@ def _schedule_settings() -> ScheduleSettings:
 _LIVE_BYTES = 5 * 1024 * 1024
 
 
+def _sketch(drawer, cases, conversations, policies, host, trade: str):
+    """A picture is attempted only when the composition root passed a renderer for a carport trade."""
+    if drawer is None or host is None or "carport" not in trade.casefold():
+        return None
+    from quotedesk.application.use_cases.conversation.carport_sketch import CarportSketch
+
+    return CarportSketch(drawer, cases, conversations, policies, host, trade)
+
+
 def install(
     app: FastAPI,
     bundle: PublishedPolicy,
@@ -752,6 +761,8 @@ def install(
     notices=None,
     bundles=None,
     voice=None,
+    pictures=None,
+    media_host=None,
 ) -> None:
     """`live` runs on wall-clock time with a short quiet window, for a person at the chat page.
 
@@ -849,6 +860,7 @@ def install(
         cases=cases,
         book_inspection=book,
         escalate_to_owner=escalate,
+        pictures=_sketch(pictures, cases, conversations, policies, media_host, profile.trade),
     )
     app.state.tenant_id = profile.tenant_id
     app.state.tenant = profile

@@ -107,12 +107,19 @@ def _fact(raw: dict) -> FactDefinition:
     )
 
 
+def _flag(raw) -> bool:
+    if isinstance(raw, bool):
+        return raw
+    return str(raw or "").strip().casefold() in ("true", "yes", "1", "on")
+
+
 def _option(raw: dict) -> FactOption:
     return FactOption(
         value=str(raw["value"]),
         label=str(raw.get("label") or raw["value"]),
         hint=str(raw.get("hint") or ""),
         item_codes=tuple(str(code) for code in raw.get("item_codes") or ()),
+        sags=_flag(raw.get("sags")),
     )
 
 

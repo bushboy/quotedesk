@@ -96,6 +96,15 @@ def _voice(host):
     )
 
 
+def _pictures(settings: Settings):
+    """Muse Image is built only when the switch is on, the tenant is FrameWorks, and a key is set."""
+    if not settings.carport_picture or settings.tenant != "frameworks" or settings.meta_api_key == "":
+        return None
+    from quotedesk.adapters.outbound.models.muse_image import MuseImage
+
+    return MuseImage(settings.meta_api_key, settings.meta_base_url)
+
+
 def _sender(settings: Settings):
     """The ChannelSender. `None` is the in-process outbox the chat page and harness read.
 
@@ -205,6 +214,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 live=True,
                 enricher=_enricher(settings, app.state.sim_media),
                 voice=_voice(app.state.sim_media),
+                pictures=_pictures(settings),
+                media_host=app.state.sim_media,
                 tenant=profile,
                 rate_cards=rate_cards,
                 bundles=bundles,

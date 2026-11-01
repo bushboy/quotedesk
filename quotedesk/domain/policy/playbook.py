@@ -19,6 +19,7 @@ class FactOption(BaseModel):
     label: str
     hint: str = ""
     item_codes: tuple[str, ...] = ()
+    sags: bool = False
 
 
 class FactDefinition(BaseModel):

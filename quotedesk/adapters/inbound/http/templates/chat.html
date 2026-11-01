@@ -1257,7 +1257,16 @@
           const row = queue.shift();
           let key = "out-" + row.id;
           if (nodes.has(key) || state.items.some((item) => item.key === key)) key = key + "-" + Date.now();
-          const item = { key, row: row.id, side: "in", type: "text", text: row.body, buttons: row.buttons || [], at: Date.now() };
+          const item = {
+            key,
+            row: row.id,
+            side: "in",
+            type: row.image_url ? "image" : "text",
+            text: row.body,
+            url: row.image_url || "",
+            buttons: row.buttons || [],
+            at: Date.now(),
+          };
           const found = row.body.match(CARD);
           if (found) {
             const preview = await fetchPreview(found[1]);
