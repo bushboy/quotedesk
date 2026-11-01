@@ -74,17 +74,26 @@ def unresolved_clashes(case, job_id: str) -> tuple[Clash, ...]:
     return tuple(clash for clash in clashes_of(case, job_id) if not clash.chosen_side)
 
 
+def spec_answer(text: str) -> str | None:
+    """A yes or a no in the words a typed reply already uses. Anything else is unset."""
+    folded = text.strip().casefold()
+    if folded in ("yes", "yes.", "yep", "yeah", "correct") or folded.startswith("yes ") or folded.startswith("yes,"):
+        return "yes"
+    if folded in ("no", "no.", "nope") or folded.startswith("no ") or folded.startswith("no,"):
+        return "no"
+    return None
+
+
 def accept_spec_reply(case, last_reply: str, text: str, event_id: UUID):
     """A yes or no after the replay, or a chosen side after a clash question."""
     folded = text.strip().casefold()
-    yes = folded in ("yes", "yes.", "yep", "yeah", "correct") or folded.startswith("yes ") or folded.startswith("yes,")
-    no = folded in ("no", "no.", "nope") or folded.startswith("no ") or folded.startswith("no,")
+    answer = spec_answer(text)
     updated = case
     for job in case.jobs:
         if "Is that the spec to price?" in last_reply and spec_choice(updated, job.job_id) is None:
-            if yes:
+            if answer == "yes":
                 updated = updated.confirm_spec(job.job_id, uuid4(), event_id)
-            elif no:
+            elif answer == "no":
                 updated = updated.decline_spec(job.job_id, uuid4(), event_id)
         if "Which should I price?" not in last_reply:
             continue

@@ -13,6 +13,7 @@ from quotedesk.application.use_cases.conversation.run_agent_turn import Handover
 from quotedesk.application.use_cases.tools.get_quote import GetQuote
 from quotedesk.application.use_cases.tools.update_case import UpdateCase
 from quotedesk.domain.case.case_file import CaseFile
+from quotedesk.domain.case.contradictions import spec_choice
 from quotedesk.domain.policy.clauses import ClausePolicy
 from quotedesk.domain.services.price import RateCard, RateCardItem
 from quotedesk.domain.conversation.events import Conversation
@@ -691,7 +692,13 @@ def test_second_turn_sees_the_recorded_size():
 VOICE = "Replace the 5000 L tank on the existing level base."
 
 
-def hear(conversations: Conversations, body: str, seconds: float, message_id: str) -> None:
+def hear(
+    conversations: Conversations,
+    body: str,
+    seconds: float,
+    message_id: str,
+    confidence: Decimal | None = Decimal("0.91"),
+) -> None:
     current = conversations.get(TENANT, CONVERSATION) or Conversation.open(CONVERSATION)
     conversations.save(TENANT, current.append(message_id, at(seconds), body).conversation)
     conversations.remember(
@@ -704,7 +711,7 @@ def hear(conversations: Conversations, body: str, seconds: float, message_id: st
             kind="audio",
             body=None,
             transcript=body,
-            transcript_confidence=Decimal("0.91"),
+            transcript_confidence=confidence,
             media_id="media-voice",
             mime="audio/ogg",
         ),
@@ -759,3 +766,115 @@ def test_a_reply_that_already_plays_the_transcript_is_left_as_it_is():
     hear(conversations, VOICE, 0, str(EVENT))
     turn.execute(CONTEXT, CONVERSATION)
     assert sender.sent[0][1] == spoken
+
+
+class _RecordTank:
+    """Records a ready 5000 L swap and leaves the sentence to the planner."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def complete(self, prompt: TurnPrompt) -> ModelReply:
+        self.calls += 1
+        if prompt.tool_payloads:
+            return ModelReply(text="", tool_calls=())
+        fact = {"source": "customer_text", "event_id": prompt.messages[-1].provider_message_id}
+        return ModelReply(
+            text="",
+            tool_calls=(
+                ToolCall(
+                    name="update_case",
+                    arguments={
+                        "conversation_id": str(CONVERSATION),
+                        "job_id": "tank",
+                        "job_type": "replacement",
+                        "facts": [
+                            {"key": "size_litres", "value": "5000", **fact},
+                            {"key": "size_source", "value": "customer_stated", **fact},
+                            {"key": "existing_level_base", "value": "true", **fact},
+                            {"key": "item_codes", "value": "TANK-5000", **fact},
+                        ],
+                    },
+                ),
+            ),
+        )
+
+
+def _replayed_swap():
+    model = _RecordTank()
+    conversations, cases, sender, _, turn = harness(model)
+    say(conversations, TANK, 0, str(EVENT))
+    turn.execute(CONTEXT, CONVERSATION)
+    assert sender.sent[0][1].endswith("Is that the spec to price?")
+    return model, conversations, cases, sender, turn
+
+
+def _unsure(transcript: str) -> str:
+    return (
+        f"I heard: {transcript}. I'm not sure I heard that clearly. "
+        "Please confirm by typing. Is that the spec to price?"
+    )
+
+
+def test_a_sure_spoken_yes_confirms_the_spec_and_sends_the_quote():
+    _model, conversations, cases, sender, turn = _replayed_swap()
+    hear(conversations, "Yes", 0, "voice-yes", Decimal("0.8"))
+    turn.execute(CONTEXT, CONVERSATION)
+    reply = sender.sent[1][1]
+    assert reply.startswith("I heard: Yes.")
+    assert "The total is R 5550.00" in reply
+    assert "/card/QD-1042" in reply
+    assert spec_choice(cases.case, "tank") is True
+
+
+def test_an_unsure_spoken_yes_asks_for_a_typed_yes():
+    model, conversations, cases, sender, turn = _replayed_swap()
+    calls = model.calls
+    hear(conversations, "Yes", 0, "voice-yes", Decimal("0.79"))
+    turn.execute(CONTEXT, CONVERSATION)
+    assert sender.sent[1][1] == _unsure("Yes")
+    assert "The total is" not in sender.sent[1][1]
+    assert spec_choice(cases.case, "tank") is None
+    assert model.calls == calls
+
+
+def test_a_spoken_yes_with_no_score_asks_for_a_typed_yes():
+    _model, conversations, cases, sender, turn = _replayed_swap()
+    hear(conversations, "Yes", 0, "voice-yes", None)
+    turn.execute(CONTEXT, CONVERSATION)
+    assert sender.sent[1][1] == _unsure("Yes")
+    assert spec_choice(cases.case, "tank") is None
+    assert "/card/" not in sender.sent[1][1]
+
+
+def test_a_typed_yes_after_an_unsure_voice_note_sends_the_quote():
+    _model, conversations, cases, sender, turn = _replayed_swap()
+    hear(conversations, "Yes", 0, "voice-yes", None)
+    turn.execute(CONTEXT, CONVERSATION)
+    say(conversations, "Yes", 0, "typed-yes")
+    turn.execute(CONTEXT, CONVERSATION)
+    assert sender.sent[2][1].startswith("We can send a fixed quote")
+    assert "The total is R 5550.00" in sender.sent[2][1]
+    assert spec_choice(cases.case, "tank") is True
+
+
+def test_a_spoken_no_below_the_bar_does_not_decline_the_spec():
+    _model, conversations, cases, sender, turn = _replayed_swap()
+    hear(conversations, "No", 0, "voice-no", Decimal("0.2"))
+    turn.execute(CONTEXT, CONVERSATION)
+    assert sender.sent[1][1] == _unsure("No")
+    assert spec_choice(cases.case, "tank") is None
+    assert "The total is" not in sender.sent[1][1]
+
+
+def test_a_voice_note_that_is_not_the_spec_answer_is_played_back():
+    _model, conversations, cases, sender, turn = _replayed_swap()
+    hear(conversations, "The base is concrete.", 0, "voice-base", Decimal("0.2"))
+    turn.execute(CONTEXT, CONVERSATION)
+    reply = sender.sent[1][1]
+    assert reply.startswith("I heard: The base is concrete.")
+    assert "I'm not sure I heard that clearly" not in reply
+    assert spec_choice(cases.case, "tank") is None
+    stored = conversations.get(TENANT, CONVERSATION)
+    assert stored is not None
+    assert stored.events[-1].body == "The base is concrete."

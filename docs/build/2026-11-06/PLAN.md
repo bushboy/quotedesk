@@ -39,13 +39,13 @@ The chat page already records a voice note and posts it with no transcript. `Mus
 
 ## 4. A spoken yes
 
-- [ ] After the spec replay, a voice note that says yes with a score of 0.8 or more sets `spec_confirmed` and the fixed quote goes out.
-- [ ] The quote reply still begins with "I heard:".
-- [ ] A score below 0.8, or no score, does not set `spec_confirmed` and does not send a quote.
-- [ ] That reply is "I heard: {transcript}. I'm not sure I heard that clearly. Please confirm by typing. Is that the spec to price?"
-- [ ] A typed yes on the following turn sends the fixed quote. The existing typed-yes tests stay green.
-- [ ] A spoken no uses the same 0.8 bar before the spec is declined.
-- [ ] A voice note that is not answering the spec replay is played back and read as the message. It is not held for a typed copy.
+- [x] After the spec replay, a voice note that says yes with a score of 0.8 or more sets `spec_confirmed` and the fixed quote goes out.
+- [x] The quote reply still begins with "I heard:".
+- [x] A score below 0.8, or no score, does not set `spec_confirmed` and does not send a quote.
+- [x] That reply is "I heard: {transcript}. I'm not sure I heard that clearly. Please confirm by typing. Is that the spec to price?"
+- [x] A typed yes on the following turn sends the fixed quote. The existing typed-yes tests stay green.
+- [x] A spoken no uses the same 0.8 bar before the spec is declined.
+- [x] A voice note that is not answering the spec replay is played back and read as the message. It is not held for a typed copy.
 
 ## 5. Tests
 

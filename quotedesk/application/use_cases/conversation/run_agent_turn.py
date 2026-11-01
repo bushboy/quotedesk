@@ -382,6 +382,9 @@ class RunAgentTurn:
         if self._held(context, conversation_id):
             return self._acknowledge_held(context, conversation, conversation_id, wa_id, batch)
         remember_name(self._conversations, context.tenant_id, conversation_id, wa_id, batch)
+        unsure = _unsure_confirmation(self, context, conversation_id)
+        if unsure:
+            return self._commit(context, conversation, conversation_id, wa_id, batch, unsure, "answered", TurnOutcome.ANSWERED)
         prompt = self._prompt(context, conversation)
         if _unfinished_video(batch, self._conversations.messages(context.tenant_id, conversation_id)):
             _log.info("Turn handled by video acknowledgement")
@@ -579,7 +582,12 @@ class RunAgentTurn:
         outcome: TurnOutcome,
     ) -> TurnOutcome:
         fresh = self._conversations.get(context.tenant_id, conversation_id) or conversation
-        named = _with_heard(with_name(self._conversations, context.tenant_id, wa_id, body), _heard(self, context, conversation_id, batch))
+        unsure = _unsure_confirmation(self, context, conversation_id)
+        heard_body = unsure or body
+        named = heard_body if unsure else _with_heard(
+            with_name(self._conversations, context.tenant_id, wa_id, heard_body),
+            _heard(self, context, conversation_id, batch),
+        )
         batch_id = "|".join(event.provider_message_id for event in batch)
         reserve = getattr(self._conversations, "reserve_outbound", None)
         action = "send"
@@ -1266,6 +1274,8 @@ def _remember_reply(turn: RunAgentTurn, context: TenantContext, conversation_id:
     rows = () if replies is None else replies(context.tenant_id, conversation_id)
     if not rows or not text.strip() or not case.jobs:
         return case
+    if _unsure_confirmation(turn, context, conversation_id) is not None:
+        return case
     chosen = accept_spec_reply(case, rows[-1][1] or "", text, uuid4())
     if chosen is case:
         return case
@@ -1331,6 +1341,41 @@ def _quote_facts(payload, card_base, card_code, price_kind, card_link):
         if code:
             card_link = f"{card_link}?code={code}"
     return price_kind, card_link
+
+
+_SURE = Decimal("0.8")
+
+
+def _latest_message(turn: RunAgentTurn, context: TenantContext, conversation_id: UUID):
+    reader = getattr(turn._conversations, "messages", None)
+    if reader is None:
+        return None
+    found = reader(context.tenant_id, conversation_id)
+    return found[-1] if found else None
+
+
+def _sure(score: Decimal | None) -> bool:
+    return score is not None and score >= _SURE
+
+
+def _unsure_confirmation(turn: RunAgentTurn, context: TenantContext, conversation_id: UUID) -> str | None:
+    """A spoken yes or no on the spec replay whose score is missing or below 0.8."""
+    from quotedesk.domain.case.contradictions import spec_answer
+
+    message = _latest_message(turn, context, conversation_id)
+    if message is None or message.kind != "audio":
+        return None
+    transcript = (message.transcript or message.body or "").strip()
+    if spec_answer(transcript) is None or _sure(message.transcript_confidence):
+        return None
+    replies = getattr(turn._conversations, "replies", None)
+    rows = () if replies is None else replies(context.tenant_id, conversation_id)
+    if not rows or "Is that the spec to price?" not in (rows[-1][1] or ""):
+        return None
+    return (
+        f"I heard: {transcript}. I'm not sure I heard that clearly. "
+        "Please confirm by typing. Is that the spec to price?"
+    )
 
 
 def _heard(turn: RunAgentTurn, context: TenantContext, conversation_id: UUID, batch: tuple) -> str:
