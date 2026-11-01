@@ -5,6 +5,7 @@ from uuid import UUID
 import pytest
 
 from quotedesk.application.dto.inbound import GateFlags, GateLimits, InboundMessage
+from quotedesk.application.ports.media import Transcript
 from quotedesk.application.dto.tenant import TenantContext
 from quotedesk.application.errors import TenantRequired
 from quotedesk.application.use_cases.conversation.receive_inbound import ReceiveInboundEvent
@@ -409,17 +410,23 @@ def test_gate_hidden_instruction_is_flagged():
 
 
 class Voice:
-    def __init__(self, text: str | None = "The tank is 5000 litres.", fail: bool = False) -> None:
+    def __init__(
+        self,
+        text: str | None = "The tank is 5000 litres.",
+        fail: bool = False,
+        confidence: Decimal | None = None,
+    ) -> None:
         self.text = text
         self.fail = fail
+        self.confidence = confidence
         self.calls = 0
 
-    def transcribe(self, media_id: str) -> str:
+    def transcribe(self, media_id: str) -> Transcript:
         self.calls += 1
         if self.fail:
             raise ValueError("The transcript was empty.")
         assert media_id == "media-voice"
-        return self.text or ""
+        return Transcript(self.text or "", self.confidence)
 
 
 def test_a_voice_note_with_a_transcript_skips_the_adapter():
@@ -428,7 +435,15 @@ def test_a_voice_note_with_a_transcript_skips_the_adapter():
     use_case._voice = voice
     result = use_case.execute(
         TenantContext(tenant_id=TENANT),
-        message(kind="audio", body=None, transcript="The tank is leaking.", media_id="media-voice", mime="audio/ogg", size_bytes=10),
+        message(
+            kind="audio",
+            body=None,
+            transcript="The tank is leaking.",
+            transcript_confidence=Decimal("0.40"),
+            media_id="media-voice",
+            mime="audio/ogg",
+            size_bytes=10,
+        ),
         flags(),
         limits(),
     )
@@ -438,6 +453,8 @@ def test_a_voice_note_with_a_transcript_skips_the_adapter():
     assert stored is not None
     assert stored.log[0].body == "The tank is leaking."
     assert sender.sent == []
+    kept = conversations.messages(TENANT, CONVERSATION)[0]
+    assert kept.transcript_confidence == Decimal("0.40")
 
 
 def test_a_voice_note_without_a_transcript_uses_the_adapter():
@@ -456,6 +473,9 @@ def test_a_voice_note_without_a_transcript_uses_the_adapter():
     assert stored is not None
     assert stored.log[0].body == "Replace the 5000 L tank."
     assert sender.sent == []
+    kept = conversations.messages(TENANT, CONVERSATION)[0]
+    assert kept.transcript == "Replace the 5000 L tank."
+    assert kept.transcript_confidence is None
 
 
 def test_a_failed_transcript_asks_the_customer_to_type():
@@ -470,4 +490,46 @@ def test_a_failed_transcript_asks_the_customer_to_type():
     )
     assert result.stored is False
     assert conversations.rows == {}
+    assert conversations.remembered == []
     assert sender.sent == [(WA, "I couldn't hear that voice note. Please type the details.")]
+
+
+def test_a_score_is_kept_with_the_transcript():
+    voice = Voice("Replace the 5000 L tank.", confidence=Decimal("0.91"))
+    use_case, conversations, sender, _media, _classifier = world()
+    use_case._voice = voice
+    result = use_case.execute(
+        TenantContext(tenant_id=TENANT),
+        message(kind="audio", body=None, media_id="media-voice", mime="audio/ogg", size_bytes=10),
+        flags(),
+        limits(),
+    )
+    kept = conversations.messages(TENANT, CONVERSATION)[0]
+    assert result.stored is True
+    assert kept.transcript == "Replace the 5000 L tank."
+    assert kept.transcript_confidence == Decimal("0.91")
+    assert sender.sent == []
+
+
+def test_an_afrikaans_transcript_is_refused_after_it_is_heard():
+    voice = Voice(AFRIKAANS_TEXT)
+    use_case, conversations, sender, _media, _classifier = world()
+    use_case._voice = voice
+    result = use_case.execute(
+        TenantContext(tenant_id=TENANT),
+        message(
+            provider_message_id="wamid.AF",
+            kind="audio",
+            body=None,
+            media_id="media-voice",
+            mime="audio/ogg",
+            size_bytes=10,
+        ),
+        flags(),
+        limits(),
+    )
+    assert voice.calls == 1
+    assert result.stored is False
+    assert result.sentence == AFRIKAANS
+    assert conversations.remembered == []
+    assert sender.sent == [(WA, AFRIKAANS)]

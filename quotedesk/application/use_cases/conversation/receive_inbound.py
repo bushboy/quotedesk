@@ -5,7 +5,7 @@ from quotedesk.application.dto.inbound import GateFlags, GateLimits, InboundMess
 from quotedesk.application.dto.tenant import TenantContext
 from quotedesk.application.errors import TenantRequired
 from quotedesk.application.ports.gate import ChannelSender, MediaClassifier, MediaStore
-from quotedesk.application.ports.media import VoiceTranscriber
+from quotedesk.application.ports.media import Transcript, VoiceTranscriber
 from quotedesk.application.ports.repositories import ConversationRepository
 from quotedesk.application.ports.runtime import Clock
 from quotedesk.domain.conversation.events import Conversation
@@ -55,12 +55,12 @@ class ReceiveInboundEvent:
             return self._refuse(context, data, _RATE)
         if _file_refused(data, limits):
             return self._refuse(context, data, _FILE)
-        if _language_refused(data, flags):
-            return self._refuse(context, data, _LANGUAGE)
         heard = self._hear(data)
         if heard is None:
             return self._refuse(context, data, _TYPE_IT)
         data = heard
+        if _language_refused(data, flags):
+            return self._refuse(context, data, _LANGUAGE)
         if data.kind == "image":
             category = self._classifier.classify(data)
             if category in ("explicit", "sensitive_document"):
@@ -89,12 +89,13 @@ class ReceiveInboundEvent:
         if not data.media_id:
             return None
         try:
-            text = self._voice.transcribe(data.media_id).strip()
+            heard: Transcript = self._voice.transcribe(data.media_id)
+            text = heard.text.strip()
         except Exception:
             return None
         if text == "":
             return None
-        return data.model_copy(update={"transcript": text})
+        return data.model_copy(update={"transcript": text, "transcript_confidence": heard.confidence})
 
     def _refuse(self, context: TenantContext, data: InboundMessage, sentence: str) -> ReceiveResult:
         self._sender.send(data.wa_id, sentence)

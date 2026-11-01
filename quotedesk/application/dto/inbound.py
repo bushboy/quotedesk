@@ -26,6 +26,7 @@ class InboundMessage(BaseModel):
     size_bytes: int | None = None
     duration_seconds: Decimal | None = None
     transcript: str | None = None
+    transcript_confidence: Decimal | None = None
     image_text: str | None = None
 
 

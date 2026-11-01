@@ -31,6 +31,14 @@ from quotedesk.domain.shared.ids import QuoteId
 _log = logging.getLogger(__name__)
 
 
+def _confidence(value) -> Decimal | None:
+    if value is None:
+        return None
+    if isinstance(value, Decimal):
+        return value
+    return Decimal(str(value))
+
+
 def open_thread(database_url: str, memory):
     try:
         thread = StoredThread(database_url, memory)
@@ -173,7 +181,7 @@ class StoredConversations:
                 text(
                     """
                     SELECT conversation_id, provider_message_id, wa_id, at, kind, body, media_id, mime,
-                           size_bytes, duration_seconds, transcript, image_text
+                           size_bytes, duration_seconds, transcript, transcript_confidence, image_text
                     FROM inbound_message
                     WHERE tenant_id = :tenant_id
                     ORDER BY at
@@ -194,6 +202,7 @@ class StoredConversations:
                 size_bytes=row.size_bytes,
                 duration_seconds=Decimal(row.duration_seconds) if row.duration_seconds is not None else None,
                 transcript=row.transcript,
+                transcript_confidence=_confidence(row.transcript_confidence),
                 image_text=row.image_text,
             )
             for row in rows
@@ -207,11 +216,11 @@ class StoredConversations:
                     """
                     INSERT INTO inbound_message (
                         tenant_id, provider_message_id, conversation_id, wa_id, at, kind, body,
-                        media_id, mime, size_bytes, duration_seconds, transcript, image_text
+                        media_id, mime, size_bytes, duration_seconds, transcript, transcript_confidence, image_text
                     )
                     VALUES (
                         :tenant_id, :provider_message_id, :conversation_id, :wa_id, :at, :kind, :body,
-                        :media_id, :mime, :size_bytes, :duration_seconds, :transcript, :image_text
+                        :media_id, :mime, :size_bytes, :duration_seconds, :transcript, :transcript_confidence, :image_text
                     )
                     ON CONFLICT (tenant_id, provider_message_id) DO UPDATE SET
                         kind = EXCLUDED.kind,
@@ -221,6 +230,7 @@ class StoredConversations:
                         size_bytes = EXCLUDED.size_bytes,
                         duration_seconds = EXCLUDED.duration_seconds,
                         transcript = EXCLUDED.transcript,
+                        transcript_confidence = EXCLUDED.transcript_confidence,
                         image_text = EXCLUDED.image_text
                     """
                 ),
@@ -237,6 +247,7 @@ class StoredConversations:
                     "size_bytes": message.size_bytes,
                     "duration_seconds": message.duration_seconds,
                     "transcript": message.transcript,
+                    "transcript_confidence": message.transcript_confidence,
                     "image_text": message.image_text,
                 },
             )
@@ -250,7 +261,7 @@ class StoredConversations:
                 text(
                     """
                     SELECT provider_message_id, wa_id, at, kind, body, media_id, mime, size_bytes,
-                           duration_seconds, transcript, image_text
+                           duration_seconds, transcript, transcript_confidence, image_text
                     FROM inbound_message
                     WHERE tenant_id = :tenant_id AND conversation_id = :conversation_id
                     ORDER BY at
@@ -271,6 +282,7 @@ class StoredConversations:
                     size_bytes=row.size_bytes,
                     duration_seconds=Decimal(row.duration_seconds) if row.duration_seconds is not None else None,
                     transcript=row.transcript,
+                    transcript_confidence=_confidence(row.transcript_confidence),
                     image_text=row.image_text,
                 )
                 for row in rows
