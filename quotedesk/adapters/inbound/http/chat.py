@@ -77,7 +77,7 @@ def chat(request: Request, wa_id: str | None = None) -> HTMLResponse | Response:
     html = _environment().get_template("chat.html").render(
         business=business,
         wa_id=active,
-        customer="Thabo",
+        customer="",
         numbers=numbers,
         labels=_labels(request, numbers),
         remember=not explicit,
@@ -119,4 +119,36 @@ def reset(request: Request) -> Response:
     if getattr(request.app.state, "store_status", "postgres") == "down":
         return Response(status_code=503)
     request.app.state.reset()
+    return Response(status_code=204)
+
+
+@router.post("/sim/reset-number", response_model=None)
+def reset_number(request: Request, wa_id: str) -> Response:
+    """Clear every session stored for one number. Other numbers stay."""
+    if getattr(request.app.state, "store_status", "postgres") == "down":
+        return Response(status_code=503)
+    if _WA_ID.fullmatch(wa_id) is None:
+        return PlainTextResponse("That is not a phone number.", status_code=400)
+    store = getattr(request.app.state, "conversations", None)
+    forget = getattr(store, "forget", None)
+    if forget is None:
+        return Response(status_code=204)
+    tenant_id = request.app.state.tenant_id
+    ids = frozenset(forget(tenant_id, wa_id))
+    for name in ("cases", "handovers", "inspections", "notices"):
+        drop = getattr(getattr(request.app.state, name, None), "drop", None)
+        if drop is None:
+            continue
+        for conversation_id in ids:
+            drop(tenant_id, conversation_id)
+    book = getattr(getattr(request.app.state, "unit", None), "committed", None)
+    if isinstance(book, dict):
+        for key in list(book):
+            if key[0] == tenant_id and key[1] in ids:
+                del book[key]
+    outbox = getattr(request.app.state, "outbox", None)
+    if outbox is not None:
+        outbox.drop(wa_id)
+    if getattr(request.app.state, "conversation_id", None) in ids:
+        request.app.state.conversation_id = uuid4()
     return Response(status_code=204)

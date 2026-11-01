@@ -10,10 +10,18 @@ from decimal import Decimal
 from urllib.parse import quote
 from uuid import uuid4
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
-from quotedesk.adapters.inbound.http.console import owner_page, policy_sentences, policy_view, read_form
+from quotedesk.adapters.inbound.http.console import (
+    OwnerRoute,
+    owner_page,
+    policy_sentences,
+    policy_view,
+    read_form,
+    record_action,
+    require_owner,
+)
 from quotedesk.application.dto.tenant import TenantContext
 from quotedesk.application.dto.tool_inputs import PublishInput
 from quotedesk.application.errors import ApplicationError
@@ -21,7 +29,7 @@ from quotedesk.domain.policy.draft import DraftRateRow
 from quotedesk.domain.services.decide import parse_when
 from quotedesk.domain.shared.errors import DomainError
 
-router = APIRouter()
+router = APIRouter(route_class=OwnerRoute, dependencies=[Depends(require_owner)])
 
 _WHOLE = re.compile(r"-?\d{1,6}")
 _NOT_A_NUMBER = "Type the deposit as a whole number, like 30."
@@ -40,7 +48,7 @@ _BAD_APPLIES = "Say whether a row applies to both, a swap, or a new installation
 @router.get("/editor")
 def editor(published: str = "") -> RedirectResponse:
     query = f"?published={quote(published)}" if published else ""
-    return RedirectResponse(f"/console{query}#policy", status_code=303)
+    return RedirectResponse(f"/console/policy{query}", status_code=303)
 
 
 @router.post("/editor/draft", response_model=None)
@@ -70,7 +78,8 @@ async def publish(request: Request) -> HTMLResponse | RedirectResponse:
     except (DomainError, ApplicationError) as error:
         view = policy_view(request, deposit=deposit, reason=reason, errors=(), refusal=error.sentence)
         return owner_page(request, policy=view, status_code=422)
-    return RedirectResponse(f"/console?published={version.value}#policy", status_code=303)
+    record_action(request, "Published", reason.strip(), version=version.value)
+    return RedirectResponse(f"/console/policy?published={version.value}", status_code=303)
 
 
 def _store(request: Request, form: dict[str, str]) -> tuple[tuple[str, ...], list[dict] | None]:

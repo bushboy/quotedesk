@@ -44,6 +44,13 @@ def test_an_edit_posts_the_photo_and_a_generation_posts_none():
         assert "secret-key" not in str(body)
 
 
+def test_the_picture_model_is_the_one_passed_in():
+    transport = Transport()
+    drawer = MuseImage("secret-key", "https://api.meta.ai/v1", transport, "other-picture-model")
+    drawer.draw(PictureRequest("against a plain wall", None))
+    assert transport.calls[0][1]["model"] == "other-picture-model"
+
+
 def test_a_failed_call_does_not_log_the_prompt_or_the_key():
     transport = Transport(error=RuntimeError("down"))
     drawer = MuseImage("secret-key", "https://api.meta.ai/v1", transport)

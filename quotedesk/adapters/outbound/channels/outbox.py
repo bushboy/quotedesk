@@ -49,6 +49,9 @@ class Outbox:
     def pending(self) -> tuple[OutboxMessage, ...]:
         return tuple(self._rows)
 
+    def drop(self, wa_id: str) -> None:
+        self._rows = [row for row in self._rows if row.wa_id != wa_id]
+
 
 class OutboxSender:
     """The OutboxSender."""

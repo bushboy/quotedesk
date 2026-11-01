@@ -1,0 +1,60 @@
+{% extends "owner.html" %}
+{% from "_approvals.html" import pager %}
+{% block title %}Quotes{% endblock %}
+{% block main %}
+      <h1>Quotes</h1>
+      <p class="lede">Every quote that has gone out, newest first. Open a row for the message the customer received.</p>
+      <form class="toolbar" method="get" action="/console/quotes" role="search">
+        <div class="grow">
+          <label for="q">Search</label>
+          <input id="q" name="q" value="{{ q }}" placeholder="Quote, customer or item" autocomplete="off">
+        </div>
+        <div>
+          <label for="status">Status</label>
+          <select id="status" name="status">
+            <option value="">All</option>
+            {% for value, label in statuses %}<option value="{{ value }}"{% if value == status %} selected{% endif %}>{{ label }}</option>{% endfor %}
+          </select>
+        </div>
+        <button type="submit" class="secondary">Filter</button>
+      </form>
+      <div id="quotes">
+      {% if quotes %}
+      <div class="card table-card">
+        <table class="table">
+          <thead>
+            <tr><th scope="col">Quote</th><th scope="col">Customer</th><th scope="col">Items</th><th scope="col" class="right">Amount</th><th scope="col" class="right">Deposit</th><th scope="col">Status</th><th scope="col">Sent</th><th scope="col">Expires</th></tr>
+          </thead>
+          <tbody>
+            {% for row in quotes %}
+            <tr>
+              <td data-label="Quote"><strong>{{ row.quote_id }}</strong>{% if row.version > 1 %}<span class="sub-line">Version {{ row.version }}</span>{% endif %}
+                {% if row.sent or row.why %}
+                <details><summary>Details</summary>
+                  {% if row.sent %}<p>Sent: {{ row.sent }}</p>{% endif %}
+                  {% if row.why %}<p>Why: {{ row.why }}</p>{% endif %}
+                  <p><a href="/console/brief/{{ row.conversation_id }}">Open the case</a></p>
+                </details>
+                {% endif %}
+              </td>
+              <td data-label="Customer">{% if row.customer %}{{ row.customer }}{% if row.number and row.number != row.customer %}<span class="sub-line">{{ row.number }}</span>{% endif %}{% else %}<span class="sub-line">Unknown</span>{% endif %}<span hidden>{{ row.contact }}</span></td>
+              <td data-label="Items">{{ row.goods or "—" }}</td>
+              <td data-label="Amount" class="right amount">{{ row.amount }}</td>
+              <td data-label="Deposit" class="right amount">{{ row.deposit or "—" }}</td>
+              <td data-label="Status"><span class="tag {{ row.tone }}">{{ row.state|state }}</span></td>
+              <td data-label="Sent" class="num">{{ row.first|when }}</td>
+              <td data-label="Expires" class="num">{{ row.expiry|day }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {{ pager(paging, "/console/quotes?q=" ~ (q|urlencode) ~ "&status=" ~ (status|urlencode) ~ "&") }}
+      {% else %}
+      <div class="card empty">
+        {% if q or status %}<p class="empty-title">No quote matches that search.</p><p class="hint"><a href="/console/quotes">Clear the search</a></p>
+        {% else %}<p class="empty-title">No quote has gone out yet.</p><p class="hint">Quotes the assistant sends show up here.</p>{% endif %}
+      </div>
+      {% endif %}
+      </div>
+{% endblock %}

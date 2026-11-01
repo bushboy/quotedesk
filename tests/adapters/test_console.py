@@ -74,11 +74,11 @@ def _plain(page: str) -> str:
 
 
 def _queue(page: str) -> str:
-    return page.split('id="queue"', 1)[1]
+    return page.split('id="queue"', 1)[1].split('id="activity"', 1)[0]
 
 
 def _activity(page: str) -> str:
-    return page.split('id="activity"', 1)[1].split('id="approvals"', 1)[0]
+    return page.split('id="activity"', 1)[1]
 
 
 def test_console_lists_the_pending_ask(monkeypatch):
@@ -233,7 +233,7 @@ def test_the_console_shows_why_a_quote_was_issued(monkeypatch):
         policy_version="water-policy-v1.0",
         facts_used=("size_litres=5000",),
     )
-    page = _text(client.get("/console"))
+    page = _text(client.get("/console/quotes"))
     assert "WATER-F01: Like-for-like replacement on a level base with a stated size." in page
 
 
@@ -280,12 +280,12 @@ def test_a_range_quote_shows_the_range_not_zero(monkeypatch):
     quote = quote.transition(1, QuoteState.WAITING_FOR_DEPOSIT, at=ISSUED_AT)
     client.app.state.unit.committed[(TENANT_A, FIRST)] = quote
 
-    quotes = _plain(_activity(_text(client.get("/console")))).split("Quotes sent", 1)[1]
+    quotes = _plain(_text(client.get("/console/quotes")))
 
     assert "QD-2000" in quotes
     assert "Waiting for deposit" in quotes
     assert "R 12 600.00 to R 18 200.00" in quotes
-    assert "Deposit R 3 780.00" in quotes
+    assert "R 3 780.00" in quotes
     assert "R 0.00" not in quotes
     same = quote.current.model_copy(update={"range_max": Money("12600.00")})
     assert quote_amount(same) == "R 12 600.00"
@@ -332,13 +332,14 @@ def test_a_quote_shows_the_contact_it_was_sent_to(monkeypatch):
         ),
     )
 
-    activity = _plain(_activity(_text(client.get("/console"))))
-    contacts = activity.split("Quotes sent", 1)[0]
-    quotes = activity.split("Quotes sent", 1)[1]
+    contacts = _plain(_text(client.get("/console/customers")))
+    quotes = _plain(_text(client.get("/console/quotes")))
     assert "Lerato" in contacts
     assert "+27821234567" in contacts
+    assert "QD-1042" in contacts
     assert "QD-1042" in quotes
-    assert "Lerato · +27821234567" in quotes
+    assert "Lerato" in quotes
+    assert "+27821234567" in quotes
 
 
 def test_a_sent_quote_shows_the_message_the_customer_received(monkeypatch):
@@ -368,12 +369,12 @@ def test_a_sent_quote_shows_the_message_the_customer_received(monkeypatch):
         "I'll accept that quote and get your deposit link ready. https://sandbox.payfast.example/deposit/QD-2000",
     )
 
-    page = _text(client.get("/console"))
-    quotes = _plain(_activity(page)).split("Quotes sent", 1)[1]
+    page = _text(client.get("/console/quotes"))
+    quotes = _plain(page)
 
-    assert "The indicative range is R 12600.00. /card/QD-2000?code=6233" in quotes
-    assert 'class="money">Quote <span class="amount">R 12 600.00</span>' in page
-    assert 'class="money">Deposit <span class="amount">R 3 780.00</span>' in page
+    assert "Sent: The indicative range is R 12600.00. /card/QD-2000?code=6233" in quotes
+    assert 'data-label="Amount" class="right amount">R 12 600.00</td>' in page
+    assert 'data-label="Deposit" class="right amount">R 3 780.00</td>' in page
     assert "deposit link" not in quotes
 
 
@@ -383,11 +384,17 @@ def test_activity_is_empty_before_anyone_writes(monkeypatch):
     assert "No quote has gone out yet." in activity
 
 
-def test_the_console_is_one_page_with_no_tabs(monkeypatch):
-    page = _text(_client(monkeypatch).get("/console"))
-    assert "<nav" not in page
-    assert 'id="policy"' in page
-    assert 'action="/editor/publish"' in page
+def test_the_console_has_a_tab_per_area(monkeypatch):
+    client = _client(monkeypatch)
+    page = _text(client.get("/console"))
+    for href in ("/console/inbox", "/console/quotes", "/console/customers", "/console/policy", "/console/settings"):
+        assert f'href="{href}"' in page
+    assert 'aria-current="page">Today' in page
+    assert 'id="policy"' not in page
+    policy = _text(client.get("/console/policy"))
+    assert 'id="policy"' in policy
+    assert 'action="/editor/publish"' in policy
+    assert 'aria-current="page">Rates &amp; policy' in client.get("/console/policy").text
 
 
 def test_the_owner_can_release_a_held_conversation(monkeypatch):
@@ -397,7 +404,7 @@ def test_the_owner_can_release_a_held_conversation(monkeypatch):
         TENANT_A,
         HandoverNote(conversation_id=FIRST, reason="The turn produced no reply.", brief="replacement", at=ISSUED_AT),
     )
-    page = _text(client.get("/console"))
+    page = _text(client.get("/console/inbox"))
     assert 'action="/console/release"' in page
     assert str(FIRST) in page
     assert 'id="cases"' in page
@@ -445,9 +452,10 @@ def _issued(app) -> None:
 
 
 def test_the_draft_shows_unit_role_and_applies_to(monkeypatch):
-    page = _text(_client(monkeypatch).get("/console"))
+    page = _text(_client(monkeypatch).get("/console/policy"))
     live = _live(page)
-    assert "each · Product · Both" in live
+    assert '<h4 class="sub">Product</h4>' in live
+    assert "each" in live
     assert 'type="hidden" name="unit-' not in page
     assert 'type="hidden" name="role-' not in page
     assert 'name="unit-0"' in page

@@ -170,7 +170,7 @@ def test_an_unknown_published_version_is_not_announced(monkeypatch):
 def test_the_editor_link_opens_the_policy_on_the_console(monkeypatch):
     response = _client(monkeypatch).get("/editor", follow_redirects=False)
     assert response.status_code == 303
-    assert response.headers["location"] == "/console#policy"
+    assert response.headers["location"] == "/console/policy"
 
 
 def _rates(**changes: str) -> dict[str, str]:
@@ -180,7 +180,7 @@ def _rates(**changes: str) -> dict[str, str]:
 
 
 def test_the_draft_lists_the_rate_card_with_an_empty_row_to_add(monkeypatch):
-    page = _text(_client(monkeypatch).get("/console"))
+    page = _text(_client(monkeypatch).get("/console/policy"))
 
     assert 'name="code-0" value="TANK-1000"' in page
     assert 'value="5000 L tank"' in page
@@ -241,5 +241,5 @@ def test_rate_card_mistakes_are_sentences(monkeypatch):
 
 
 def test_without_a_database_the_page_says_prices_last_until_restart(monkeypatch):
-    page = _text(_client(monkeypatch).get("/console"))
+    page = _text(_client(monkeypatch).get("/console/policy"))
     assert "The database isn't reachable, so price changes last until the app restarts." in page

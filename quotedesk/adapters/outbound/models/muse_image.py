@@ -15,15 +15,16 @@ _MODEL = "muse-image-1.0"
 class MuseImage:
     """Draws one carport picture. Tests pass a transport and do not call Meta."""
 
-    def __init__(self, api_key: str, base_url: str, transport=None) -> None:
+    def __init__(self, api_key: str, base_url: str, transport=None, model_id: str = _MODEL) -> None:
         self._transport = transport if transport is not None else MetaTransport(api_key)
         self._base = base_url.rstrip("/")
+        self._model_id = model_id
 
     def draw(self, request) -> bytes:
         photo = request.photo
         url = self._base + ("/images/edits" if photo is not None else "/images/generations")
         body = {
-            "model": _MODEL,
+            "model": self._model_id,
             "prompt": request.prompt,
             "n": 1,
             "reasoning_strength": "high",

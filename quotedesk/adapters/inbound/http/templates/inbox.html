@@ -1,0 +1,65 @@
+{% extends "owner.html" %}
+{% from "_approvals.html" import approvals, queue_style %}
+{% block title %}Inbox{% endblock %}
+{% block body_attrs %} data-refresh="on"{% endblock %}
+{% block style %}
+{{ queue_style() }}
+      .inbox { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
+      .item { display: grid; grid-template-columns: 11rem minmax(0, 1fr) auto; align-items: center; gap: 8px 20px; padding: 16px 20px; }
+      .item .kind { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+      .item .waited { color: var(--muted); font-size: 0.8125rem; font-variant-numeric: tabular-nums; }
+      .item .who { margin: 0; font-weight: 650; }
+      .item .wants { margin: 2px 0 0; overflow-wrap: anywhere; }
+      .item .detail { margin: 2px 0 0; color: var(--muted); font-size: 0.875rem; overflow-wrap: anywhere; }
+      .item .side { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px 12px; }
+      .item .side form { margin: 0; }
+      .item .amount { font-weight: 600; }
+      @media (max-width: 720px) { .item { grid-template-columns: 1fr; } .item .side { justify-content: flex-start; } }
+{% endblock %}
+{% block main %}
+      <h1>Inbox</h1>
+      <p class="lede">Customers waiting for a call, inspections to confirm, and discounts to approve. Oldest waits first.</p>
+
+      <section id="cases" aria-labelledby="cases-title">
+        <div class="section-head">
+          <h2 id="cases-title">Needs you</h2>
+          <span class="count">{{ items|selectattr("waiting")|list|length }} waiting</span>
+        </div>
+        <div id="inbox-list" data-live>
+        {% if items %}
+        <ul class="inbox" id="handovers">
+          {% for item in items %}
+          <li class="card item">
+            <div class="kind">
+              <span class="tag {{ item.tone }}">{{ item.kind }}</span>
+              {% if item.waited %}<span class="waited">{% if item.waiting %}Waiting {{ item.waited }}{% else %}{{ item.at|when }}{% endif %}</span>{% endif %}
+            </div>
+            <div>
+              <p class="who">{{ item.customer }}</p>
+              {% if item.wants %}<p class="wants">{{ item.wants }}</p>{% endif %}
+              {% if item.detail %}<p class="detail">{{ item.detail }}</p>{% endif %}
+            </div>
+            <div class="side">
+              {% if item.amount %}<span class="amount">{{ item.amount }}</span>{% endif %}
+              {% if item.conversation_id %}<a class="button secondary small" href="/console/brief/{{ item.conversation_id }}">Open case</a>{% endif %}
+              {% if item.held %}
+              <form method="post" action="/console/release" data-lock>
+                <input type="hidden" name="conversation_id" value="{{ item.conversation_id }}">
+                <button type="submit" class="secondary small" data-busy="Releasing…">Release to assistant</button>
+              </form>
+              {% endif %}
+            </div>
+          </li>
+          {% endfor %}
+        </ul>
+        {% else %}
+        <div class="card empty">
+          <p class="empty-title">No one is waiting for a person.</p>
+          <p class="hint">Escalations, inspections and discount asks land here.</p>
+        </div>
+        {% endif %}
+        </div>
+      </section>
+
+      {{ approvals(rows, result, action, error, result_total) }}
+{% endblock %}

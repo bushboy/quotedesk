@@ -1,0 +1,43 @@
+{% extends "owner.html" %}
+{% from "_approvals.html" import pager %}
+{% block title %}Customers{% endblock %}
+{% block main %}
+      <h1>Customers</h1>
+      <p class="lede">Everyone who has written in, with their latest message and quote.</p>
+      <form class="toolbar" method="get" action="/console/customers" role="search">
+        <div class="grow">
+          <label for="q">Search</label>
+          <input id="q" name="q" value="{{ q }}" placeholder="Name, number or message" autocomplete="off">
+        </div>
+        <button type="submit" class="secondary">Search</button>
+      </form>
+      <div id="customers">
+      {% if customers %}
+      <div class="card table-card">
+        <table class="table">
+          <thead>
+            <tr><th scope="col">Customer</th><th scope="col">Last message</th><th scope="col" class="right">Messages</th><th scope="col">Latest quote</th><th scope="col">Status</th><th scope="col">Last seen</th></tr>
+          </thead>
+          <tbody>
+            {% for row in customers %}
+            <tr>
+              <td data-label="Customer">{% if row.conversation_id %}<a href="/console/brief/{{ row.conversation_id }}"><strong>{{ row.name or row.number }}</strong></a>{% else %}<strong>{{ row.name or row.number }}</strong>{% endif %}{% if row.name %}<span class="sub-line">{{ row.number }}</span>{% endif %}</td>
+              <td data-label="Last message">{{ row.last }}</td>
+              <td data-label="Messages" class="right num">{{ row.count }}</td>
+              <td data-label="Latest quote">{% if row.quote %}{{ row.quote.quote_id }}<span class="sub-line amount">{{ row.quote.amount }}</span>{% else %}—{% endif %}</td>
+              <td data-label="Status"><span class="tag {{ row.tone }}">{{ row.status }}</span></td>
+              <td data-label="Last seen" class="num">{{ row.at|when }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {{ pager(paging, "/console/customers?q=" ~ (q|urlencode) ~ "&") }}
+      {% else %}
+      <div class="card empty">
+        {% if q %}<p class="empty-title">No customer matches that search.</p><p class="hint"><a href="/console/customers">Clear the search</a></p>
+        {% else %}<p class="empty-title">No customer has been in touch yet.</p><p class="hint">Customers show up here when they message the business on WhatsApp.</p>{% endif %}
+      </div>
+      {% endif %}
+      </div>
+{% endblock %}

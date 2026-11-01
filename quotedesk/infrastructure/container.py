@@ -102,7 +102,7 @@ def _pictures(settings: Settings):
         return None
     from quotedesk.adapters.outbound.models.muse_image import MuseImage
 
-    return MuseImage(settings.meta_api_key, settings.meta_base_url)
+    return MuseImage(settings.meta_api_key, settings.meta_base_url, model_id=settings.picture_model_id)
 
 
 def _sender(settings: Settings):

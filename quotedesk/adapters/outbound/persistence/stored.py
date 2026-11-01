@@ -10,7 +10,7 @@ from datetime import datetime
 from decimal import Decimal
 from uuid import UUID, uuid4
 
-from sqlalchemy import create_engine, text
+from sqlalchemy import bindparam, create_engine, text
 from sqlalchemy.exc import SQLAlchemyError
 
 from quotedesk.adapters.outbound.persistence.quotes import QuoteTables
@@ -346,6 +346,58 @@ class StoredConversations:
                 ),
                 {"tenant_id": tenant_id, "wa_id": wa_id, "display_name": display_name},
             )
+
+    def forget(self, tenant_id: UUID, wa_id: str) -> tuple[UUID, ...]:
+        """Remove every conversation this number has had, and the rows that hang off them."""
+        with self._engine.begin() as connection:
+            bind_tenant(connection, tenant_id)
+            rows = connection.execute(
+                text(
+                    """
+                    SELECT conversation_id FROM sender_bind
+                    WHERE tenant_id = :tenant_id AND wa_id = :wa_id
+                    UNION
+                    SELECT conversation_id FROM inbound_message
+                    WHERE tenant_id = :tenant_id AND wa_id = :wa_id
+                    """
+                ),
+                {"tenant_id": tenant_id, "wa_id": wa_id},
+            ).all()
+            ids = [row.conversation_id for row in rows]
+            if ids:
+                params = {"tenant_id": tenant_id, "ids": ids}
+
+                def run(sql: str) -> None:
+                    connection.execute(text(sql).bindparams(bindparam("ids", expanding=True)), params)
+
+                run(
+                    """
+                    DELETE FROM enrichment
+                    WHERE tenant_id = :tenant_id
+                      AND provider_message_id IN (
+                        SELECT provider_message_id FROM inbound_message
+                        WHERE tenant_id = :tenant_id AND conversation_id IN :ids
+                      )
+                    """
+                )
+                for table in ("schedule_commitment", "verification_code", "acceptance", "deposit_link"):
+                    run(
+                        f"""
+                        DELETE FROM {table}
+                        WHERE quote_id IN (
+                          SELECT quote_id FROM quote
+                          WHERE tenant_id = :tenant_id AND conversation_id IN :ids
+                        )
+                        """
+                    )
+                run("DELETE FROM quote WHERE tenant_id = :tenant_id AND conversation_id IN :ids")
+                for table in ("handover", "inspection", "owner_notice", "case_file", "conversation"):
+                    run(f"DELETE FROM {table} WHERE tenant_id = :tenant_id AND conversation_id IN :ids")
+            connection.execute(
+                text("DELETE FROM sender_bind WHERE tenant_id = :tenant_id AND wa_id = :wa_id"),
+                {"tenant_id": tenant_id, "wa_id": wa_id},
+            )
+        return tuple(ids)
 
     def bind(self, tenant_id: UUID, wa_id: str, conversation_id: UUID) -> None:
         with self._engine.begin() as connection:

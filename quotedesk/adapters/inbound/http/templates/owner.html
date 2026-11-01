@@ -75,7 +75,7 @@
       }
       .skip:focus { left: 8px; }
       .bar { background: var(--surface); border-bottom: 1px solid var(--line); }
-      .bar-inner, main { width: 100%; max-width: 54rem; margin: 0 auto; padding-left: 16px; padding-right: 16px; }
+      .bar-inner, main, .tabs-inner { width: 100%; max-width: 72rem; margin: 0 auto; padding-left: 16px; padding-right: 16px; }
       .bar-inner {
         display: flex;
         flex-wrap: wrap;
@@ -150,6 +150,67 @@
       button:disabled { cursor: not-allowed; opacity: 0.45; }
       button[aria-busy="true"] { cursor: progress; opacity: 0.7; }
       :focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+
+      .user { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 0.875rem; }
+      .user form { margin: 0; }
+      .user button { min-height: 34px; padding: 6px 12px; font-size: 0.875rem; }
+      .pill-off { padding: 2px 10px; border: 1px dashed var(--line-strong); border-radius: 999px; color: var(--muted); font-size: 0.8125rem; white-space: nowrap; }
+      .tabs { background: var(--surface); border-bottom: 1px solid var(--line); }
+      .tabs-inner { display: flex; gap: 4px; overflow-x: auto; padding-left: 16px; padding-right: 16px; margin: 0 auto; scrollbar-width: none; }
+      .tabs-inner::-webkit-scrollbar { display: none; }
+      .tabs a {
+        display: inline-flex; align-items: center; gap: 8px;
+        padding: 12px 14px 11px; border-bottom: 2px solid transparent;
+        color: var(--muted); font-weight: 600; font-size: 0.9375rem; text-decoration: none; white-space: nowrap;
+      }
+      .tabs a:hover { color: var(--ink); }
+      .tabs a[aria-current="page"] { color: var(--ink); border-bottom-color: var(--accent); }
+      .badge-count { min-width: 20px; padding: 0 6px; border-radius: 999px; background: var(--warn-ink); color: #fff; font-size: 0.75rem; line-height: 20px; text-align: center; }
+      a { color: var(--accent); }
+      .page-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px 24px; }
+      .section-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin: 32px 0 12px; }
+      .count { color: var(--muted); font-size: 0.875rem; font-variant-numeric: tabular-nums; }
+      .tag {
+        display: inline-block; padding: 1px 10px; border: 1px solid var(--line); border-radius: 999px;
+        background: var(--sunk); color: var(--muted); font-size: 0.8125rem; font-weight: 600; white-space: nowrap;
+      }
+      .tag.ok { background: var(--ok-soft); border-color: var(--ok-line); color: var(--ok-ink); }
+      .tag.warn { background: var(--warn-soft); border-color: var(--warn-line); color: var(--warn-ink); }
+      .tag.info { background: #eaf1fb; border-color: #c4d6f2; color: #1d3f72; }
+      @media (prefers-color-scheme: dark) { .tag.info { background: #17233a; border-color: #2c4266; color: #b9cdf0; } }
+      .empty { padding: 40px 20px; text-align: center; }
+      .empty-title { margin: 0; font-size: 1.0625rem; font-weight: 600; }
+      .toolbar { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px; margin: 20px 0 12px; }
+      .toolbar label { margin: 0 0 4px; font-size: 0.8125rem; color: var(--muted); }
+      .toolbar .grow { flex: 1 1 16rem; }
+      .toolbar input, .toolbar select { min-height: 40px; }
+      select {
+        min-height: 44px; padding: 8px 10px; border: 1px solid var(--line-strong); border-radius: 8px;
+        background: var(--surface); color: var(--ink); font: inherit;
+      }
+      .table { width: 100%; border-collapse: collapse; background: var(--surface); }
+      .table-card { padding: 0; overflow: hidden; }
+      .table th { padding: 10px 14px; border-bottom: 1px solid var(--line); background: var(--sunk); color: var(--muted); font-size: 0.8125rem; font-weight: 600; text-align: left; white-space: nowrap; }
+      .table td { padding: 12px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
+      .table tr:last-child td { border-bottom: 0; }
+      .table .right { text-align: right; }
+      .table .sub-line { display: block; color: var(--muted); font-size: 0.8125rem; }
+      .table details summary { cursor: pointer; color: var(--accent); font-size: 0.875rem; }
+      .table details p { margin: 6px 0 0; color: var(--muted); font-size: 0.875rem; overflow-wrap: anywhere; }
+      .pager { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 12px; color: var(--muted); font-size: 0.875rem; }
+      .pager a { font-weight: 600; }
+      button.small, a.button.small { min-height: 34px; padding: 6px 12px; font-size: 0.875rem; }
+      a.button { display: inline-flex; align-items: center; justify-content: center; border-radius: 8px; font-weight: 600; text-decoration: none; }
+      a.button.secondary { border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink); }
+      @media (max-width: 720px) {
+        .table thead { display: none; }
+        .table, .table tbody, .table tr, .table td { display: block; width: 100%; }
+        .table tr { padding: 10px 0; border-bottom: 1px solid var(--line); }
+        .table td { padding: 4px 14px; border: 0; }
+        .table td[data-label]::before { content: attr(data-label); display: block; color: var(--muted); font-size: 0.75rem; font-weight: 600; }
+        .table .right { text-align: left; }
+        .user .who-name { display: none; }
+      }
       @media (max-width: 480px) {
         h1 { font-size: 1.5rem; }
         .tenant { display: none; }
@@ -161,13 +222,32 @@
       {% block style %}{% endblock %}
     </style>
   </head>
-  <body>
+  <body{% block body_attrs %}{% endblock %}>
     <a class="skip" href="#main">Skip to content</a>
     <header class="bar">
       <div class="bar-inner">
         <p class="brand"><span class="brand-mark" aria-hidden="true">Q</span><span>QuoteDesk</span>{% if business %}<span class="tenant">{{ business }}</span>{% endif %}</p>
+        {% if tabs is defined and tab %}
+        <div class="user">
+          {% if signin %}
+          <span class="who-name">{{ actor }}</span>
+          <form method="post" action="/console/logout"><button type="submit" class="secondary">Sign out</button></form>
+          {% else %}
+          <span class="pill-off" title="Set OWNER_PASSWORD to require sign-in">Sign-in off</span>
+          {% endif %}
+        </div>
+        {% endif %}
       </div>
     </header>
+    {% if tabs is defined and tab %}
+    <nav class="tabs" aria-label="Console">
+      <div class="tabs-inner">
+        {% for key, label, href in tabs %}
+        <a href="{{ href }}"{% if key == tab %} aria-current="page"{% endif %}>{{ label }}{% if key == "inbox" and waiting %}<span class="badge-count" id="nav-waiting" aria-label="{{ waiting }} waiting">{{ waiting }}</span>{% endif %}</a>
+        {% endfor %}
+      </div>
+    </nav>
+    {% endif %}
     <main id="main" tabindex="-1">
       {% block main %}{% endblock %}
     </main>
@@ -175,6 +255,47 @@
       window.addEventListener("pageshow", function (event) {
         if (event.persisted) { window.location.reload(); }
       });
+      (function () {
+        var busy = false;
+        document.addEventListener("submit", function (event) {
+          var form = event.target;
+          if (form.matches("[data-confirm]") && !window.confirm(form.dataset.confirm)) { event.preventDefault(); return; }
+          if (!form.matches("[data-lock]")) { return; }
+          if (busy) { event.preventDefault(); return; }
+          busy = true;
+          var chosen = event.submitter;
+          window.setTimeout(function () {
+            form.querySelectorAll("button").forEach(function (button) {
+              button.disabled = true;
+              if (button === chosen && button.dataset.busy) {
+                button.setAttribute("aria-busy", "true");
+                button.textContent = button.dataset.busy;
+              }
+            });
+          }, 0);
+        });
+        if (document.body.dataset.refresh !== "on") { return; }
+        function refresh() {
+          if (busy || document.hidden) { return; }
+          var active = document.activeElement;
+          fetch(window.location.pathname + window.location.search, { cache: "no-store", headers: { Accept: "text/html" } })
+            .then(function (response) { return response.ok ? response.text() : null; })
+            .then(function (text) {
+              if (!text || busy) { return; }
+              var next = new DOMParser().parseFromString(text, "text/html");
+              document.querySelectorAll("[data-live]").forEach(function (here) {
+                if (here.contains(active) && active !== document.body) { return; }
+                var there = next.getElementById(here.id);
+                if (there && here.innerHTML !== there.innerHTML) { here.innerHTML = there.innerHTML; }
+              });
+              var badge = next.getElementById("nav-waiting");
+              var mine = document.getElementById("nav-waiting");
+              if (mine && badge) { mine.textContent = badge.textContent; }
+            })
+            .catch(function () {});
+        }
+        window.setInterval(refresh, 5000);
+      })();
       {% block script %}{% endblock %}
     </script>
   </body>

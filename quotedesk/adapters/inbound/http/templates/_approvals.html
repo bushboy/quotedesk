@@ -1,0 +1,82 @@
+{% macro approvals(rows, result=None, action="", error=None, result_total=None) %}
+      <section id="approvals" aria-labelledby="approvals-title">
+        <div class="section-head">
+          <h2 id="approvals-title">Approvals</h2>
+          <span class="count" id="queue-count">{{ rows|length }} {% if rows|length == 1 %}request{% else %}requests{% endif %}</span>
+        </div>
+        <p class="hint">Discount asks above the cap wait here until you approve or reject them.</p>
+        <div id="outcome" aria-live="polite">
+          {% if result %}
+          <div class="notice ok" role="status">
+            <p class="title">{{ result.quote_id.value }} {% if action == "approved" %}approved{% else %}rejected{% endif %}</p>
+            <p class="detail">Version <span class="num">{{ result.version }}</span> · {{ result.state|state }} · <span class="amount">{{ result_total|rand }}</span>{% if action == "approved" %} · {{ result.discount_percent|percent }}% off{% endif %}</p>
+          </div>
+          {% endif %}
+          {% if error %}
+          <div class="notice warn" role="alert">
+            <p class="title">That did not go through</p>
+            <p class="detail">{{ error }}</p>
+          </div>
+          {% endif %}
+        </div>
+        <div id="queue" data-live style="margin-top:16px">
+          {% if rows %}
+          <ul class="queue">
+            {% for row in rows %}
+            {% set complete = row.version and row.requested_discount_percent is not none and row.total %}
+            <li class="card row">
+              <div class="row-head">
+                <h3 class="quote-id">{{ row.quote_id.value }}</h3>
+                <span class="tag">Version {{ row.version }}</span>
+              </div>
+              <dl class="facts">
+                <div><dt>Requested</dt><dd class="num">{{ row.requested_discount_percent|percent }}%</dd></div>
+                <div><dt>Cap</dt><dd class="num">{{ row.discount_cap_percent|percent }}%</dd></div>
+                <div><dt>Current total</dt><dd class="amount">{{ row.total|rand }}</dd></div>
+              </dl>
+              <form class="actions" method="post" action="/console/approve" data-lock>
+                <input type="hidden" name="quote_id" value="{{ row.quote_id.value }}">
+                <input type="hidden" name="version" value="{{ row.version }}">
+                <button type="submit" class="primary" data-busy="Approving…" aria-label="Approve {{ row.quote_id.value }}, version {{ row.version }}"{% if not complete %} disabled{% endif %}>Approve</button>
+                <button type="submit" class="secondary" formaction="/console/reject" data-busy="Rejecting…" aria-label="Reject {{ row.quote_id.value }}, version {{ row.version }}"{% if not complete %} disabled{% endif %}>Reject</button>
+              </form>
+            </li>
+            {% endfor %}
+          </ul>
+          {% else %}
+          <div class="card empty">
+            <p class="empty-title">There is nothing waiting.</p>
+            <p class="hint">New requests from customers show up here on their own.</p>
+          </div>
+          {% endif %}
+        </div>
+      </section>
+{% endmacro %}
+
+{% macro queue_style() %}
+      .queue { display: grid; gap: 12px; margin: 0; padding: 0; list-style: none; }
+      .row { display: grid; grid-template-columns: minmax(8rem, 1fr) minmax(0, 2fr) auto; align-items: center; gap: 16px 24px; }
+      .row-head { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+      .quote-id { margin: 0; font-size: 1.125rem; font-weight: 650; letter-spacing: 0.01em; }
+      .queue .facts { display: grid; grid-template-columns: repeat(3, max-content); gap: 8px 28px; }
+      .queue .facts dd { font-size: 1.0625rem; }
+      .queue .actions { display: flex; gap: 8px; }
+      @media (max-width: 720px) {
+        .row { grid-template-columns: 1fr; }
+        .row-head { flex-direction: row; align-items: center; justify-content: space-between; }
+        .queue .facts { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px 12px; }
+        .queue .actions button { flex: 1; }
+      }
+{% endmacro %}
+
+{% macro pager(paging, base) %}
+        {% if paging.pages > 1 %}
+        <nav class="pager" aria-label="Pages">
+          <span>Page {{ paging.page }} of {{ paging.pages }} · {{ paging.count }} in all</span>
+          <span>
+            {% if paging.page > 1 %}<a href="{{ base }}page={{ paging.page - 1 }}">Previous</a>{% endif %}
+            {% if paging.page < paging.pages %}<a href="{{ base }}page={{ paging.page + 1 }}" style="margin-left:12px">Next</a>{% endif %}
+          </span>
+        </nav>
+        {% endif %}
+{% endmacro %}

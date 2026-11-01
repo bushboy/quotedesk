@@ -112,7 +112,7 @@ _NOT_A_NAME = frozenset(
     }
 )
 _INTRODUCED = re.compile(
-    r"(?i)\b(?:my name is|name is|call me)\s+"
+    r"(?i)\b(?:my name is|name is|call me|my name)\s+"
     r"([A-Za-z][A-Za-z'’\-]*(?:\s+[A-Za-z][A-Za-z'’\-]*){0,3})"
 )
 
@@ -430,6 +430,17 @@ class RunAgentTurn:
                 facts = TurnFacts(price_kind=price_kind, card_link=card_link)
             return self._say_step(context, conversation, conversation_id, wa_id, batch, facts, payloads)
         facts, answered = self._run_tools(context, reply, prompt, batch, conversation_id)
+        if _hold_price(self._step, answered.tool_payloads):
+            return self._say_step(
+                context,
+                conversation,
+                conversation_id,
+                wa_id,
+                batch,
+                facts,
+                answered.tool_payloads,
+                hold=True,
+            )
         text = reply.text
         needs_follow_up = bool(reply.tool_calls) and (not text.strip() or _payload_failed(answered))
         if needs_follow_up:
@@ -472,7 +483,15 @@ class RunAgentTurn:
         if deposit_url and deposit_url not in text:
             text = f"{text.rstrip()} {deposit_url}".strip()
         spoken = text.strip()
-        text = _with_card(text, facts.card_link)
+        priced = _with_card(text, facts.card_link)
+        if (
+            self._step.kind is StepKind.CONFIRM
+            and not _stated_price(text, answered)
+            and (not reply.tool_calls or check_reply(priced, facts).ok)
+        ):
+            text = self._step.sentence
+        else:
+            text = priced
         planned = _planned_sentence(self._step, answered)
         if planned:
             text = planned
@@ -597,15 +616,19 @@ class RunAgentTurn:
             action = reserve(context.tenant_id, batch_id, conversation_id, self._clock.now(), named)
         self._settle(context, fresh, batch, status, outcome)
         if action == "send":
-            self._send_named(wa_id, named)
-            if reserve is None:
-                record = getattr(self._conversations, "record_reply", None)
-                if record is not None:
-                    record(context.tenant_id, conversation_id, self._clock.now(), named)
+            replace = self._picture_replaces(context, conversation_id)
+            if not replace:
+                self._send_named(wa_id, named)
+                if reserve is None:
+                    record = getattr(self._conversations, "record_reply", None)
+                    if record is not None:
+                        record(context.tenant_id, conversation_id, self._clock.now(), named)
             finish = getattr(self._conversations, "finish_outbound", None)
-            if finish is not None and reserve is not None:
+            if finish is not None and reserve is not None and not replace:
                 finish(context.tenant_id, batch_id)
-            self._follow_with_picture(context, conversation_id, wa_id, named)
+            self._follow_with_picture(context, conversation_id, wa_id, named, replace)
+            if replace and finish is not None and reserve is not None:
+                finish(context.tenant_id, batch_id)
         if status == "escalated":
             hold = getattr(self._conversations, "hold_escalation", None)
             if hold is not None:
@@ -629,7 +652,24 @@ class RunAgentTurn:
             saver(context.tenant_id, conversation_id, None)
         self._change_key = None
 
-    def _follow_with_picture(self, context: TenantContext, conversation_id: UUID, wa_id: str, body: str) -> None:
+    def _picture_replaces(self, context: TenantContext, conversation_id: UUID) -> bool:
+        pictures = self._pictures
+        ask = None if pictures is None else getattr(pictures, "replaces_reply", None)
+        if ask is None:
+            return False
+        try:
+            return bool(ask(context, conversation_id))
+        except Exception:
+            return False
+
+    def _follow_with_picture(
+        self,
+        context: TenantContext,
+        conversation_id: UUID,
+        wa_id: str,
+        body: str,
+        replace: bool,
+    ) -> None:
         pictures = self._pictures
         if pictures is None:
             return
@@ -644,9 +684,17 @@ class RunAgentTurn:
                 "I couldn't draw that carport. The quote above still stands.",
             )
             return
-        if drawn is None:
+        if not drawn:
+            if replace:
+                self._send_picture(
+                    context,
+                    conversation_id,
+                    wa_id,
+                    "I couldn't draw that carport. The quote above still stands.",
+                )
             return
-        self._send_picture(context, conversation_id, wa_id, drawn.caption, drawn.image_url)
+        for item in drawn:
+            self._send_picture(context, conversation_id, wa_id, item.caption, item.image_url)
 
     def _send_picture(
         self,
@@ -831,15 +879,15 @@ class RunAgentTurn:
             return None
         return self._cases.get(context.tenant_id, conversation_id)
 
-    def _say_step(self, context, conversation, conversation_id, wa_id, batch, facts, payloads):
-        sentence = _grounded(payloads, facts) or self._step.sentence
+    def _say_step(self, context, conversation, conversation_id, wa_id, batch, facts, payloads, hold: bool = False):
+        sentence = self._step.sentence if hold else (_grounded(payloads, facts) or self._step.sentence)
         owner = _owner_took(payloads)
         if self._step.kind is StepKind.ESCALATE and not owner:
             self._handover.execute(context, conversation_id, reason=self._step.reason or "The next step is to escalate.")
         if self._step.kind is StepKind.ESCALATE or owner:
             body = sentence or _HANDOVER
             return self._commit(context, conversation, conversation_id, wa_id, batch, body, "escalated", TurnOutcome.ESCALATED)
-        body = _with_card(sentence, facts.card_link)
+        body = sentence if hold else _with_card(sentence, facts.card_link)
         return self._commit(
             context,
             conversation,
@@ -1561,6 +1609,27 @@ def _exchanges(reply: ModelReply, payloads: list[ToolPayload]) -> tuple[dict, ..
             }
         )
     return tuple(rows)
+
+
+def _stated_price(text: str, prompt) -> bool:
+    """A confirmation stays a confirmation unless this sentence is already a price or a booking."""
+    if "the total is" in text.casefold():
+        return True
+    for sentence in (
+        _availability_sentence(prompt),
+        _named_sentence(prompt, "hold_slot"),
+        _named_sentence(prompt, "create_deposit_link"),
+    ):
+        if sentence and sentence in text:
+            return True
+    return False
+
+
+def _hold_price(step: NextStep, payloads) -> bool:
+    """A fixed price is not sent while a required fact is still missing."""
+    if step.kind is not StepKind.ASK:
+        return False
+    return any(item.name == "get_quote" and item.body.get("outcome") == "fixed_offer" for item in payloads)
 
 
 def _owner_took(payloads) -> bool:

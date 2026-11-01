@@ -663,7 +663,7 @@
         <button class="icon-btn" type="button" aria-label="Voice call" data-call><svg><use href="#i-call"/></svg></button>
         <button class="icon-btn" type="button" aria-label="Menu" id="more"><svg><use href="#i-more"/></svg></button>
         <div class="menu" id="menu" role="menu">
-          <button type="button" role="menuitem" id="clear">Clear chat</button>
+          <button type="button" role="menuitem" id="clear">Reset session</button>
         </div>
       </header>
 
@@ -724,11 +724,11 @@
       </div>
 
       <div class="dialog-back" id="confirm">
-        <div class="dialog" role="alertdialog" aria-label="Clear this chat?">
-          <p>Clear this chat? Messages will be removed for everyone in this demo, and {{ business }} starts fresh.</p>
+        <div class="dialog" role="alertdialog" aria-label="Reset this number?">
+          <p>Reset this number? Every session for this number is cleared. Other numbers stay, and the next message starts fresh.</p>
           <div class="actions">
             <button class="ghost" type="button" id="confirm-no">Cancel</button>
-            <button class="solid" type="button" id="confirm-yes">Clear chat</button>
+            <button class="solid" type="button" id="confirm-yes">Reset session</button>
           </div>
         </div>
       </div>
@@ -1122,7 +1122,7 @@
               value: {
                 messaging_product: "whatsapp",
                 metadata: { display_phone_number: "15550001111", phone_number_id: "PHONE-1" },
-                contacts: [{ profile: { name: customer }, wa_id: WA }],
+                contacts: [customer ? { profile: { name: customer }, wa_id: WA } : { wa_id: WA }],
                 messages: [message],
               },
             }],
@@ -1539,11 +1539,11 @@
       $("confirm-yes").addEventListener("click", async () => {
         confirmBox.classList.remove("open");
         try {
-          const response = await fetch("/sim/reset", { method: "POST" });
+          const response = await fetch("/sim/reset-number?wa_id=" + encodeURIComponent($("client").value), { method: "POST" });
           if (!response.ok) throw new Error();
-        } catch (_) { toast("Couldn't clear the chat. Try again."); return; }
+        } catch (_) { toast("Couldn't reset this number. Try again."); return; }
         resetThread();
-        toast("Chat cleared");
+        toast("Session reset");
       });
       let toastTimer = null;
       function toast(message) {

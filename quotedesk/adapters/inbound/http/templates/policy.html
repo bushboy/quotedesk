@@ -1,0 +1,351 @@
+{% extends "owner.html" %}
+{% block title %}Rates & policy{% endblock %}
+{% block style %}
+      .layout { display: grid; grid-template-columns: minmax(0, 1fr); align-items: start; gap: 16px; }
+      .live .rates { max-width: 32rem; }
+      .version {
+        margin: 4px 0 16px;
+        color: var(--muted);
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 0.8125rem;
+        overflow-wrap: anywhere;
+      }
+      .layout h3 { margin: 0; }
+      .live .facts { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+      .sub { margin: 20px 0 6px; color: var(--muted); font-size: 0.8125rem; font-weight: 600; }
+      .rates { margin: 0; padding: 0; list-style: none; border-top: 1px solid var(--line); }
+      .rates li { display: flex; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+      .rates .code { color: var(--muted); font-size: 0.8125rem; }
+      .field { margin-top: 18px; }
+      .suffix { position: relative; max-width: 9rem; }
+      .suffix input { padding-right: 2.25rem; font-size: 1.125rem; font-variant-numeric: tabular-nums; font-weight: 600; }
+      .suffix span { position: absolute; top: 50%; right: 12px; transform: translateY(-50%); color: var(--muted); pointer-events: none; }
+      .errors ul {
+        margin: 12px 0 0;
+        padding: 12px 14px 12px 32px;
+        border: 1px solid var(--warn-line);
+        border-radius: 8px;
+        background: var(--warn-soft);
+        color: var(--warn-ink);
+      }
+      .errors li + li { margin-top: 4px; }
+      #draft .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-top: 22px; }
+      #draft .actions .hint { margin: 0; }
+      .js #check { display: none; }
+      .rate-edit { min-width: 0; margin: 18px 0 0; padding: 0; border: 0; }
+      .rate-edit legend { margin-bottom: 6px; padding: 0; font-weight: 600; }
+      .rate-edit table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+      .rate-edit th { padding: 0 6px 6px 0; color: var(--muted); font-size: 0.8125rem; font-weight: 600; text-align: left; }
+      .rate-edit td { padding: 4px 6px 4px 0; vertical-align: middle; }
+      .rate-edit .hint { margin: 0 0 10px; }
+      .rate-edit { overflow-x: auto; }
+      .rate-edit .c-code { width: 8.5rem; }
+      .rate-edit .c-unit { width: 6.5rem; }
+      .rate-edit .c-role { width: 8rem; }
+      .rate-edit .c-applies { width: 10.5rem; }
+      .rate-edit .c-price { width: 7rem; }
+      .rate-edit .c-remove { width: 6rem; }
+      .rate-edit select { width: 100%; }
+      .rate-edit input[name^="price-"] { font-variant-numeric: tabular-nums; text-align: right; }
+      .rate-edit .remove { display: flex; align-items: center; gap: 6px; margin: 0; color: var(--muted); font-size: 0.875rem; font-weight: 400; }
+      .rate-edit .remove input { width: auto; }
+      .rate-edit tr.new input { border-style: dashed; }
+      #policy .notice { margin: 0 0 16px; }
+      .rate-edit tr.group th { padding: 14px 0 6px; color: var(--ink); font-size: 0.875rem; text-align: left; border-bottom: 1px solid var(--line); }
+      .tools { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; margin-top: 16px; align-items: start; }
+      .tools form { margin-top: 12px; }
+      .tools input[type="file"] { padding: 9px; }
+      .history { margin: 12px 0 0; padding: 0; list-style: none; }
+      .history li { padding: 12px 0; border-top: 1px solid var(--line); }
+      .history .top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+      .history .version { margin: 0; }
+      .history details { margin-top: 8px; }
+      .history details form { display: grid; gap: 8px; margin-top: 8px; }
+      .imported { margin: 8px 0 0; padding-left: 20px; }
+      @media (max-width: 760px) { .layout, .tools { grid-template-columns: 1fr; } #draft .actions button { flex: 1 1 100%; } }
+{% endblock %}
+{% block main %}
+      <h1>Rates &amp; policy</h1>
+      <p class="lede">The prices and terms the assistant quotes from. Nothing changes for customers until you publish.</p>
+      {% if imported %}
+      <div class="notice ok" role="status">
+        <p class="title">Imported {{ imported.rows|length }} {% if imported.rows|length == 1 %}row{% else %}rows{% endif %} into the draft{% if imported.filename %} from {{ imported.filename }}{% endif %}</p>
+        <p class="detail">Check them in the draft below. They are not live until you publish.</p>
+        {% if imported.rows %}
+        <ul class="imported">
+          {% for row in imported.rows[:12] %}<li>{{ row.item_code }} · {% if row.unit_price is not none %}R {{ "%.2f"|format(row.unit_price) }}{% else %}no price{% endif %}{% if row.status == "needs_review" %} · needs a look{% endif %}</li>{% endfor %}
+        </ul>
+        {% endif %}
+      </div>
+      {% endif %}
+      {% set p = policy %}
+      {% set bundle = p.bundle %}
+      {% set live = bundle.clause_policy.settings %}
+      <section id="policy" aria-labelledby="policy-title">
+        <span id="rates"></span>
+        <div class="section-head">
+          <h2 id="policy-title">Rate card and quote terms</h2>
+        </div>
+        <p class="hint" style="margin-bottom:16px">Change the deposit and the prices used on new quotes. Quotes already sent keep the terms and prices they were issued with.</p>
+        <div aria-live="polite">
+          {% if p.published %}
+          <div class="notice ok" role="status">
+            <p class="title">Published {{ p.published }}</p>
+            <p class="detail">New quotes ask for a <span class="num">{{ live.deposit_percent }}%</span> deposit and use the rate card below. Quotes already sent are unchanged.</p>
+          </div>
+          {% endif %}
+          {% if p.refusal %}
+          <div class="notice warn" role="alert">
+            <p class="title">Not published</p>
+            <p class="detail">{{ p.refusal }}</p>
+          </div>
+          {% endif %}
+        </div>
+        <div class="layout">
+          <div class="card live" aria-labelledby="live-title">
+            <h3 id="live-title">Live now</h3>
+            <p class="version">{{ bundle.policy.version.value }}</p>
+            <dl class="facts">
+              <div><dt>Deposit</dt><dd class="num">{{ live.deposit_percent }}%</dd></div>
+              <div><dt>Valid for</dt><dd>{{ live.validity_days }} days</dd></div>
+              <div><dt>Prices</dt><dd>{% if bundle.rate_card.vat_inclusive %}Include VAT{% else %}Exclude VAT{% endif %}</dd></div>
+              <div><dt>Rules</dt><dd>{{ bundle.policy.rules|length }} on</dd></div>
+            </dl>
+            {% for group in p.groups %}
+            <h4 class="sub">{{ group.label }}</h4>
+            <ul class="rates">
+              {% for entry in group.entries %}
+              {% set item = entry.item %}
+              <li>
+                <span>{{ entry.name }}{% if entry.name != item.item_code %} <span class="code">{{ item.item_code }}</span>{% endif %}
+                  <span class="code">{{ item.unit }}{% if item.applies_to and item.applies_to != "both" %} · {{ {"swap": "A swap", "new": "A new installation"}.get(item.applies_to, item.applies_to) }}{% endif %}</span>
+                </span>
+                <span class="amount">{{ item.unit_price|rand }}</span>
+              </li>
+              {% endfor %}
+            </ul>
+            {% endfor %}
+            <p class="hint" id="storage">{% if p.storage %}Saved in the database.{% else %}The database isn't reachable, so price changes last until the app restarts.{% endif %}</p>
+          </div>
+          <div class="card" aria-labelledby="draft-title">
+            <h3 id="draft-title">Draft</h3>
+            {% if p.draft %}
+            <form id="draft" method="post" action="/editor/publish" novalidate data-valid="{{ 'true' if not p.errors else 'false' }}">
+              <div class="field">
+                <label for="deposit">Deposit percent</label>
+                <div class="suffix">
+                  <input id="deposit" name="deposit" value="{{ p.deposit }}" inputmode="numeric" autocomplete="off" spellcheck="false" aria-describedby="deposit-hint draft-errors"{% if p.deposit_invalid %} aria-invalid="true"{% endif %}>
+                  <span aria-hidden="true">%</span>
+                </div>
+                <p class="hint" id="deposit-hint">The share of the total a customer pays to hold a date.</p>
+              </div>
+              <fieldset class="rate-edit" aria-describedby="rates-hint draft-errors">
+                <legend>Rate card</legend>
+                <p class="hint" id="rates-hint">Prices in rand, {% if p.draft.vat_inclusive %}including{% else %}excluding{% endif %} VAT. Fill in the empty row to add an item.</p>
+                <table>
+                  <thead>
+                    <tr>
+                      <th scope="col" class="c-code">Code</th>
+                      <th scope="col">Name</th>
+                      <th scope="col" class="c-unit">Unit</th>
+                      <th scope="col" class="c-role">Role</th>
+                      <th scope="col" class="c-applies">Applies to</th>
+                      <th scope="col">Jobs</th>
+                      <th scope="col">When</th>
+                      <th scope="col" class="c-price">Price</th>
+                      <th scope="col" class="c-remove"><span hidden>Remove</span></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {% for row in p.rows %}
+                    {% set i = loop.index0 %}
+                    {% if row.blank %}<tr class="group"><th colspan="9" scope="rowgroup">Add an item</th></tr>
+                    {% elif loop.first or row.role != p.rows[loop.index0 - 1].role %}<tr class="group"><th colspan="9" scope="rowgroup">{{ p.roles.get(row.role, row.role|capitalize) }}</th></tr>{% endif %}
+                    <tr{% if row.blank %} class="new"{% endif %}>
+                      <td><input name="code-{{ i }}" value="{{ row.code }}" autocomplete="off" spellcheck="false" aria-label="{% if row.blank %}New item code{% else %}Code, row {{ loop.index }}{% endif %}"{% if row.blank %} placeholder="New code"{% endif %}></td>
+                      <td><input name="name-{{ i }}" value="{{ row.name }}" autocomplete="off" aria-label="{% if row.blank %}New item name{% else %}Name, row {{ loop.index }}{% endif %}"></td>
+                      <td>
+                        <select name="unit-{{ i }}" aria-label="{% if row.blank %}New item unit{% else %}Unit, row {{ loop.index }}{% endif %}">
+                          {% for value in ("each", "per m²", "per metre") %}
+                          <option value="{{ value }}"{% if row.unit == value %} selected{% endif %}>{{ value }}</option>
+                          {% endfor %}
+                        </select>
+                      </td>
+                      <td>
+                        <select name="role-{{ i }}" aria-label="{% if row.blank %}New item role{% else %}Role, row {{ loop.index }}{% endif %}">
+                          {% for value, label in (("product", "Product"), ("frame", "Frame"), ("hardware", "Hardware"), ("installation", "Installation"), ("delivery", "Delivery"), ("inspection", "Inspection")) %}
+                          <option value="{{ value }}"{% if row.role == value %} selected{% endif %}>{{ label }}</option>
+                          {% endfor %}
+                        </select>
+                      </td>
+                      <td>
+                        <select name="applies-to-{{ i }}" aria-label="{% if row.blank %}New item applies to{% else %}Applies to, row {{ loop.index }}{% endif %}">
+                          {% for value, label in (("both", "Both"), ("swap", "A swap"), ("new", "A new installation")) %}
+                          <option value="{{ value }}"{% if row.applies_to == value %} selected{% endif %}>{{ label }}</option>
+                          {% endfor %}
+                        </select>
+                      </td>
+                      <td><input name="job-types-{{ i }}" value="{{ row.job_types }}" autocomplete="off" aria-label="{% if row.blank %}New item jobs{% else %}Jobs, row {{ loop.index }}{% endif %}"{% if row.blank %} placeholder="Every job"{% endif %}></td>
+                      <td>
+                        <span>{{ row.when_summary }}</span>
+                        <input type="hidden" name="when-{{ i }}" value="{{ row.when }}">
+                      </td>
+                      <td><input name="price-{{ i }}" value="{{ row.price }}" inputmode="decimal" autocomplete="off" aria-label="{% if row.blank %}New item price{% else %}Price, row {{ loop.index }}{% endif %}"></td>
+                      <td>{% if not row.blank %}<label class="remove"><input type="checkbox" name="remove-{{ i }}"{% if row.remove %} checked{% endif %}> Remove</label>{% endif %}</td>
+                    </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              </fieldset>
+              <div class="errors" id="draft-errors" aria-live="polite">
+                {% if p.errors %}<ul>{% for sentence in p.errors %}<li>{{ sentence }}</li>{% endfor %}</ul>{% endif %}
+              </div>
+              <div class="field">
+                <label for="reason">Reason</label>
+                <textarea id="reason" name="reason" rows="3" maxlength="500" aria-describedby="reason-hint">{{ p.reason }}</textarea>
+                <p class="hint" id="reason-hint">Saved with the new version so you can tell why it changed.</p>
+              </div>
+              <div class="actions">
+                <button type="submit" class="primary" id="publish" data-busy="Publishing…"{% if not p.ready %} disabled{% endif %}>Publish</button>
+                <button type="submit" class="secondary" id="check" formaction="/editor/draft">Check draft</button>
+                <p class="hint" id="publish-hint" aria-live="polite">{% if p.errors %}Fix the draft to publish.{% elif not p.ready %}Add a reason to publish.{% else %}Ready to publish.{% endif %}</p>
+              </div>
+            </form>
+            {% else %}
+            <p class="hint">There is no draft to edit.</p>
+            {% endif %}
+          </div>
+        </div>
+      </section>
+
+      <div class="tools">
+        <div class="card" aria-labelledby="import-title">
+          <h3 id="import-title">Import a price list</h3>
+          <p class="hint">A CSV or Excel file with a code, a description and a price per row. The rows go into the draft so you can check them first.</p>
+          <form method="post" action="/console/rate-card/import" enctype="multipart/form-data" data-lock>
+            <label for="rate-card">Price list file</label>
+            <input id="rate-card" name="rate_card" type="file" accept=".csv,.xlsx" required>
+            <button type="submit" class="secondary" data-busy="Importing…" style="margin-top:10px">Import into the draft</button>
+          </form>
+          {% if undo %}
+          <form method="post" action="/console/rate-card/undo" data-confirm="Put the draft back the way it was before the import?">
+            <button type="submit" class="secondary small">Undo the last import</button>
+          </form>
+          {% endif %}
+        </div>
+        <div class="card" aria-labelledby="history-title">
+          <h3 id="history-title">Version history</h3>
+          <p class="hint">Restoring a version publishes its prices and terms again as a new version.</p>
+          <ul class="history">
+            {% for row in p.history %}
+            <li>
+              <div class="top">
+                <p class="version">{{ row.version }}</p>
+                {% if row.current %}<span class="tag ok">Live</span>{% endif %}
+              </div>
+              <p class="hint" style="margin:2px 0 0">{{ row.deposit }}% deposit · valid {{ row.validity }} days · {{ row.items }} items{% if row.at %} · {{ row.at|when }}{% endif %}{% if row.actor %} · {{ row.actor }}{% endif %}</p>
+              {% if row.reason %}<p style="margin:4px 0 0">“{{ row.reason }}”</p>{% endif %}
+              {% if not row.current %}
+              <details>
+                <summary>Restore this version</summary>
+                <form method="post" action="/console/policy/rollback" data-confirm="Publish {{ row.version }} again? New quotes will use its prices and terms.">
+                  <input type="hidden" name="source_version" value="{{ row.version }}">
+                  <label for="reason-{{ loop.index }}">Reason</label>
+                  <input id="reason-{{ loop.index }}" name="reason" required maxlength="500" placeholder="Why you are going back">
+                  <button type="submit" class="secondary small">Restore {{ row.version }}</button>
+                </form>
+              </details>
+              {% endif %}
+            </li>
+            {% endfor %}
+          </ul>
+        </div>
+      </div>
+{% endblock %}
+{% block script %}
+      (function () {
+        var form = document.getElementById("draft");
+        if (!form) { return; }
+        document.documentElement.classList.add("js");
+        var deposit = form.elements.deposit;
+        var reason = form.elements.reason;
+        var publish = document.getElementById("publish");
+        var hint = document.getElementById("publish-hint");
+        var box = document.getElementById("draft-errors");
+        var valid = form.dataset.valid === "true";
+        var checking = false;
+        var busy = false;
+        var sequence = 0;
+        var timer = null;
+        function sync() {
+          var hasReason = reason.value.trim() !== "";
+          publish.disabled = busy || checking || !valid || !hasReason;
+          if (busy) { return; }
+          hint.textContent = checking ? "Checking the draft…" : !valid ? "Fix the draft to publish." : !hasReason ? "Add a reason to publish." : "Ready to publish.";
+        }
+        function show(sentences) {
+          box.textContent = "";
+          var depositWrong = sentences.some(function (sentence) { return /deposit/i.test(sentence); });
+          if (depositWrong) { deposit.setAttribute("aria-invalid", "true"); } else { deposit.removeAttribute("aria-invalid"); }
+          if (sentences.length === 0) { return; }
+          var list = document.createElement("ul");
+          sentences.forEach(function (sentence) {
+            var item = document.createElement("li");
+            item.textContent = sentence;
+            list.appendChild(item);
+          });
+          box.appendChild(list);
+        }
+        function check() {
+          var mine = ++sequence;
+          checking = true;
+          sync();
+          fetch("/editor/draft", {
+            method: "POST",
+            cache: "no-store",
+            headers: { Accept: "application/json", "Content-Type": "application/x-www-form-urlencoded" },
+            body: new URLSearchParams(new FormData(form)),
+          })
+            .then(function (response) {
+              if (!response.ok) { throw new Error("check failed"); }
+              return response.json();
+            })
+            .then(function (data) {
+              if (mine !== sequence) { return; }
+              valid = data.errors.length === 0;
+              show(data.errors);
+            })
+            .catch(function () {
+              if (mine !== sequence) { return; }
+              valid = false;
+              show(["The draft could not be checked. Try again."]);
+            })
+            .finally(function () {
+              if (mine !== sequence) { return; }
+              checking = false;
+              sync();
+            });
+        }
+        function later(event) {
+          if (event.target === reason) { return; }
+          window.clearTimeout(timer);
+          checking = true;
+          sync();
+          timer = window.setTimeout(check, 250);
+        }
+        form.addEventListener("input", later);
+        form.addEventListener("change", function (event) { if (event.target.type === "checkbox") { later(event); } });
+        reason.addEventListener("input", sync);
+        form.addEventListener("submit", function (event) {
+          if (busy || publish.disabled) { event.preventDefault(); return; }
+          busy = true;
+          window.setTimeout(function () {
+            publish.disabled = true;
+            publish.setAttribute("aria-busy", "true");
+            publish.textContent = publish.dataset.busy;
+            hint.textContent = "";
+          }, 0);
+        });
+        sync();
+      })();
+{% endblock %}

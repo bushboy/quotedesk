@@ -1,0 +1,51 @@
+{% extends "owner.html" %}
+{% block title %}Settings{% endblock %}
+{% block style %}
+      .grid2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; margin-top: 24px; align-items: start; }
+      .grid2 dl { display: grid; grid-template-columns: 9rem minmax(0, 1fr); gap: 10px 16px; margin-top: 12px; }
+      .grid2 dd { font-weight: 500; }
+      @media (max-width: 760px) { .grid2 { grid-template-columns: 1fr; } }
+{% endblock %}
+{% block main %}
+      <h1>Settings</h1>
+      <p class="lede">The business this console runs, and who has been using it.</p>
+      <div class="grid2">
+        <div class="card">
+          <h2>Business</h2>
+          <dl>
+            <dt>Name</dt><dd>{{ business or "Not set" }}</dd>
+            {% if tenant %}
+            <dt>Trade</dt><dd>{{ tenant.trade or "—" }}</dd>
+            <dt>Area</dt><dd>{{ tenant.area or "—" }}</dd>
+            <dt>WhatsApp number id</dt><dd class="num">{{ tenant.phone_number_id or (phones|join(", ")) or "Not linked" }}</dd>
+            {% endif %}
+            <dt>Data</dt><dd>{% if store == "postgres" %}Saved in the database{% elif store == "memory" %}In memory only (lost on restart){% else %}Database down{% endif %}</dd>
+          </dl>
+        </div>
+        <div class="card">
+          <h2>Access</h2>
+          <dl>
+            <dt>Sign-in</dt><dd>{% if signin %}On. The owner password is required.{% else %}Off. Set <code>OWNER_PASSWORD</code> to require it.{% endif %}</dd>
+            <dt>Signed in as</dt><dd>{{ actor }}</dd>
+          </dl>
+        </div>
+      </div>
+      <section aria-labelledby="actions-title">
+        <div class="section-head"><h2 id="actions-title">Owner actions</h2><span class="count">{{ actions|length }}</span></div>
+        <p class="hint" style="margin-bottom:12px">Approvals, releases, publishes, imports and restores, newest first. Kept until the app restarts.</p>
+        {% if actions %}
+        <div class="card table-card">
+          <table class="table">
+            <thead><tr><th scope="col">When</th><th scope="col">Who</th><th scope="col">What</th><th scope="col">Detail</th></tr></thead>
+            <tbody>
+              {% for entry in actions %}
+              <tr><td data-label="When" class="num">{{ entry.at|when }}</td><td data-label="Who">{{ entry.actor }}</td><td data-label="What">{{ entry.action }}</td><td data-label="Detail">{{ entry.detail or "—" }}</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% else %}
+        <div class="card empty"><p class="empty-title">Nothing has been done on the console yet.</p></div>
+        {% endif %}
+      </section>
+{% endblock %}

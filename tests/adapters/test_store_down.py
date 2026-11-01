@@ -45,5 +45,6 @@ def test_a_down_store_refuses_the_webhook_and_writes_nothing(monkeypatch):
     assert home.status_code == 307
     assert home.headers["location"] == "/chat"
     assert client.post("/sim/reset").status_code == 503
+    assert client.post("/sim/reset-number", params={"wa_id": "15550002222"}).status_code == 503
     app.state.run_turn()
     assert json.loads(raw)["entry"][0]["changes"][0]["value"]["messages"]

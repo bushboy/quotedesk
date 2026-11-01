@@ -73,6 +73,50 @@ class Conversations:
     def bind(self, tenant_id: UUID, wa_id: str, conversation_id: UUID) -> None:
         self._by_sender[(tenant_id, wa_id)] = conversation_id
 
+    def forget(self, tenant_id: UUID, wa_id: str) -> tuple[UUID, ...]:
+        """Drop every conversation this number is bound to or has written in."""
+        ids = {
+            conversation_id
+            for (tenant, sender), conversation_id in self._by_sender.items()
+            if tenant == tenant_id and sender == wa_id
+        }
+        ids.update(
+            message.conversation_id
+            for tenant, message in self.remembered
+            if tenant == tenant_id and message.wa_id == wa_id
+        )
+        message_ids = {
+            message.provider_message_id
+            for tenant, message in self.remembered
+            if tenant == tenant_id and message.conversation_id in ids
+        }
+        self._by_sender = {
+            key: conversation_id
+            for key, conversation_id in self._by_sender.items()
+            if not (key[0] == tenant_id and (key[1] == wa_id or conversation_id in ids))
+        }
+        self._names.pop((tenant_id, wa_id), None)
+        self.notes = [row for row in self.notes if not (row[0] == tenant_id and row[1] == wa_id)]
+        self.remembered = [
+            row for row in self.remembered if not (row[0] == tenant_id and row[1].conversation_id in ids)
+        ]
+        self.rows = {key: value for key, value in self.rows.items() if not (key[0] == tenant_id and key[1] in ids)}
+        self._replies = [row for row in self._replies if not (row[0] == tenant_id and row[1] in ids)]
+        self._enrichments = {
+            key: value
+            for key, value in self._enrichments.items()
+            if not (key[0] == tenant_id and key[1] in message_ids)
+        }
+        self._held = {key for key in self._held if not (key[0] == tenant_id and key[1] in ids)}
+        self._change_keys = {
+            key: value for key, value in self._change_keys.items() if not (key[0] == tenant_id and key[1] in ids)
+        }
+        for key, (conversation_id, _at, _body) in list(self._outbound_body.items()):
+            if key[0] == tenant_id and conversation_id in ids:
+                self._outbound.pop(key, None)
+                self._outbound_body.pop(key, None)
+        return tuple(ids)
+
     def sender_for(self, tenant_id: UUID, conversation_id: UUID) -> str | None:
         for (tenant, wa_id), stored in self._by_sender.items():
             if tenant == tenant_id and stored == conversation_id:
@@ -252,6 +296,9 @@ class Cases:
     def ensure(self, tenant_id: UUID, conversation_id: UUID) -> None:
         if self.get(tenant_id, conversation_id) is None:
             self.save(tenant_id, CaseFile.open(conversation_id, tenant_id))
+
+    def drop(self, tenant_id: UUID, conversation_id: UUID) -> None:
+        self._rows.pop((tenant_id, conversation_id), None)
 
 
 class Policies:

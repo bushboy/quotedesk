@@ -32,6 +32,20 @@ def test_a_profile_name_is_kept_and_not_asked_again():
     assert store.name(TENANT, WA) == "Thabo"
 
 
+def test_my_name_without_is_replaces_the_stored_name():
+    store = Conversations()
+    store.bind(TENANT, WA, CONVERSATION)
+    keep_profile_name(store, TENANT, WA, "Thabo")
+    remember_name(
+        store,
+        TENANT,
+        CONVERSATION,
+        WA,
+        (_event("Hello. My name Joshua. Please quote me on a carport to sit in front of a single garage."),),
+    )
+    assert store.name(TENANT, WA) == "Joshua"
+
+
 def test_an_introduction_replaces_the_profile_name():
     store = Conversations()
     store.bind(TENANT, WA, CONVERSATION)

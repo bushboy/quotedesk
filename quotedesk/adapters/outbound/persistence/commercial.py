@@ -117,6 +117,9 @@ class MemoryHandovers:
     def list(self, tenant_id: UUID) -> tuple[HandoverNote, ...]:
         return tuple(note for (stored, _), note in self._rows.items() if stored == tenant_id)
 
+    def drop(self, tenant_id: UUID, conversation_id: UUID) -> None:
+        self._rows.pop((tenant_id, conversation_id), None)
+
 
 class StoredCodes:
     def __init__(self, engine) -> None:
@@ -356,6 +359,9 @@ class MemoryInspections:
     def list(self, tenant_id: UUID) -> tuple[Inspection, ...]:
         return tuple(item for (stored, _), item in self._rows.items() if stored == tenant_id)
 
+    def drop(self, tenant_id: UUID, conversation_id: UUID) -> None:
+        self._rows.pop((tenant_id, conversation_id), None)
+
 
 class MemoryNotices:
     def __init__(self) -> None:
@@ -366,6 +372,9 @@ class MemoryNotices:
 
     def record(self, tenant_id: UUID, conversation_id: UUID, channel: str) -> None:
         self._sent.add((tenant_id, conversation_id))
+
+    def drop(self, tenant_id: UUID, conversation_id: UUID) -> None:
+        self._sent.discard((tenant_id, conversation_id))
 
 
 class MemoryMail:

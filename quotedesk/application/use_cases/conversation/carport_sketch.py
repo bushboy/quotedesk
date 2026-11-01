@@ -12,9 +12,17 @@ from quotedesk.application.ports.pictures import PictureRequest
 from quotedesk.domain.case.contradictions import spec_choice
 
 _SITE = re.compile(r"\b(garage|wall|house)\b", re.IGNORECASE)
-_ON_PHOTO = "This is a drawing of that spec on your photo, not a measure."
-_IMAGINARY = "This is a drawing of that spec against a plain wall and garage, not a measure."
-_HARD = "That photo was hard to use. This is a drawing of that spec against a plain wall and garage, not a measure."
+_ASK = re.compile(r"\b(render|preview|drawing)\b|\bpicture of\b", re.IGNORECASE)
+_RAND = re.compile(r"\br\s*[\d,]+", re.IGNORECASE)
+_ABOVE = (
+    "The camera is above the carport, looking down, between 5 and 10 metres away, "
+    "so the whole roof and its sheeting are visible."
+)
+_LEVEL = (
+    "The camera is at eye level with the ground, between 5 and 10 metres away, "
+    "so the whole carport is in the frame."
+)
+_VIEWS = (("above", _ABOVE, "from above"), ("level", _LEVEL, "from eye level"))
 FAILED = "I couldn't draw that carport. The quote above still stands."
 
 
@@ -26,7 +34,7 @@ class Drawn(NamedTuple):
 
 
 class CarportSketch:
-    """Calls the renderer after a fixed carport quote. AquaSure never reaches it."""
+    """Calls the renderer for a confirmed carport. AquaSure never reaches it."""
 
     def __init__(self, drawer, cases, conversations, policies, host, trade: str) -> None:
         self._drawer = drawer
@@ -36,37 +44,54 @@ class CarportSketch:
         self._host = host
         self._trade = trade
 
-    def after_quote(self, context, conversation_id, body: str) -> Drawn | None:
+    def replaces_reply(self, context, conversation_id) -> bool:
+        """A request for a picture is answered by the drawings, not by a text refusal."""
+        return self._prepared(context, conversation_id) is not None and _asked(self, context, conversation_id)
+
+    def after_quote(self, context, conversation_id, body: str) -> tuple[Drawn, ...] | None:
         if "carport" not in self._trade.casefold():
             return None
-        if not _fixed_quote(body):
+        prepared = self._prepared(context, conversation_id)
+        if prepared is None:
             return None
-        case = self._cases.get(context.tenant_id, conversation_id)
-        published = None if self._policies is None else self._policies.published(context.tenant_id)
-        if case is None or published is None:
+        if not _fixed_quote(body) and not _asked(self, context, conversation_id):
             return None
-        ready = _ready(case, published.playbook)
+        case, playbook = prepared
+        ready = _ready(case, playbook)
         if ready is None:
             return None
         option, width, length, finish, gutter, usable = ready
         photo, hard = _photo(self, context, conversation_id, case, usable)
-        prompt = drawing_prompt(
-            label=option.label,
-            width=width,
-            length=length,
-            curved=option.sags,
-            finish=finish,
-            gutter=gutter,
-            onto_photo=photo is not None,
-        )
-        try:
-            data = self._drawer.draw(PictureRequest(prompt, photo))
-        except Exception:
-            return Drawn(FAILED, None)
-        if not data:
-            return Drawn(FAILED, None)
-        encoded = base64.b64encode(data).decode("ascii")
-        return Drawn(_caption(photo is not None, hard), f"data:image/png;base64,{encoded}")
+        drawn: list[Drawn] = []
+        for view, instruction, name in _VIEWS:
+            prompt = drawing_prompt(
+                label=option.label,
+                width=width,
+                length=length,
+                curved=option.sags,
+                finish=finish,
+                gutter=gutter,
+                onto_photo=photo is not None,
+                view=instruction,
+            )
+            try:
+                data = self._drawer.draw(PictureRequest(prompt, photo))
+            except Exception:
+                continue
+            if not data:
+                continue
+            caption = _caption(photo is not None, hard, name)
+            drawn.append(Drawn(caption, _data_url(data)))
+        if not drawn:
+            return (Drawn(FAILED, None),)
+        return tuple(drawn)
+
+    def _prepared(self, context, conversation_id):
+        case = self._cases.get(context.tenant_id, conversation_id)
+        published = None if self._policies is None else self._policies.published(context.tenant_id)
+        if case is None or published is None or _ready(case, published.playbook) is None:
+            return None
+        return case, published.playbook
 
 
 def drawing_prompt(
@@ -78,6 +103,7 @@ def drawing_prompt(
     finish: str,
     gutter: bool,
     onto_photo: bool,
+    view: str,
 ) -> str:
     """The drawing instruction. It names the spec and no price."""
     if curved:
@@ -96,24 +122,48 @@ def drawing_prompt(
     words = f"A carport {width} metres wide and {length} metres long. {roof}"
     if extras:
         words = f"{words} {' '.join(extras)}"
-    return f"{words} {place} No logos. No prices. No writing."
+    return f"{words} {place} {view} No logos. No prices. No writing."
 
 
-def _caption(used_photo: bool, hard: bool) -> str:
+def _caption(used_photo: bool, hard: bool, view: str) -> str:
     if used_photo:
-        return _ON_PHOTO
+        return f"This is a drawing of that spec on your photo, {view}, not a measure."
     if hard:
-        return _HARD
-    return _IMAGINARY
+        return f"That photo was hard to use. This is a drawing of that spec against a plain wall and garage, {view}, not a measure."
+    return f"This is a drawing of that spec against a plain wall and garage, {view}, not a measure."
 
 
 def _fixed_quote(body: str) -> bool:
     folded = body.casefold()
-    if "the total is" not in folded:
-        return False
     if "indicative range" in folded or "site measure" in folded:
         return False
-    return True
+    if "the total is" in folded:
+        return True
+    return "total" in folded and "/card/" in folded and _RAND.search(body) is not None
+
+
+def _asked(sketch: CarportSketch, context, conversation_id) -> bool:
+    messages = sketch._conversations.messages(context.tenant_id, conversation_id)
+    for message in reversed(tuple(messages)):
+        if message.kind == "image":
+            continue
+        body = (message.body or "").strip()
+        if not body:
+            continue
+        return _ASK.search(body) is not None
+    return False
+
+
+def _data_url(data: bytes) -> str:
+    if data.startswith(b"\x89PNG"):
+        mime = "image/png"
+    elif data.startswith(b"\xff\xd8\xff"):
+        mime = "image/jpeg"
+    elif len(data) >= 12 and data.startswith(b"RIFF") and data[8:12] == b"WEBP":
+        mime = "image/webp"
+    else:
+        mime = "image/png"
+    return f"data:{mime};base64,{base64.b64encode(data).decode('ascii')}"
 
 
 def _ready(case, playbook):

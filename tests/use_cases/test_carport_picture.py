@@ -5,7 +5,7 @@ import re
 from uuid import uuid4
 
 from quotedesk.adapters.outbound.parsers.aquasure import load_playbook
-from quotedesk.application.dto.agent import BusinessView, ExtractionResult, ModelReply
+from quotedesk.application.dto.agent import BusinessView, ExtractionResult, ModelReply, ToolCall
 from quotedesk.application.dto.inbound import InboundMessage
 from quotedesk.application.dto.published import PublishedPolicy
 from quotedesk.application.dto.tenant import TenantContext
@@ -129,7 +129,24 @@ def test_shade_net_sags_and_the_solid_sheets_do_not():
 
 
 def test_a_sagging_sheet_asks_for_a_curve_and_a_solid_sheet_stays_straight():
-    curved = drawing_prompt(label="Shade net, 80%", width="5", length="7", curved=True, finish="", gutter=False, onto_photo=False)
+    above = (
+        "The camera is above the carport, looking down, between 5 and 10 metres away, "
+        "so the whole roof and its sheeting are visible."
+    )
+    level = (
+        "The camera is at eye level with the ground, between 5 and 10 metres away, "
+        "so the whole carport is in the frame."
+    )
+    curved = drawing_prompt(
+        label="Shade net, 80%",
+        width="5",
+        length="7",
+        curved=True,
+        finish="",
+        gutter=False,
+        onto_photo=False,
+        view=above,
+    )
     straight = drawing_prompt(
         label="Galvanised IBR sheeting",
         width="5",
@@ -138,13 +155,16 @@ def test_a_sagging_sheet_asks_for_a_curve_and_a_solid_sheet_stays_straight():
         finish="Painted",
         gutter=True,
         onto_photo=True,
+        view=level,
     )
     assert "sags in a curve" in curved
     assert "straight pitched" not in curved
+    assert above in curved
     assert "straight pitched roof of Galvanised IBR sheeting" in straight
     assert "The frame is Painted." in straight
     assert "A gutter runs along the front." in straight
     assert "Keep this garage and this wall." in straight
+    assert level in straight
     for prompt in (curved, straight):
         assert "5" in prompt and "7" in prompt
         assert re.search(r"\bR \d", prompt) is None
@@ -158,13 +178,20 @@ def test_a_confirmed_shade_net_with_a_garage_photo_asks_for_an_edit():
     sketch, conversations = _sketch(_case(), drawer, Host({"garage": b"garage-bytes"}))
     _image(conversations, "The garage wall.", "garage", "img-garage")
     drawn = _draw(sketch)
-    assert drawn is not None and drawn.image_url
-    request = drawer.requests[0]
-    assert request.photo == b"garage-bytes"
-    assert "sags in a curve" in request.prompt
-    assert "Shade net, 80%" in request.prompt
-    assert "plain plastered wall" not in request.prompt
-    assert drawn.caption == "This is a drawing of that spec on your photo, not a measure."
+    assert drawn is not None and len(drawn) == 2 and all(item.image_url for item in drawn)
+    assert [item.caption for item in drawn] == [
+        "This is a drawing of that spec on your photo, from above, not a measure.",
+        "This is a drawing of that spec on your photo, from eye level, not a measure.",
+    ]
+    assert len(drawer.requests) == 2
+    for request in drawer.requests:
+        assert request.photo == b"garage-bytes"
+        assert "sags in a curve" in request.prompt
+        assert "Shade net, 80%" in request.prompt
+        assert "plain plastered wall" not in request.prompt
+        assert "between 5 and 10 metres away" in request.prompt
+    assert "looking down" in drawer.requests[0].prompt
+    assert "eye level with the ground" in drawer.requests[1].prompt
 
 
 def test_the_latest_garage_photo_is_the_one_that_is_edited():
@@ -174,7 +201,7 @@ def test_the_latest_garage_photo_is_the_one_that_is_edited():
     _image(conversations, "A dog.", "dog", "img-dog")
     _image(conversations, "The garage.", "newer", "img-new")
     _draw(sketch)
-    assert drawer.requests[0].photo == b"newer"
+    assert [request.photo for request in drawer.requests] == [b"newer", b"newer"]
 
 
 def test_a_read_that_names_a_garage_is_enough():
@@ -186,19 +213,23 @@ def test_a_read_that_names_a_garage_is_enough():
         objects=("garage door",),
     )
     _draw(sketch)
-    assert drawer.requests[0].photo == b"from-the-read"
+    assert [request.photo for request in drawer.requests] == [b"from-the-read", b"from-the-read"]
 
 
 def test_a_solid_sheet_with_no_photo_asks_for_a_straight_generation():
     drawer = Drawer()
     sketch, _conversations = _sketch(_case(("item_codes", "SHEET-ECO")), drawer)
     drawn = _draw(sketch)
-    assert drawn is not None
-    request = drawer.requests[0]
-    assert request.photo is None
-    assert "straight pitched roof of Galvanised IBR sheeting" in request.prompt
-    assert "plain plastered wall" in request.prompt
-    assert drawn.caption == "This is a drawing of that spec against a plain wall and garage, not a measure."
+    assert drawn is not None and len(drawn) == 2
+    assert all(request.photo is None for request in drawer.requests)
+    assert "straight pitched roof of Galvanised IBR sheeting" in drawer.requests[0].prompt
+    assert "plain plastered wall" in drawer.requests[0].prompt
+    assert "looking down" in drawer.requests[0].prompt
+    assert "eye level with the ground" in drawer.requests[1].prompt
+    assert [item.caption for item in drawn] == [
+        "This is a drawing of that spec against a plain wall and garage, from above, not a measure.",
+        "This is a drawing of that spec against a plain wall and garage, from eye level, not a measure.",
+    ]
 
 
 def test_a_blurry_photo_asks_for_a_generation_and_says_so():
@@ -210,19 +241,59 @@ def test_a_blurry_photo_asks_for_a_generation_and_says_so():
     )
     _image(conversations, "The garage.", "garage", "img-blur")
     drawn = _draw(sketch)
-    assert drawn is not None
-    assert drawer.requests[0].photo is None
+    assert drawn is not None and len(drawn) == 2
+    assert all(request.photo is None for request in drawer.requests)
     assert "plain plastered wall" in drawer.requests[0].prompt
-    assert drawn.caption.startswith("That photo was hard to use.")
+    assert all(item.caption.startswith("That photo was hard to use.") for item in drawn)
 
 
 def test_a_failed_drawing_returns_no_picture():
     drawer = Drawer(error=RuntimeError("down"))
     sketch, _conversations = _sketch(_case(), drawer)
     drawn = _draw(sketch)
+    assert drawn == (type(drawn[0])(FAILED, None),)
+
+
+def test_asking_for_a_render_draws_when_the_reply_states_no_total():
+    drawer = Drawer()
+    sketch, conversations = _sketch(_case(("item_codes", "SHEET-ECO")), drawer)
+    say(conversations, "Render a picture of the carport for me.", 0, "ask-render")
+    body = "Hi Thabo — I don't have a rendered preview image I can generate of the finished carport."
+    drawn = _draw(sketch, body)
+    assert sketch.replaces_reply(CONTEXT, CONVERSATION) is True
+    assert drawn is not None and len(drawn) == 2
+    assert "looking down" in drawer.requests[0].prompt
+    assert "eye level with the ground" in drawer.requests[1].prompt
+
+
+def test_a_quote_that_states_the_total_on_the_card_draws():
+    drawer = Drawer()
+    sketch, conversations = _sketch(_case(("item_codes", "SHEET-ECO")), drawer)
+    say(conversations, "Yes", 0, "yes-total")
+    body = (
+        "Hello Thabo — here is your last quote:\n\n**R 11,450.00** total for the carport.\n"
+        "Quote QD-1042 — view card: /card/QD-1042?code=3203"
+    )
+    drawn = _draw(sketch, body)
+    assert sketch.replaces_reply(CONTEXT, CONVERSATION) is False
+    assert drawn is not None and len(drawn) == 2
+
+
+def test_thanks_after_a_confirmed_spec_draws_nothing():
+    drawer = Drawer()
+    sketch, conversations = _sketch(_case(), drawer)
+    say(conversations, "Thanks", 0, "thanks")
+    assert _draw(sketch, "Thanks Thabo.") is None
+    assert drawer.requests == []
+
+
+def test_a_jpeg_drawing_keeps_its_own_type():
+    drawer = Drawer()
+    drawer.draw = lambda request: drawer.requests.append(request) or b"\xff\xd8\xffjpeg"
+    sketch, _conversations = _sketch(_case(("item_codes", "SHEET-ECO")), drawer)
+    drawn = _draw(sketch)
     assert drawn is not None
-    assert drawn.caption == FAILED
-    assert drawn.image_url is None
+    assert drawn[0].image_url.startswith("data:image/jpeg;base64,")
 
 
 def test_a_range_an_escalation_and_a_site_measure_draw_nothing():
@@ -255,10 +326,12 @@ def test_a_known_gutter_and_finish_are_named():
     drawer = Drawer()
     sketch, _conversations = _sketch(_case(("gutters", "true"), ("finish", "painted")), drawer)
     _draw(sketch)
-    prompt = drawer.requests[0].prompt
-    assert "A gutter runs along the front." in prompt
-    assert "The frame is Painted." in prompt
-    assert re.search(r"\bR \d", prompt) is None
+    assert len(drawer.requests) == 2
+    for prompt in (item.prompt for item in drawer.requests):
+        assert "A gutter runs along the front." in prompt
+        assert "The frame is Painted." in prompt
+        assert "between 5 and 10 metres away" in prompt
+        assert re.search(r"\bR \d", prompt) is None
 
 
 def _options(playbook):
@@ -349,19 +422,55 @@ def test_a_shade_net_quote_with_the_photo_already_on_the_case_draws_it():
     plain, _untouched, _ignored = _quote("SHADE-NET", policies, None)
     assert box.sent[1] == plain.sent[1]
     assert "The total is" in box.sent[1][1]
-    assert box.sent[2][1] == "This is a drawing of that spec on your photo, not a measure."
+    assert box.sent[2][1] == "This is a drawing of that spec on your photo, from above, not a measure."
+    assert box.sent[3][1] == "This is a drawing of that spec on your photo, from eye level, not a measure."
     assert box.images[2] and box.images[2].startswith("data:image/png;base64,")
-    assert drawer.requests[0].photo == b"garage-bytes"
+    assert box.images[3] and box.images[3].startswith("data:image/png;base64,")
+    assert [request.photo for request in drawer.requests] == [b"garage-bytes", b"garage-bytes"]
     assert "sags in a curve" in drawer.requests[0].prompt
+    assert "looking down" in drawer.requests[0].prompt
+    assert "eye level with the ground" in drawer.requests[1].prompt
 
 
 def test_an_ibr_quote_with_no_photo_asks_for_a_straight_roof():
     policies = _shade_policies()
     box, drawer, _conversations = _quote("SHEET-ECO", policies, _attached)
     assert "straight pitched roof of Galvanised IBR sheeting" in drawer.requests[0].prompt
-    assert drawer.requests[0].photo is None
-    assert box.sent[2][1] == "This is a drawing of that spec against a plain wall and garage, not a measure."
+    assert all(request.photo is None for request in drawer.requests)
+    assert box.sent[2][1] == "This is a drawing of that spec against a plain wall and garage, from above, not a measure."
+    assert box.sent[3][1] == "This is a drawing of that spec against a plain wall and garage, from eye level, not a measure."
     assert "The total is R 297500.00" in box.sent[1][1]
+
+
+def test_a_render_request_sends_the_drawings_and_not_the_refusal():
+    policies = _sheet_policies()
+    business = BusinessView(name="FrameWorks", trade="carports and sheeting")
+    conversations, cases, _sender, _clock, turn = harness(
+        _Talk("I don't have a rendered preview image I can generate."),
+        case=_case(("item_codes", "SHEET-ECO")),
+        business=business,
+        policies=policies,
+    )
+    box = PictureSender()
+    turn._sender = box
+    drawer = Drawer()
+    turn._pictures = _attached(drawer, cases, conversations, policies)
+    say(conversations, "Render a picture of the carport for me.", 0, "ask-live")
+    turn.execute(CONTEXT, CONVERSATION)
+    bodies = [body for _wa, body in box.sent]
+    assert bodies
+    assert not any("rendered preview" in body for body in bodies)
+    assert "from above" in bodies[0]
+    assert "from eye level" in bodies[1]
+    assert len(drawer.requests) == 2
+
+
+class _Talk:
+    def __init__(self, text: str) -> None:
+        self.text = text
+
+    def complete(self, prompt):
+        return ModelReply(text=self.text)
 
 
 def test_a_blurry_garage_photo_on_a_quote_says_the_photo_was_hard_to_use():
@@ -378,10 +487,11 @@ def test_a_blurry_garage_photo_on_a_quote_says_the_photo_was_hard_to_use():
     turn.execute(CONTEXT, CONVERSATION)
     say(conversations, "Yes", 0, str(uuid4()))
     turn.execute(CONTEXT, CONVERSATION)
-    assert drawer.requests[0].photo is None
+    assert all(request.photo is None for request in drawer.requests)
     assert box.sent[2][1].startswith("That photo was hard to use.")
+    assert box.sent[3][1].startswith("That photo was hard to use.")
     assert "The total is R 297500.00" in box.sent[1][1]
-    assert box.images[2] and box.images[1] is None
+    assert box.images[2] and box.images[3] and box.images[1] is None
 
 
 def test_a_renderer_failure_still_sends_the_quote_and_no_picture():
@@ -396,6 +506,80 @@ def test_a_renderer_failure_still_sends_the_quote_and_no_picture():
     assert box.sent[2] == (WA, FAILED)
     assert box.images[2] is None
     assert drawer.requests
+
+
+def test_a_price_waits_for_the_frame_and_a_render_follows_the_quote():
+    class Spark:
+        def complete(self, prompt):
+            text = "\n".join(message.body for message in prompt.messages)
+            fact = {"source": "customer_text", "event_id": prompt.messages[-1].provider_message_id}
+            if prompt.tool_payloads:
+                if "render" in text.casefold():
+                    return ModelReply(
+                        text="We don't generate renders here. Is that the spec you want me to price?",
+                        tool_calls=(),
+                    )
+                return ModelReply(text="The fixed quote is R 5210.00. Is the frame new?", tool_calls=())
+            if "render" in text.casefold():
+                return ModelReply(text="We don't generate renders here.", tool_calls=())
+            if "New frame" in text:
+                return _record_sheet(
+                    [
+                        {"key": "existing_frame", "value": "false", **fact},
+                        {"key": "width_m", "value": "3", **fact},
+                        {"key": "length_m", "value": "4", **fact},
+                        {"key": "item_codes", "value": "SHEET-POLY", **fact},
+                    ]
+                )
+            if text.endswith("Yes"):
+                return ModelReply(text="", tool_calls=())
+            return ModelReply(
+                text="",
+                tool_calls=(
+                    ToolCall(
+                        name="update_case",
+                        arguments={
+                            "conversation_id": str(CONVERSATION),
+                            "job_id": "carport",
+                            "job_type": "carport",
+                            "facts": [
+                                {"key": "width_m", "value": "3", **fact},
+                                {"key": "length_m", "value": "4", **fact},
+                                {"key": "item_codes", "value": "SHEET-POLY", **fact},
+                            ],
+                        },
+                    ),
+                    ToolCall(name="get_quote", arguments={"conversation_id": str(CONVERSATION)}),
+                ),
+            )
+
+    policies = _sheet_policies()
+    business = BusinessView(name="FrameWorks", trade="carports and sheeting")
+    conversations, cases, _sender, _clock, turn = harness(Spark(), business=business, policies=policies)
+    box = PictureSender()
+    turn._sender = box
+    turn._pictures = _attached(Drawer(), cases, conversations, policies)
+    say(conversations, "Give me a quote on polycarbonate sheeting that is 3 x 4m", 0, "ask-size")
+    turn.execute(CONTEXT, CONVERSATION)
+    assert box.sent[0][1] == "Is this sheeting onto the existing frame?"
+    assert "total" not in box.sent[0][1].casefold()
+    assert "/card/" not in box.sent[0][1]
+    say(conversations, "New frame", 0, "ask-frame")
+    turn.execute(CONTEXT, CONVERSATION)
+    assert box.sent[1][1].endswith("Is that the spec to price?")
+    assert "/card/" not in box.sent[1][1]
+    assert "total" not in box.sent[1][1].casefold()
+    say(conversations, "Yes", 0, "ask-yes")
+    turn.execute(CONTEXT, CONVERSATION)
+    assert "The total is" in box.sent[2][1]
+    assert "/card/" in box.sent[2][1]
+    say(conversations, "Show me a render of the carport", 0, "ask-render")
+    turn.execute(CONTEXT, CONVERSATION)
+    bodies = [body for _wa, body in box.sent[3:]]
+    assert bodies
+    assert not any("render" in body.casefold() and "don't" in body.casefold() for body in bodies)
+    assert "from above" in bodies[0]
+    assert "from eye level" in bodies[1]
 
 
 def test_aquasure_sends_the_quote_and_no_picture():

@@ -760,12 +760,17 @@ def test_a_voice_note_is_played_back_and_does_not_quote_yet():
     assert stored.events[-1].body == VOICE
 
 
-def test_a_reply_that_already_plays_the_transcript_is_left_as_it_is():
+def test_a_played_back_spec_is_confirmed_before_it_is_priced():
     spoken = f"I heard: {VOICE}. Thanks."
     conversations, _, sender, _, turn = harness(_Swap(spoken))
     hear(conversations, VOICE, 0, str(EVENT))
     turn.execute(CONTEXT, CONVERSATION)
-    assert sender.sent[0][1] == spoken
+    reply = sender.sent[0][1]
+    assert reply.startswith(f"I heard: {VOICE}.")
+    assert reply.count("I heard:") == 1
+    assert reply.endswith("Is that the spec to price?")
+    assert "The total is" not in reply
+    assert "/card/" not in reply
 
 
 class _RecordTank:
