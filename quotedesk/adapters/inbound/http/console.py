@@ -18,9 +18,18 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from quotedesk.application.dto.tenant import TenantContext
-from quotedesk.application.dto.tool_inputs import ApproveExceptionInput, EscalateToOwnerInput, RejectExceptionInput
+from quotedesk.application.dto.tool_inputs import (
+    ApproveExceptionInput,
+    EscalateToOwnerInput,
+    RejectExceptionInput,
+    RollbackInput,
+)
 from quotedesk.application.dto.tool_outputs import ApproveResult
 from quotedesk.application.errors import ApplicationError
+from quotedesk.adapters.outbound.parsers.macros import reject_macros_before_parse
+from quotedesk.application.use_cases.editor.rollback_policy import RollbackPolicy
+from quotedesk.application.use_cases.imports.import_rate_card import ImportRateCard, ImportRateCardInput
+from quotedesk.application.use_cases.operator.audit_timeline import AuditTimeline
 from quotedesk.application.use_cases.tools.escalate_to_owner import EscalateToOwner
 from quotedesk.application.use_cases.tools.notify_owner import NotifyOwner
 from quotedesk.domain.policy.when import summarise
@@ -154,8 +163,12 @@ def brief(request: Request, conversation_id: UUID) -> HTMLResponse:
             text = built
     if not text.strip():
         text = "This case has no brief yet."
+    timeline = ()
+    if getattr(state, "unit", None) is not None:
+        timeline = AuditTimeline(state.unit).execute(_context(request), conversation_id)
     html = owner_templates().get_template("brief.html").render(
         brief=text,
+        timeline=timeline,
         conversation_id=conversation_id,
         business=_business_name(state),
     )
@@ -195,6 +208,48 @@ def _built_brief(state, conversation_id: UUID) -> str:
         )
     except (ApplicationError, DomainError):
         return ""
+
+
+class _KeepHeaders:
+    def label(self, headers):
+        return {header: header for header in headers}
+
+
+@router.post("/console/rate-card/import", response_model=None)
+async def import_rate_card(request: Request) -> HTMLResponse | RedirectResponse | Response:
+    if getattr(request.app.state, "store_status", "postgres") == "down":
+        return Response(status_code=503)
+    form = await request.form()
+    upload = form.get("rate_card")
+    filename = getattr(upload, "filename", "") or ""
+    body = await upload.read() if upload is not None and hasattr(upload, "read") else b""
+    tool = ImportRateCard(request.app.state.policies, request.app.state.unit, reject_macros_before_parse)
+    try:
+        tool.execute(
+            _context(request),
+            ImportRateCardInput(filename=filename or "rate-card.csv", body=body, expected_unit="each", labeller=_KeepHeaders()),
+        )
+    except (ApplicationError, DomainError) as exc:
+        return owner_page(request, policy=policy_view(request, refusal=str(exc)))
+    return RedirectResponse("/console?imported=1#policy", status_code=303)
+
+
+@router.post("/console/policy/rollback", response_model=None)
+async def rollback(request: Request) -> HTMLResponse | RedirectResponse | Response:
+    if getattr(request.app.state, "store_status", "postgres") == "down":
+        return Response(status_code=503)
+    form = await read_form(request)
+    version = form.get("source_version", "").strip()
+    reason = form.get("reason", "").strip()
+    tool = RollbackPolicy(request.app.state.policies, request.app.state.unit, request.app.state.clock)
+    try:
+        published = tool.execute(
+            _context(request),
+            RollbackInput(source_version=PolicyVersionId(version), reason=reason, idempotency_key=str(uuid4())),
+        )
+    except (ApplicationError, DomainError) as exc:
+        return owner_page(request, policy=policy_view(request, reason=reason, refusal=str(exc)))
+    return RedirectResponse(f"/console?published={published.value}#policy", status_code=303)
 
 
 @router.post("/console/release", response_model=None)

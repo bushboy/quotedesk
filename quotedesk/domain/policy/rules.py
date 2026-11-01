@@ -1,3 +1,5 @@
+"""The policy rules. The decision matches one rule and returns its outcome."""
+
 from decimal import Decimal
 from enum import Enum
 
@@ -9,6 +11,7 @@ from quotedesk.domain.shared.ids import PolicyVersionId, RuleId
 
 
 class Outcome(str, Enum):
+    """The Outcome."""
     ESCALATION = "escalation"
     SITE_ASSESSMENT = "site_assessment"
     FIXED_OFFER = "fixed_offer"
@@ -16,6 +19,7 @@ class Outcome(str, Enum):
 
 
 class PolicyRule(BaseModel):
+    """The PolicyRule."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     rule_id: RuleId
@@ -27,6 +31,7 @@ class PolicyRule(BaseModel):
 
 
 class Policy(BaseModel):
+    """The Policy."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     version: PolicyVersionId
@@ -37,6 +42,7 @@ class Policy(BaseModel):
 
 
 class Decision(BaseModel):
+    """The Decision."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     outcome: Outcome

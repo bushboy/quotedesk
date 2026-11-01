@@ -1,4 +1,6 @@
 from __future__ import annotations
+"""The conversation log. The receive path appends a customer event and the turn reads it."""
+
 
 from datetime import datetime
 from typing import Literal
@@ -15,6 +17,7 @@ _MISSING = "That message is not on the conversation."
 
 
 class ConversationEvent(BaseModel):
+    """The ConversationEvent."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     provider_message_id: str
@@ -27,6 +30,7 @@ class ConversationEvent(BaseModel):
 
 
 class AppendResult(BaseModel):
+    """The AppendResult a use case returns."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     conversation: Conversation
@@ -34,6 +38,7 @@ class AppendResult(BaseModel):
 
 
 class Conversation(BaseModel):
+    """The Conversation."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     conversation_id: UUID

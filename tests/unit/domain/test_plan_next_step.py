@@ -213,6 +213,100 @@ def test_a_new_carport_asks_the_sheet_before_the_size():
     assert step.kind is not StepKind.INSPECTION
 
 
+def _priced_swap() -> CaseFile:
+    tank = CaseFile.open(CONVERSATION, TENANT).add_job("tank", "replacement")
+    tank = tank.record_fact("tank", uuid4(), "size_litres", "5000", "customer_text", EVENT)
+    tank = tank.record_fact("tank", uuid4(), "existing_level_base", "true", "customer_text", EVENT)
+    return tank.record_fact("tank", uuid4(), "item_codes", "TANK-5000", "customer_text", EVENT)
+
+
+def test_a_ready_spec_is_replayed_before_the_fixed_quote():
+    from quotedesk.domain.case.contradictions import accept_spec_reply
+
+    step = plan_next_step(_priced_swap(), AQUA, aquasure_policy())
+    assert step.kind is StepKind.CONFIRM
+    assert "5000 L tank" in step.sentence
+    assert "existing level base yes" in step.sentence
+    assert step.sentence.endswith("Is that the spec to price?")
+    confirmed = accept_spec_reply(_priced_swap(), step.sentence, "Yes", EVENT)
+    quoted = plan_next_step(confirmed, AQUA, aquasure_policy())
+    assert quoted.kind is StepKind.QUOTE
+    assert "fixed quote" in quoted.sentence
+
+
+def test_a_photo_size_is_asked_once_and_the_chosen_value_is_kept():
+    from quotedesk.domain.case.contradictions import clashes_of
+
+    clash = _priced_swap().record_fact(
+        "tank",
+        uuid4(),
+        "size_litres",
+        "2500",
+        "photo_extraction",
+        EVENT,
+        evidence="about 1.8 m tall",
+    )
+    asked = plan_next_step(clash, AQUA, aquasure_policy())
+    assert asked.kind is StepKind.CONFIRM
+    assert "You said 5000 L tank" in asked.sentence
+    assert "2500 L tank" in asked.sentence
+    assert asked.sentence.endswith("Which should I price?")
+    chosen = clash.resolve_clash("tank", "size_litres", "customer", uuid4(), EVENT)
+    assert clashes_of(chosen, "tank")[0].chosen_side == "customer"
+    assert clashes_of(chosen, "tank")[0].chosen_value == "5000"
+    assert chosen.active_fact("tank", "size_litres").value == "5000"
+    again = plan_next_step(chosen, AQUA, aquasure_policy())
+    assert "Which should I price?" not in again.sentence
+    assert "You confirmed 5000 L tank" in again.sentence
+    reopened = chosen.record_fact("tank", uuid4(), "size_litres", "10000", "photo_extraction", EVENT)
+    reasked = plan_next_step(reopened, AQUA, aquasure_policy())
+    assert reasked.sentence.endswith("Which should I price?")
+    assert "10000" in reasked.sentence
+    assert clashes_of(reopened, "tank")[0].chosen_side == ""
+
+
+def test_a_declined_spec_has_no_fixed_total():
+    declined = _priced_swap().decline_spec("tank", uuid4(), EVENT)
+    step = plan_next_step(declined, AQUA, aquasure_policy())
+    assert step.kind in (StepKind.QUOTE, StepKind.ESCALATE)
+    assert "fixed quote" not in step.sentence.casefold()
+    assert "R " not in step.sentence
+
+
+def test_an_inferred_photo_size_stays_off_the_price_until_the_spec_is_confirmed():
+    from quotedesk.domain.case.case_file import ready_values
+
+    tank = CaseFile.open(CONVERSATION, TENANT).add_job("tank", "replacement")
+    tank = tank.record_fact(
+        "tank",
+        uuid4(),
+        "size_litres",
+        "5000",
+        "photo_extraction",
+        EVENT,
+        confidence=Decimal("0.82"),
+    )
+    assert "size_litres" not in ready_values(tank.facts("tank"))
+    confirmed = tank.confirm_spec("tank", uuid4(), EVENT)
+    assert ready_values(confirmed.facts("tank"))["size_litres"] == "5000"
+
+
+def test_a_photo_note_is_replayed_and_is_not_the_priced_size():
+    tank = _priced_swap().record_fact("tank", uuid4(), "photo_note", "about 1.8 m tall", "customer_text", EVENT)
+    step = plan_next_step(tank, AQUA, aquasure_policy())
+    assert "The photo notes: about 1.8 m tall." in step.sentence
+    assert "5000 L tank" in step.sentence
+    assert "1.8" not in step.sentence.split("The photo notes:")[0]
+
+
+def test_a_blurry_photo_asks_for_another_picture_and_does_not_block_the_ask():
+    tank = CaseFile.open(CONVERSATION, TENANT).add_job("tank", "replacement")
+    tank = tank.record_fact("tank", uuid4(), "media_usable", "false", "customer_text", EVENT)
+    step = plan_next_step(tank, AQUA, aquasure_policy())
+    assert step.kind is StepKind.ASK
+    assert step.sentence.endswith("That photo is hard to read. Do you have another picture?")
+
+
 def test_a_widened_opening_is_still_a_site_measure():
     bay = CaseFile.open(CONVERSATION, TENANT).add_job("bay", "carport")
     bay = bay.record_fact("bay", uuid4(), "opening", "widened", "customer_text", EVENT)

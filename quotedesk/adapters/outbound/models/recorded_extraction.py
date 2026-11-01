@@ -1,3 +1,5 @@
+"""A recorded image extraction. Tests and the scripted model use it instead of a live read."""
+
 import json
 from pathlib import Path
 
@@ -11,6 +13,7 @@ _SAM = _ROOT / "tests" / "fixtures" / "sam"
 
 
 def load_recording(name: str) -> ExtractionResult:
+    """Load one recorded extraction from disk."""
     payload = json.loads((_EXTRACTION / f"{name}.json").read_text(encoding="utf-8"))
     parsed = parse_sam_response(json.loads((_SAM / payload["sam"]).read_text(encoding="utf-8")))
     flags = {

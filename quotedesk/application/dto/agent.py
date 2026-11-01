@@ -1,3 +1,5 @@
+"""The agent DTOs. The turn and the model adapter pass prompts, replies, and extractions."""
+
 from datetime import datetime
 from enum import Enum
 from typing import Any, Literal
@@ -7,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class TurnOutcome(str, Enum):
+    """The TurnOutcome."""
     ASKED = "asked"
     QUOTED = "quoted"
     INSPECTION_OFFERED = "inspection_offered"
@@ -21,6 +24,7 @@ PromptKind = Literal["text", "image", "audio", "video"]
 
 
 class ToolCall(BaseModel):
+    """The ToolCall."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     name: str
@@ -29,6 +33,7 @@ class ToolCall(BaseModel):
 
 
 class ModelReply(BaseModel):
+    """The ModelReply."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     text: str
@@ -36,6 +41,7 @@ class ModelReply(BaseModel):
 
 
 class Handover(BaseModel):
+    """The Handover."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     conversation_id: UUID
@@ -44,6 +50,7 @@ class Handover(BaseModel):
 
 
 class HandoverNote(BaseModel):
+    """The HandoverNote."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     conversation_id: UUID
@@ -53,6 +60,7 @@ class HandoverNote(BaseModel):
 
 
 class PromptMessage(BaseModel):
+    """The PromptMessage."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     provider_message_id: str
@@ -62,6 +70,7 @@ class PromptMessage(BaseModel):
 
 
 class PromptFact(BaseModel):
+    """The PromptFact."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     job_id: str
@@ -72,6 +81,7 @@ class PromptFact(BaseModel):
 
 
 class CaseView(BaseModel):
+    """The CaseView."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     facts: tuple[PromptFact, ...] = ()
@@ -80,6 +90,7 @@ class CaseView(BaseModel):
 
 
 class PromptRateItem(BaseModel):
+    """The PromptRateItem."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     item_code: str
@@ -87,6 +98,7 @@ class PromptRateItem(BaseModel):
 
 
 class PromptExtraction(BaseModel):
+    """The PromptExtraction."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     provider_message_id: str
@@ -96,6 +108,7 @@ class PromptExtraction(BaseModel):
 
 
 class ExtractionResult(BaseModel):
+    """The ExtractionResult a use case returns."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     summary: str
@@ -110,6 +123,7 @@ class ExtractionResult(BaseModel):
 
 
 class ToolPayload(BaseModel):
+    """The ToolPayload."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     name: str
@@ -117,6 +131,7 @@ class ToolPayload(BaseModel):
 
 
 class BusinessView(BaseModel):
+    """The BusinessView."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     name: str = ""
@@ -126,6 +141,7 @@ class BusinessView(BaseModel):
 
 
 class TurnPrompt(BaseModel):
+    """The TurnPrompt."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     event_ids: tuple[str, ...]

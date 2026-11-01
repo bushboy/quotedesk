@@ -184,7 +184,7 @@ def test_clean_photo_keeps_water_f01():
     assert quote.body["outcome"] == "fixed_offer"
     assert quote.body["total"]["amount"] == "5550.00"
     assert sender.sent == [(WA, QUOTE)]
-    assert cases.case.current("tank", "agreement") == "true"
+    assert cases.case.current("tank", "rate_card") == "true"
 
 
 def test_photo_inferred_size_does_not_issue_a_fixed_price():
@@ -219,7 +219,6 @@ def test_a_sam_miss_still_quotes_a_confirmed_replacement():
     text(conversations, TANK, 0, str(EVENT))
     picture(conversations, CAPTION, 1, IMAGE)
     turn.execute(CONTEXT, CONVERSATION)
-    assert cases.case.current("tank", "agreement") == "false"
     assert sender.sent == [(WA, "We can send a fixed quote for this replacement. /card/QD-1042?code=1042")]
 
 

@@ -29,16 +29,6 @@ _READ = (
     "summary is one sentence. objects is a list of names. "
     "blur, darkness, and wrong_subject are true or false."
 )
-_CARPORT_READ = (
-    f"{_PLACE} This business builds carports and replaces sheeting. Describe the customer photo. "
-    "Return a JSON object with summary, notes, blur, darkness, and wrong_subject. "
-    "summary is one sentence. notes is a list of short sentences. "
-    "The customer's message, when they wrote one, says what the photo is for. "
-    "A garage or a house can be the place a carport will be mounted. "
-    "A single garage, a double garage, an existing carport, or a house wall can show the size. "
-    "Put that clue in notes. Give metres only when the photo shows them. Do not invent a price. "
-    "blur, darkness, and wrong_subject are true or false."
-)
 # First a carport. Otherwise a garage or a house. Otherwise sheeting.
 _CARPORT_STEPS = (("carport",), ("garage", "house"), ("sheeting",))
 _CARPORT_CLUES = {
@@ -46,25 +36,48 @@ _CARPORT_CLUES = {
     "garage": ("single garage", "double garage"),
     "house": ("house wall",),
 }
-_TANK_READ = (
-    f"{_PLACE} This business installs and replaces water tanks. Describe the customer photo. "
-    "Return a JSON object with summary, notes, blur, darkness, and wrong_subject. "
-    "summary is one sentence. notes is a list of short sentences. "
-    "The customer's message, when they wrote one, says what the photo is for. "
-    "An existing tank, a tank stand, or a leak on a tank can show a replacement and a size. "
-    "A house or a downpipe can be where water will be collected. "
-    "The space where a tank could sit can show the size and whether that place is suitable. "
-    "Give litres only when the photo shows them. Do not invent a price. "
-    "blur, darkness, and wrong_subject are true or false."
-)
 # First a tank, a stand, or a leak. Otherwise a house or a downpipe, then the space.
 _TANK_STEPS = (("tank", "tank stand", "tank leak"), ("house", "downpipe"))
 _TANK_CLUES = {
     "house": ("tank space",),
     "downpipe": ("tank space",),
 }
-_READS = {"carport": _CARPORT_READ, "tank": _TANK_READ}
 _log = logging.getLogger(__name__)
+
+
+def read_from(playbook) -> str:
+    """The image prompt is the playbook: the trade, the jobs, the choices, and what to look for.
+
+    A note from this read can be replayed. It does not set a size, a code, or a price.
+    """
+    jobs = []
+    looks = []
+    options = []
+    for job in playbook.job_types:
+        if job.description.strip():
+            jobs.append(job.description.strip())
+        for fact in job.facts:
+            if fact.look_for.strip():
+                looks.append(fact.look_for.strip())
+            for option in fact.options:
+                if option.label.strip():
+                    options.append(option.label.strip())
+    trade = playbook.trade.strip() or playbook.name.strip() or "this business"
+    parts = [
+        _PLACE,
+        f"This business does {trade}.",
+        "Describe the customer photo.",
+        "Return a JSON object with summary, notes, blur, darkness, and wrong_subject.",
+        "summary is one sentence. notes is a list of short sentences.",
+        "A note is something the customer can confirm. It is not a size, a product code, or a price.",
+    ]
+    if jobs:
+        parts.append("Jobs: " + " ".join(dict.fromkeys(jobs)) + ".")
+    if options:
+        parts.append("Choices: " + ", ".join(dict.fromkeys(options)) + ".")
+    if looks:
+        parts.append("Look for: " + " ".join(dict.fromkeys(looks)) + ".")
+    return " ".join(parts)
 
 
 class _SamUnavailable(Exception):
@@ -85,6 +98,7 @@ class ImageEnricher:
         sam_model_id: str = "sam-3.1",
         sam_base_url: str | None = None,
         subject: str = "",
+        playbook=None,
     ) -> None:
         self._host = host
         self._transport = transport
@@ -94,8 +108,15 @@ class ImageEnricher:
         self._sam_model_id = sam_model_id
         self._sam_url = (sam_base_url or base_url).rstrip("/") + "/responses"
         self._subject = subject
+        self._playbook = playbook
         self._notes: dict[str, tuple[str | None, str]] = {}
         self._cache: dict[str, ExtractionResult] = {}
+
+    def _instructions(self) -> str:
+        book = self._playbook
+        if book is not None and book.populated():
+            return read_from(book)
+        return _READ
 
     def note(self, provider_message_id: str, media_id: str | None, caption: str) -> None:
         self._notes[provider_message_id] = (media_id, caption)
@@ -113,7 +134,7 @@ class ImageEnricher:
         mime, data = found
         try:
             extracted = self._transport.post(
-                self._url, _extract_body(self._model_id, caption, mime, data, self._subject)
+                self._url, _extract_body(self._model_id, caption, mime, data, self._instructions())
             )
             _log.info("Image analyser id=%s text=%s", provider_message_id, _logged(extracted))
             fields = _fields(_as_object(extracted))
@@ -224,10 +245,10 @@ class ImageEnricher:
         return masks
 
 
-def _extract_body(model_id: str, caption: str, mime: str, data: bytes, subject: str = "") -> dict[str, Any]:
+def _extract_body(model_id: str, caption: str, mime: str, data: bytes, instructions: str) -> dict[str, Any]:
     return {
         "model": model_id,
-        "instructions": _READS.get(subject, _READ),
+        "instructions": instructions,
         "input": [
             {
                 "role": "user",

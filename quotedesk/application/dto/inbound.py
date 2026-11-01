@@ -1,3 +1,5 @@
+"""The inbound DTOs. The receive path takes a message and returns whether it was stored."""
+
 from datetime import datetime
 from decimal import Decimal
 from typing import Literal
@@ -10,6 +12,7 @@ MediaCategory = Literal["ordinary", "explicit", "sensitive_document"]
 
 
 class InboundMessage(BaseModel):
+    """The InboundMessage."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     conversation_id: UUID
@@ -27,6 +30,7 @@ class InboundMessage(BaseModel):
 
 
 class GateFlags(BaseModel):
+    """The GateFlags."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     afrikaans_text: bool
@@ -34,6 +38,7 @@ class GateFlags(BaseModel):
 
 
 class GateLimits(BaseModel):
+    """The GateLimits."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     max_bytes: int
@@ -43,6 +48,7 @@ class GateLimits(BaseModel):
 
 
 class ReceiveResult(BaseModel):
+    """The ReceiveResult a use case returns."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     stored: bool

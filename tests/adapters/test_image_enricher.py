@@ -295,6 +295,8 @@ def _empty_sam() -> dict:
 
 
 def _carport_enricher(transport: _Transport) -> ImageEnricher:
+    from quotedesk.adapters.outbound.parsers.aquasure import load_playbook
+
     return ImageEnricher(
         host=_Host({"media-1": ("image/jpeg", b"\xff\xd8\xff\xd9")}),
         transport=transport,
@@ -302,6 +304,7 @@ def _carport_enricher(transport: _Transport) -> ImageEnricher:
         base_url="https://api.meta.ai/v1",
         sam_model_id="sam-3.1",
         subject="carport",
+        playbook=load_playbook(Path(__file__).resolve().parents[2] / "seeds" / "frameworks.yaml"),
     )
 
 
@@ -317,7 +320,7 @@ def test_a_carport_photo_stops_before_the_garage(monkeypatch):
     enricher.note("wamid.IMG", "media-1", "This is the one we want to resheet.")
     result = enricher.for_image("wamid.IMG")
     assert _prompts(transport) == ["carport", "single carport", "double carport"]
-    assert "carports and replaces sheeting" in transport.calls[0][1]["instructions"]
+    assert "carports and sheeting" in transport.calls[0][1]["instructions"]
     assert result is not None
     assert result.objects == ("carport", "double carport")
     assert result.objects[0] == "carport"
@@ -376,6 +379,8 @@ def test_sheeting_is_the_last_object(monkeypatch):
 
 
 def _tank_enricher(transport: _Transport) -> ImageEnricher:
+    from quotedesk.adapters.outbound.parsers.aquasure import load_playbook
+
     return ImageEnricher(
         host=_Host({"media-1": ("image/jpeg", b"\xff\xd8\xff\xd9")}),
         transport=transport,
@@ -383,6 +388,7 @@ def _tank_enricher(transport: _Transport) -> ImageEnricher:
         base_url="https://api.meta.ai/v1",
         sam_model_id="sam-3.1",
         subject="tank",
+        playbook=load_playbook(Path(__file__).resolve().parents[2] / "seeds" / "aquasure.yaml"),
     )
 
 
@@ -394,7 +400,8 @@ def test_a_tank_photo_stops_before_the_house(monkeypatch):
     enricher.note("wamid.IMG", "media-1", "Replace this one.")
     result = enricher.for_image("wamid.IMG")
     assert _prompts(transport) == ["tank", "tank stand", "tank leak"]
-    assert "installs and replaces water tanks" in transport.calls[0][1]["instructions"]
+    assert "water tanks and pumps" in transport.calls[0][1]["instructions"]
+    assert "size label" in transport.calls[0][1]["instructions"]
     assert result is not None
     assert result.objects == ("tank",)
     assert "tree" not in result.objects

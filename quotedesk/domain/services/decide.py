@@ -19,9 +19,13 @@ _STAND_HAZARD_WORDS = ("leaning", "cracked", "sagging")
 def decide(
     case_facts: CaseFacts,
     extraction_facts: ExtractionFacts,
-    segmentation_facts: SegmentationFacts,
+    _segmentation_facts: SegmentationFacts,
     policy: Policy,
 ) -> Decision:
+    """Match the first rule. The mask argument is accepted and not read.
+
+    A photo disagreement is a clash the customer settles. It does not change the band.
+    """
     facts = _facts(case_facts, extraction_facts, policy)
     indexed = sorted(enumerate(policy.rules), key=lambda item: (item[1].priority, item[0]))
     for _, rule in indexed:

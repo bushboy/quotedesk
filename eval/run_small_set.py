@@ -112,9 +112,18 @@ def _one(slug: str, item: dict) -> dict:
     application.state.cases.ensure(profile.tenant_id, conversation_id)
     opened = Conversation.open(conversation_id).append(item["id"], WHEN, item["customer"]).conversation
     application.state.conversations.save(profile.tenant_id, opened)
-    application.state.turn.execute(TenantContext(tenant_id=profile.tenant_id), conversation_id)
-    reply = recorder.sent[-1] if recorder.sent else ""
+    context = TenantContext(tenant_id=profile.tenant_id)
+    application.state.turn.execute(context, conversation_id)
     step = application.state.turn._step
+    if step.kind is StepKind.CONFIRM and step.sentence.endswith("Is that the spec to price?"):
+        current = application.state.conversations.get(profile.tenant_id, conversation_id)
+        application.state.conversations.save(
+            profile.tenant_id,
+            current.append(f"{item['id']}-yes", WHEN, "Yes").conversation,
+        )
+        application.state.turn.execute(context, conversation_id)
+        step = application.state.turn._step
+    reply = recorder.sent[-1] if recorder.sent else ""
     outcome = _KINDS.get(step.kind, step.kind.value)
     expected_rule = "" if item["rule_id"] == "none" else item["rule_id"]
     forbidden = [phrase for phrase in item["forbidden"] if phrase in reply]

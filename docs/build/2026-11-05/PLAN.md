@@ -31,98 +31,98 @@ The `/health` route already has tests. The `agreement` flag stays out of quoting
 
 Design before tests, in `docs/build/2026-11-05/design/spec-replay.md`.
 
-- [ ] A fixed quote is sent only after the customer confirms the replayed spec.
-- [ ] The replay names every price fact and any settled clash.
-- [ ] A clash stores both sides, the value, and which side the customer confirmed. A later turn does not ask it again unless new evidence arrives.
-- [ ] An inferred photo size stays off the quote until the customer confirms it in the replay.
-- [ ] No confirmation, or a required fact still open, yields a price range or an escalation.
-- [ ] Test: replay, then yes, issues the fixed quote.
-- [ ] Test: a photo size that differs from the customer's words is asked once, the choice is kept, and the quote uses that value.
-- [ ] Test: no confirmation yields a range or an escalation, and no fixed total.
-- [ ] Update the spec section that still says a photo disagreement only lowers a confidence check.
+- [x] A fixed quote is sent only after the customer confirms the replayed spec.
+- [x] The replay names every price fact and any settled clash.
+- [x] A clash stores both sides, the value, and which side the customer confirmed. A later turn does not ask it again unless new evidence arrives.
+- [x] An inferred photo size stays off the quote until the customer confirms it in the replay.
+- [x] No confirmation, or a required fact still open, yields a price range or an escalation.
+- [x] Test: replay, then yes, issues the fixed quote.
+- [x] Test: a photo size that differs from the customer's words is asked once, the choice is kept, and the quote uses that value.
+- [x] Test: no confirmation yields a range or an escalation, and no fixed total.
+- [x] Update the spec section that still says a photo disagreement only lowers a confidence check.
 
 ## 3. Blur notice, then retire the unused photo checks
 
 This starts after section 2 is green, because the replay replaces what `agreement` and `measurement` were standing in for.
 
-- [ ] A blurry or unreadable photo tells the customer and asks whether they have another picture. `media_usable` is that notice.
-- [ ] A confirmed spec still quotes when the photo is blurry or SAM misses. The existing blur and SAM tests stay.
-- [ ] Remove `agreement` and `measurement` from the quote path, and add a `REMOVED.md` line for each: name, commit, reason, replacement.
-- [ ] Retire `WATER-L01` and `FAB-L01`, with a note. An unconfirmed spec is a range or an escalation.
-- [ ] Update the tests and the spec section those two rules came from.
+- [x] A blurry or unreadable photo tells the customer and asks whether they have another picture. `media_usable` is that notice.
+- [x] A confirmed spec still quotes when the photo is blurry or SAM misses. The existing blur and SAM tests stay.
+- [x] Remove `agreement` and `measurement` from the quote path, and add a `REMOVED.md` line for each: name, commit, reason, replacement.
+- [x] Retire `WATER-L01` and `FAB-L01`, with a note. An unconfirmed spec is a range or an escalation.
+- [x] Update the tests and the spec section those two rules came from.
 
 ## 4. Record the deletions already made
 
 `acknowledge`, `_speak`, `_close`, the `_closed` set, `_REFUSAL`, `_BLOCKED_WHILE_HELD`, `QuoteClock`, `save_with_audit`, `resolve_tenant`, and `unknown_tenant_sentence` are already gone from the working tree. The live audit insert in `stored.py` and `open_tenant` stay.
 
-- [ ] Add `docs/reviews/REMOVED.md` with one line per deletion: name, commit, reason, replacement or "none".
-- [ ] Delete the unused `MediaEnricher` port and record it.
-- [ ] Delete the unused `AuditLog` port and record it.
-- [ ] Run the turn, health, and tenant tests. They stay green.
+- [x] Add `docs/reviews/REMOVED.md` with one line per deletion: name, commit, reason, replacement or "none".
+- [x] Delete the unused `MediaEnricher` port and record it.
+- [x] Delete the unused `AuditLog` port and record it.
+- [x] Run the turn, health, and tenant tests. They stay green.
 
 ## 5. Reach the console features that are already built
 
-- [ ] `POST /console/rate-card/import` calls `ImportRateCard`.
-- [ ] CSV upload works, and the draft rows appear in the console for review.
-- [ ] XLSX upload works through the same review.
-- [ ] `POST /console/policy/rollback` calls `RollbackPolicy`.
-- [ ] The case brief shows the audit timeline from `AuditTimeline`.
-- [ ] Exercise each path in the browser: import, review the draft, roll back, and read the timeline.
-- [ ] DOCX, PPTX, and PDF readers sit behind `ColumnLabeller` after CSV and XLSX are green.
+- [x] `POST /console/rate-card/import` calls `ImportRateCard`.
+- [x] CSV upload works, and the draft rows appear in the console for review.
+- [x] XLSX upload works through the same review.
+- [x] `POST /console/policy/rollback` calls `RollbackPolicy`.
+- [x] The case brief shows the audit timeline from `AuditTimeline`.
+- [x] Exercise each path in the browser: import, review the draft, roll back, and read the timeline.
+- [x] DOCX, PPTX, and PDF readers sit behind `ColumnLabeller` after CSV and XLSX are green.
 
 ## 6. Module docstrings
 
 One sentence each: what the module owns, which layer it is in, and who calls it. Then a docstring on every public class and function in those modules that lacks one.
 
-- [ ] `adapters/inbound/http/quote_card.py`, `whatsapp.py`
-- [ ] `adapters/outbound/channels/outbox.py`
-- [ ] `adapters/outbound/models/spark.py`, `recorded_extraction.py`, `baseten/sam_parser.py`
-- [ ] `adapters/outbound/parsers/aquasure.py`, `macros.py`
-- [ ] `adapters/outbound/persistence/quotes.py`
-- [ ] `application/dto/` modules named in appraisal section 4.1
-- [ ] `application/errors.py`
-- [ ] `application/ports/agent.py`, `gate.py`, `media.py`, `repositories.py`, `runtime.py`
-- [ ] `application/prompts.py`
-- [ ] `application/use_cases/` modules that appraisal section 4.1 still lists as undocumented
-- [ ] `domain/case/case_file.py`, `contradictions.py`, `facts.py`
-- [ ] `domain/conversation/events.py`
-- [ ] `domain/policy/clauses.py`, `draft.py`, `playbook.py`, `rules.py`
-- [ ] `domain/quotes/quote.py`, `schedule.py` (the models; name `domain/services/schedule.py` in the sentence)
-- [ ] `domain/services/commitments.py`, `confidence.py`, `injection.py`, `price.py`, `schedule.py`, `select_clauses.py`, `validate_policy.py`
-- [ ] `domain/shared/errors.py`, `ids.py`, `money.py`, `windows.py`
-- [ ] `infrastructure/config.py`, `container.py`
+- [x] `adapters/inbound/http/quote_card.py`, `whatsapp.py`
+- [x] `adapters/outbound/channels/outbox.py`
+- [x] `adapters/outbound/models/spark.py`, `recorded_extraction.py`, `baseten/sam_parser.py`
+- [x] `adapters/outbound/parsers/aquasure.py`, `macros.py`
+- [x] `adapters/outbound/persistence/quotes.py`
+- [x] `application/dto/` modules named in appraisal section 4.1
+- [x] `application/errors.py`
+- [x] `application/ports/agent.py`, `gate.py`, `media.py`, `repositories.py`, `runtime.py`
+- [x] `application/prompts.py`
+- [x] `application/use_cases/` modules that appraisal section 4.1 still lists as undocumented
+- [x] `domain/case/case_file.py`, `contradictions.py`, `facts.py`
+- [x] `domain/conversation/events.py`
+- [x] `domain/policy/clauses.py`, `draft.py`, `playbook.py`, `rules.py`
+- [x] `domain/quotes/quote.py`, `schedule.py` (the models; name `domain/services/schedule.py` in the sentence)
+- [x] `domain/services/commitments.py`, `confidence.py`, `injection.py`, `price.py`, `schedule.py`, `select_clauses.py`, `validate_policy.py`
+- [x] `domain/shared/errors.py`, `ids.py`, `money.py`, `windows.py`
+- [x] `infrastructure/config.py`, `container.py`
 
 ## 7. Ruff and vulture
 
-- [ ] Add ruff, rules `F401` and `F841`, to the dev dependencies and CI.
-- [ ] Add vulture at min-confidence 80 to the dev dependencies and CI.
-- [ ] Fix or allow-list every finding. An allow-list entry includes the reason.
+- [x] Add ruff, rules `F401` and `F841`, to the dev dependencies and CI.
+- [x] Add vulture at min-confidence 80 to the dev dependencies and CI.
+- [x] Fix or allow-list every finding. An allow-list entry includes the reason.
 
 ## 8. Voice
 
-- [ ] Add a Muse Voice Transcribe adapter behind a port.
-- [ ] An audio event that already has a transcript skips the adapter.
-- [ ] An audio event with no transcript is transcribed, and that text is what the turn reads.
-- [ ] A transcription failure asks the customer to type. It does not invent a transcript.
+- [x] Add a Muse Voice Transcribe adapter behind a port.
+- [x] An audio event that already has a transcript skips the adapter.
+- [x] An audio event with no transcript is transcribed, and that text is what the turn reads.
+- [x] A transcription failure asks the customer to type. It does not invent a transcript.
 
 ## 9. Rule conditions as policy data
 
-- [ ] Each condition now in `when.py` `_RULES` moves into the policy version: seed YAML, then the database, using the rate-card `when` vocabulary.
-- [ ] `when.py` keeps the evaluator only.
-- [ ] The scripted gate is unchanged.
+- [x] Each condition now in `when.py` `_RULES` moves into the policy version: seed YAML, then the database, using the rate-card `when` vocabulary. The seed is what the process loads. `policy_row` still stores the policy id. The six safety locks stay in `when.py` so a draft cannot change them.
+- [x] `when.py` keeps the evaluator only.
+- [x] The scripted gate is unchanged.
 
 ## 10. Image read from the playbook
 
-- [ ] The image read is built from the playbook: job descriptions, fact options, and `look_for`.
-- [ ] `_CARPORT_READ` and `_TANK_READ` are removed, with `REMOVED.md` lines.
-- [ ] The notes can be named in the spec replay. They still do not set the priced value.
+- [x] The image read is built from the playbook: job descriptions, fact options, and `look_for`.
+- [x] `_CARPORT_READ` and `_TANK_READ` are removed, with `REMOVED.md` lines.
+- [x] The notes can be named in the spec replay. They still do not set the priced value.
 
 ## 11. Suite and gates
 
-- [ ] `pytest` is green. Record the count before this plan and the count after.
-- [ ] The scripted gate is green. Record the result.
-- [ ] One live-model gate is saved as `eval/results/gate-live.json`.
-- [ ] `docs/reviews/REMOVED.md` lists every deletion from this plan.
+- [x] `pytest` is green. Record the count before this plan and the count after. Before: 429 passed. After: 440 passed.
+- [x] The scripted gate is green. Record the result. 2026-11-01, scripted customer, both businesses 27 conversations, outcome accuracy 1.0, passed.
+- [x] One live-model gate is saved as `eval/results/gate-live.json`. `META_API_KEY` was unset, so the file records that the live model was not called.
+- [x] `docs/reviews/REMOVED.md` lists every deletion from this plan.
 
 ## Still outside this plan
 

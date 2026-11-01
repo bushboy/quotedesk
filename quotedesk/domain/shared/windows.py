@@ -1,3 +1,5 @@
+"""The date window. A quote and a visit name the days they cover."""
+
 from datetime import date
 from typing import Any
 
@@ -16,6 +18,7 @@ def _civil_date(value: Any) -> date:
 
 
 class DateWindow(BaseModel):
+    """The DateWindow."""
     model_config = ConfigDict(frozen=True)
 
     start: date

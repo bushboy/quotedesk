@@ -1,3 +1,5 @@
+"""The clause model. The quote selects the conditions that print on the card."""
+
 from decimal import Decimal
 from typing import Literal
 
@@ -7,6 +9,7 @@ ClauseKind = Literal["assumption", "exclusion", "validity", "payment", "schedule
 
 
 class Condition(BaseModel):
+    """The Condition."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     clause_id: str
@@ -18,6 +21,7 @@ class Condition(BaseModel):
 
 
 class ClauseTemplate(BaseModel):
+    """The ClauseTemplate."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     clause_id: str
@@ -29,6 +33,7 @@ class ClauseTemplate(BaseModel):
 
 
 class ClauseFacts(BaseModel):
+    """The ClauseFacts."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     width_m: Decimal | None = None
@@ -37,6 +42,7 @@ class ClauseFacts(BaseModel):
 
 
 class ClausePolicy(BaseModel):
+    """The ClausePolicy."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     templates: tuple[ClauseTemplate, ...]
@@ -45,6 +51,7 @@ class ClausePolicy(BaseModel):
 
 
 class ClauseSelection(BaseModel):
+    """The ClauseSelection."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     conditions: tuple[Condition, ...]

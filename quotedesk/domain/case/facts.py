@@ -1,3 +1,5 @@
+"""The fact views. The decision and the price read a typed snapshot of one job."""
+
 from decimal import Decimal
 from enum import Enum
 from typing import Literal
@@ -12,6 +14,7 @@ from quotedesk.domain.services.confidence import (
 
 
 class JobKind(str, Enum):
+    """The JobKind."""
     REPLACEMENT = "replacement"
     NEW_SYSTEM = "new_system"
     BOREHOLE = "borehole"
@@ -20,6 +23,7 @@ class JobKind(str, Enum):
 
 
 class CaseFacts(BaseModel):
+    """The CaseFacts."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     checks: ConfidenceChecks
@@ -51,6 +55,7 @@ class CaseFacts(BaseModel):
 
 
 class ExtractionFacts(BaseModel):
+    """The ExtractionFacts."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     stand_condition: Literal["sound", "leaning", "cracked", "sagging"] | None = None
@@ -66,6 +71,7 @@ class ExtractionFacts(BaseModel):
 
 
 class SegmentationFacts(BaseModel):
+    """The SegmentationFacts."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     masks: tuple[RecordedMask, ...] = ()

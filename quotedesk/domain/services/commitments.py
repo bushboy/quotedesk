@@ -1,3 +1,5 @@
+"""The reply check. The turn compares what it is about to send with the tool result."""
+
 import re
 from datetime import date
 from decimal import ROUND_HALF_EVEN, Decimal
@@ -48,6 +50,7 @@ PriceKind = Literal["fixed", "range", "none"]
 
 
 class TurnFacts(BaseModel):
+    """The TurnFacts."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     amounts: tuple[Money, ...] = ()
@@ -59,6 +62,7 @@ class TurnFacts(BaseModel):
 
 
 class CheckResult(BaseModel):
+    """The CheckResult a use case returns."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     ok: bool
@@ -66,6 +70,7 @@ class CheckResult(BaseModel):
 
 
 def check_reply(reply: str, facts: TurnFacts) -> CheckResult:
+    """Whether the sentence about to be sent matches the tool result."""
     code = (
         _amounts(reply, facts.amounts)
         or _dates(reply, facts.civil_dates)

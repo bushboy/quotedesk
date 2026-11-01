@@ -5,6 +5,7 @@ from quotedesk.application.dto.inbound import GateFlags, GateLimits, InboundMess
 from quotedesk.application.dto.tenant import TenantContext
 from quotedesk.application.errors import TenantRequired
 from quotedesk.application.ports.gate import ChannelSender, MediaClassifier, MediaStore
+from quotedesk.application.ports.media import VoiceTranscriber
 from quotedesk.application.ports.repositories import ConversationRepository
 from quotedesk.application.ports.runtime import Clock
 from quotedesk.domain.conversation.events import Conversation
@@ -14,6 +15,7 @@ _FILE = "That file is too large or of a type I can't read. Please send a shorter
 _RATE = "I'm getting a lot of messages at once. Please send the next one in a minute."
 _SENSITIVE = "I didn't keep that. Please resend without the sensitive image."
 _LANGUAGE = "Sorry, I can't understand that yet. Could you send it in English?"
+_TYPE_IT = "I couldn't hear that voice note. Please type the details."
 _AFRIKAANS = ("asseblief", "dankie", "tenk", "goeiemôre")
 _WINDOW = timedelta(seconds=60)
 
@@ -26,12 +28,14 @@ class ReceiveInboundEvent:
         media: MediaStore,
         classifier: MediaClassifier,
         clock: Clock,
+        voice: VoiceTranscriber | None = None,
     ) -> None:
         self._conversations = conversations
         self._sender = sender
         self._media = media
         self._classifier = classifier
         self._clock = clock
+        self._voice = voice
 
     def execute(
         self,
@@ -53,6 +57,10 @@ class ReceiveInboundEvent:
             return self._refuse(context, data, _FILE)
         if _language_refused(data, flags):
             return self._refuse(context, data, _LANGUAGE)
+        heard = self._hear(data)
+        if heard is None:
+            return self._refuse(context, data, _TYPE_IT)
+        data = heard
         if data.kind == "image":
             category = self._classifier.classify(data)
             if category in ("explicit", "sensitive_document"):
@@ -73,6 +81,20 @@ class ReceiveInboundEvent:
         start = data.at - _WINDOW
         count = sum(1 for at in self._conversations.noted(tenant_id, data.wa_id) if start <= at <= data.at)
         return count >= limits.messages_per_minute
+
+    def _hear(self, data: InboundMessage) -> InboundMessage | None:
+        """An audio event that already has a transcript is left alone. A failed transcript asks the customer to type."""
+        if data.kind != "audio" or (data.transcript or "").strip() or self._voice is None:
+            return data
+        if not data.media_id:
+            return None
+        try:
+            text = self._voice.transcribe(data.media_id).strip()
+        except Exception:
+            return None
+        if text == "":
+            return None
+        return data.model_copy(update={"transcript": text})
 
     def _refuse(self, context: TenantContext, data: InboundMessage, sentence: str) -> ReceiveResult:
         self._sender.send(data.wa_id, sentence)

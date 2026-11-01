@@ -1,3 +1,5 @@
+"""The price. The quote use case prices confirmed items from the rate card."""
+
 from decimal import Decimal, InvalidOperation
 from typing import Literal
 
@@ -20,6 +22,7 @@ WorkKind = Literal["swap", "new"]
 
 
 class RateCardItem(BaseModel):
+    """The RateCardItem."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     item_code: str
@@ -33,6 +36,7 @@ class RateCardItem(BaseModel):
 
 
 class RateCard(BaseModel):
+    """The RateCard."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     vat_inclusive: bool
@@ -41,6 +45,7 @@ class RateCard(BaseModel):
 
 
 class RequestedItem(BaseModel):
+    """The RequestedItem."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     item_code: str
@@ -48,6 +53,7 @@ class RequestedItem(BaseModel):
 
 
 class PriceFacts(BaseModel):
+    """The PriceFacts."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     items: tuple[RequestedItem, ...]
@@ -61,6 +67,7 @@ class PriceFacts(BaseModel):
 
 
 class PricedLine(BaseModel):
+    """The PricedLine."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     item_code: str
@@ -71,6 +78,7 @@ class PricedLine(BaseModel):
 
 
 class PricedQuote(BaseModel):
+    """The PricedQuote."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     price_type: Literal["fixed", "range", "none"]
@@ -84,6 +92,7 @@ class PricedQuote(BaseModel):
 
 
 def price(decision: Decision, facts: PriceFacts, rate_card: RateCard) -> PricedQuote:
+    """Price the confirmed items on the rate card."""
     if decision.outcome == Outcome.FIXED_OFFER and decision.confidence_band == ConfidenceBand.LOW:
         raise PolicyViolation(code="policy.violation", sentence=_LOW)
     if decision.outcome == Outcome.ESCALATION:

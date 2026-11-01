@@ -2,7 +2,7 @@ import importlib
 
 import pytest
 
-from quotedesk.infrastructure.config import Settings, SettingsError, get_settings
+from quotedesk.infrastructure.config import SettingsError, get_settings
 from quotedesk.infrastructure.main import create_app
 
 REQUIRED = "DATABASE_URL is required."

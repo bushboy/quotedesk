@@ -44,27 +44,21 @@ from quotedesk.application.ports.agent import AgentModel, ConversationLock
 from quotedesk.application.ports.gate import ChannelSender
 from quotedesk.application.ports.repositories import CaseFileRepository, ConversationRepository
 from quotedesk.application.ports.runtime import Clock
-from quotedesk.domain.case.case_file import CaseFile
 from quotedesk.domain.conversation.events import ConversationEvent
 from quotedesk.domain.policy.playbook import BusinessPlaybook
-from quotedesk.domain.policy.rules import Outcome, Policy
+from quotedesk.domain.policy.rules import Outcome
 from quotedesk.domain.services.plan import NextStep, StepKind, fact_applies, plan_next_step
-from quotedesk.domain.shared.ids import PolicyVersionId
 from quotedesk.domain.services.commitments import TurnFacts, check_reply
 from quotedesk.domain.case.case_file import price_ready, status_of
 from quotedesk.domain.services.confidence import (
     MediaUsability,
-    SizeFact,
-    SizeSource,
-    cross_model_agreement,
-    measurement_acceptable,
     media_is_usable,
     rate_card_match,
 )
 from quotedesk.domain.shared.errors import PolicyViolation, ValidationError
 from quotedesk.domain.shared.money import Money
 
-_REFUSAL = "I can only repeat what the quote says."
+__all__ = ["AGENT_TASK"]
 
 
 def _log_model_reply(model, reply: ModelReply) -> None:
@@ -218,10 +212,7 @@ _PHRASE = "can i speak to a person?"
 _PHRASE_REASON = "Can I speak to a person?"
 _TIMEOUT_REASON = "model timeout"
 _UNAVAILABLE = "That tool is not available."
-_BLOCKED_WHILE_HELD = frozenset({"get_quote", "request_change", "hold_slot", "create_deposit_link"})
-_DROPPED = frozenset({"required_fields", "agreement", "measurement", "media_usable", "rate_card"})
-_THRESHOLD = Decimal("0.80")
-_SOURCES = frozenset({"customer_stated", "reference_object", "photo_inferred"})
+_DROPPED = frozenset({"required_fields", "media_usable", "rate_card"})
 
 
 def close_batch(
@@ -342,7 +333,6 @@ class RunAgentTurn:
         self._card_base = card_base
         self._card_code = card_code
         self.enricher = enricher
-        self._closed: set[str] = set()
         self._change_key: str | None = None
         self._active_tenant = None
         self._active_conversation = None
@@ -354,10 +344,6 @@ class RunAgentTurn:
         self._step = NextStep(kind=StepKind.ASK, sentence="What should I quote for you?")
         self._model_calls = 0
         self._bad_arguments = 0
-
-    def acknowledge(self, provider_message_ids) -> None:
-        """Messages already stored before this process started are not answered again."""
-        self._closed.update(provider_message_ids)
 
     def execute(self, context: TenantContext | None, conversation_id: UUID) -> TurnOutcome | None:
         if context is None:
@@ -432,7 +418,12 @@ class RunAgentTurn:
         if not reply.tool_calls and not reply.text.strip():
             payloads: list[ToolPayload] = []
             self._ensure_plan(context, conversation_id, payloads)
-            return self._say_step(context, conversation, conversation_id, wa_id, batch, TurnFacts(), payloads)
+            facts = TurnFacts()
+            if self._should_quote(payloads):
+                payloads.append(self._quote(context, {"conversation_id": str(conversation_id)}, batch, [], []))
+                price_kind, card_link = _quote_facts(payloads[-1], self._card_base, self._card_code, "fixed", None)
+                facts = TurnFacts(price_kind=price_kind, card_link=card_link)
+            return self._say_step(context, conversation, conversation_id, wa_id, batch, facts, payloads)
         facts, answered = self._run_tools(context, reply, prompt, batch, conversation_id)
         text = reply.text
         needs_follow_up = bool(reply.tool_calls) and (not text.strip() or _payload_failed(answered))
@@ -620,7 +611,6 @@ class RunAgentTurn:
             for event in conversation.log
         )
         self._conversations.save(context.tenant_id, conversation.model_copy(update={"log": log}))
-        self._closed.update(ids)
 
     def _clear_change_key(self, context: TenantContext, conversation_id: UUID) -> None:
         saver = getattr(self._conversations, "save_change_key", None)
@@ -788,6 +778,7 @@ class RunAgentTurn:
         from quotedesk.application.use_cases.tools.planner_inputs import planner_inputs
 
         text, asked = planner_inputs(self._conversations, context.tenant_id, conversation_id, playbook)
+        case = _remember_reply(self, context, conversation_id, case, text)
         return plan_next_step(case, playbook, policy, asked=asked, customer_text=text)
 
     def _case(self, context: TenantContext, conversation_id: UUID):
@@ -847,18 +838,6 @@ class RunAgentTurn:
                 )
         rows.sort(key=lambda item: (item[0], item[1]))
         return tuple(item[2] for item in rows[-20:])
-
-    def _speak(self, context: TenantContext, conversation_id: UUID, wa_id: str, body: str) -> None:
-        body = with_name(self._conversations, context.tenant_id, wa_id, body)
-        buttons = ("Accept quote",) if "/card/" in body and "deposit/" not in body else ()
-        image_url = None
-        try:
-            self._sender.send(wa_id, body, buttons=buttons, image_url=image_url)
-        except TypeError:
-            self._sender.send(wa_id, body)
-        record = getattr(self._conversations, "record_reply", None)
-        if record is not None:
-            record(context.tenant_id, conversation_id, self._clock.now(), body)
 
     def _case_view(self, context: TenantContext, conversation_id: UUID) -> CaseView:
         case = self._case(context, conversation_id)
@@ -1074,9 +1053,7 @@ class RunAgentTurn:
     def _should_quote(self, payloads: list[ToolPayload]) -> bool:
         if self._step.kind is not StepKind.QUOTE:
             return False
-        if any(item.name == "get_quote" for item in payloads):
-            return False
-        return any(item.name == "update_case" and not item.body.get("error") for item in payloads)
+        return not any(item.name == "get_quote" for item in payloads)
 
     def _update(self, context: TenantContext, arguments: dict) -> ToolPayload:
         try:
@@ -1253,22 +1230,10 @@ class RunAgentTurn:
         }
         stored = self._conversations.get(context.tenant_id, conversation_id)
         recent = stored.events[-20:] if stored is not None else ()
-        has_image, has_video, objects, sam_error, masks, usability = _evidence(
-            self, context, conversation_id, recent, kinds
-        )
-        sizes = _sizes(current)
+        usability = _evidence(self, context, conversation_id, recent, kinds)[5]
         required = _applicable(self._catalog.required(job.job_type or ""), job.job_type or "", current)
         flags = {
             "required_fields": price_ready(case, job.job_id, _confirmed_requirements(case, job.job_id, required)),
-            "agreement": cross_model_agreement(
-                has_image=has_image,
-                has_video=has_video,
-                spark_objects=objects,
-                sam_error=sam_error,
-                masks=masks,
-                threshold=_THRESHOLD,
-            ),
-            "measurement": False if sizes is None else measurement_acceptable(sizes),
             "media_usable": media_is_usable(usability),
             "rate_card": rate_card_match(_item_codes(current.get("item_codes")), set(bundle.policy.rate_card_codes)),
         }
@@ -1290,9 +1255,23 @@ class RunAgentTurn:
             ),
         )
 
-    def _close(self, batch: tuple[ConversationEvent, ...]) -> None:
-        for event in batch:
-            self._closed.add(event.provider_message_id)
+
+def _remember_reply(turn: RunAgentTurn, context: TenantContext, conversation_id: UUID, case, text: str):
+    """Store a yes, a no, or a chosen side when the previous reply asked for one."""
+    from uuid import uuid4
+
+    from quotedesk.domain.case.contradictions import accept_spec_reply
+
+    replies = None if turn._conversations is None else getattr(turn._conversations, "replies", None)
+    rows = () if replies is None else replies(context.tenant_id, conversation_id)
+    if not rows or not text.strip() or not case.jobs:
+        return case
+    chosen = accept_spec_reply(case, rows[-1][1] or "", text, uuid4())
+    if chosen is case:
+        return case
+    if turn._cases is not None:
+        turn._cases.save(context.tenant_id, chosen)
+    return chosen
 
 
 def _evidence(turn: RunAgentTurn, context: TenantContext, conversation_id: UUID, events, kinds: dict[str, str]):
@@ -1590,20 +1569,6 @@ def _without_confidence(arguments: dict) -> dict:
     copied = dict(arguments)
     copied["facts"] = kept
     return copied
-
-
-def _sizes(current: dict[str, str]) -> tuple[SizeFact, ...] | None:
-    raw = current.get("size_litres")
-    if raw is None or raw.strip() == "":
-        return ()
-    digits = "".join(character for character in raw if character.isdigit())
-    if digits == "":
-        return None
-    litres = int(digits)
-    source = current.get("size_source")
-    if source in _SOURCES:
-        return (SizeFact(litres=litres, source=SizeSource(source)),)
-    return ()
 
 
 def _item_codes(raw: str | None) -> tuple[str, ...]:

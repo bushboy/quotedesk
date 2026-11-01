@@ -1,5 +1,5 @@
 {
-  "ran_on": "2026-10-31",
+  "ran_on": "2026-11-01",
   "model": "sentence facts, then the planner sentence",
   "latency": "not measured; this run does not call a live model",
   "conversations": 20,

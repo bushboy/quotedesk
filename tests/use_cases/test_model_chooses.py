@@ -7,7 +7,6 @@ from tests.use_cases.test_typed_turn import (
     CONTEXT,
     EVENT,
     QUOTE,
-    HANDOVER,
     TENANT,
     WA,
     at,

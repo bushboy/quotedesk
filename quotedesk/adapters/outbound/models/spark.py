@@ -1,3 +1,5 @@
+"""The Spark model adapter. The turn calls it to choose the next tool."""
+
 import json
 import logging
 import time
@@ -70,6 +72,7 @@ _TOOLS = tuple(
 
 
 class Transport(Protocol):
+    """The Transport."""
     def post(self, url: str, body: dict[str, Any]) -> dict[str, Any]: ...
 
 
@@ -101,6 +104,7 @@ class SdkTransport:
 
 
 class SparkTurn:
+    """The SparkTurn."""
     def __init__(self, *, model_id: str, base_url: str, transport: Transport) -> None:
         self._model_id = model_id
         self._base_url = base_url.rstrip("/")

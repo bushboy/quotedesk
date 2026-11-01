@@ -1,3 +1,5 @@
+"""The quote tables. The unit of work saves and reloads an issued quote."""
+
 from decimal import Decimal
 from uuid import UUID
 
@@ -11,6 +13,7 @@ from quotedesk.domain.shared.money import Money
 
 
 class QuoteTables:
+    """The QuoteTables."""
     def save(self, connection: Connection, tenant_id: UUID, conversation_id: UUID, quote: Quote) -> None:
         _tenant(connection, tenant_id)
         quote_id = quote.quote_id.value
@@ -150,25 +153,6 @@ class QuoteTables:
             {"quote_id": quote_id, "number": number},
         )
         return tuple(row.evidence_id for row in rows)
-
-    def save_with_audit(self, connection: Connection, tenant_id: UUID, conversation_id: UUID, quote: Quote, action: str) -> None:
-        with connection.begin_nested():
-            self.save(connection, tenant_id, conversation_id, quote)
-            _tenant(connection, tenant_id)
-            connection.execute(
-                text(
-                    """
-                    INSERT INTO audit_event (tenant_id, action, quote_id, version)
-                    VALUES (:tenant_id, :action, :quote_id, :version)
-                    """
-                ),
-                {
-                    "tenant_id": tenant_id,
-                    "action": action,
-                    "quote_id": quote.quote_id.value,
-                    "version": quote.current.number,
-                },
-            )
 
     def get(self, connection: Connection, tenant_id: UUID, conversation_id: UUID) -> Quote | None:
         _tenant(connection, tenant_id)

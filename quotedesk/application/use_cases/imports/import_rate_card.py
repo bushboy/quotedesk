@@ -1,6 +1,8 @@
 import csv
 import re
+import zipfile
 from collections.abc import Callable, Mapping, Sequence
+from xml.etree import ElementTree
 from decimal import ROUND_HALF_EVEN, Decimal
 from io import BytesIO, StringIO
 from pathlib import PurePath
@@ -81,6 +83,8 @@ class ImportRateCard:
             grid = _xlsx(data.body)
         elif suffix == ".csv":
             grid = _csv(data.body)
+        elif suffix in (".docx", ".pptx", ".pdf"):
+            grid = _document(data.body, suffix)
         else:
             raise ValidationError(code="import.unsupported", sentence=_UNSUPPORTED)
         result = _interpret(grid, data.expected_unit, data.labeller)
@@ -200,6 +204,58 @@ def _csv(body: bytes) -> list[list[tuple[object, str]]]:
     for row_number, row in enumerate(csv.reader(StringIO(text)), start=1):
         grid.append([(None if value == "" else value, f"{_letters(index)}{row_number}") for index, value in enumerate(row)])
     return grid
+
+
+def _document(body: bytes, suffix: str) -> list[list[tuple[object, str]]]:
+    """A Word, PowerPoint, or PDF file becomes a grid the column labeller already understands."""
+    rows = _pdf_rows(body) if suffix == ".pdf" else _office_rows(body, suffix)
+    if not rows:
+        raise ValidationError(code="import.empty", sentence=_EMPTY)
+    if any("," in cell for row in rows[:3] for cell in row):
+        return _csv("\n".join(",".join(row) for row in rows).encode())
+    grid: list[list[tuple[object, str]]] = []
+    for row_number, row in enumerate(rows, start=1):
+        grid.append([(cell, f"{_letters(index)}{row_number}") for index, cell in enumerate(row)])
+    return grid
+
+
+def _office_rows(body: bytes, suffix: str) -> list[list[str]]:
+    word = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+    drawing = "{http://schemas.openxmlformats.org/drawingml/2006/main}"
+    try:
+        archive = zipfile.ZipFile(BytesIO(body))
+    except zipfile.BadZipFile as exc:
+        raise ValidationError(code="import.empty", sentence=_EMPTY) from exc
+    with archive:
+        if suffix == ".docx":
+            root = ElementTree.fromstring(archive.read("word/document.xml"))
+            rows = [
+                ["".join(node.text or "" for node in cell.iter(f"{word}t")).strip() for cell in row.iter(f"{word}tc")]
+                for row in root.iter(f"{word}tr")
+            ]
+            kept = [row for row in rows if any(row)]
+            if kept:
+                return kept
+            return [[text.strip()] for text in (node.text or "" for node in root.iter(f"{word}t")) if text.strip()]
+        rows: list[list[str]] = []
+        for name in sorted(item for item in archive.namelist() if item.startswith("ppt/slides/slide")):
+            root = ElementTree.fromstring(archive.read(name))
+            texts = [text.strip() for text in (node.text or "" for node in root.iter(f"{drawing}t")) if text.strip()]
+            if texts:
+                rows.append(texts)
+        return rows
+
+
+def _pdf_rows(body: bytes) -> list[list[str]]:
+    text = body.decode("latin-1", errors="ignore")
+    lines = []
+    for match in re.finditer(r"\((?:\\.|[^)\\])*\)\s*Tj", text):
+        raw = match.group(0)
+        value = raw[: raw.rfind(")")].lstrip("(")
+        cleaned = value.replace("\\(", "(").replace("\\)", ")").strip()
+        if cleaned:
+            lines.append([cleaned])
+    return lines
 
 
 def _header(value: str) -> str:

@@ -180,7 +180,13 @@ def test_macro_files_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
         assert caught.value.sentence == MACRO
         assert library.saves == 0
         assert library.current_draft.rate_rows[0].item_code == "OLD-ITEM"
-    for name in ("card.pdf", "card.docx", "card.pptx", "card.png", "card.jpg"):
+    for name in ("card.pdf", "card.docx", "card.pptx"):
+        library, _unit, importer = _world()
+        with pytest.raises(ValidationError, match="That file is empty.") as caught:
+            importer.execute(CONTEXT, ImportRateCardInput(filename=name, body=b"not-empty", expected_unit="each", labeller=Mislabel()))
+        assert caught.value.code == "import.empty"
+        assert library.saves == 0
+    for name in ("card.png", "card.jpg"):
         library, _unit, importer = _world()
         with pytest.raises(ValidationError, match="That file type isn't imported yet.") as caught:
             importer.execute(CONTEXT, ImportRateCardInput(filename=name, body=b"not-empty", expected_unit="each", labeller=Mislabel()))
@@ -291,5 +297,36 @@ def test_oversize_and_empty_upload() -> None:
     body = core + (b"\n" * (2_000_000 - len(core)))
     assert len(body) == 2_000_000
     result, library, _unit = _run(filename="card.csv", body=body)
+    assert result.rows[0].unit_price == Decimal("4250.50")
+    assert library.current_draft.rate_rows[0].item_code == "TANK-5000"
+
+
+def _docx(rows: list[list[str]]) -> bytes:
+    import zipfile
+    from xml.sax.saxutils import escape
+
+    cells = []
+    for row in rows:
+        inner = "".join(
+            f"<w:tc><w:p><w:r><w:t>{escape(cell)}</w:t></w:r></w:p></w:tc>" for cell in row
+        )
+        cells.append(f"<w:tr>{inner}</w:tr>")
+    document = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+        f"<w:body><w:tbl>{''.join(cells)}</w:tbl></w:body></w:document>"
+    )
+    buffer = BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        archive.writestr("word/document.xml", document)
+    return buffer.getvalue()
+
+
+def test_a_word_table_imports_behind_the_same_labeller() -> None:
+    result, library, _unit = _run(
+        filename="card.docx",
+        body=_docx([["item_code", "unit_price", "unit"], ["TANK-5000", "4250.50", "each"]]),
+    )
+    assert result.rows[0].item_code == "TANK-5000"
     assert result.rows[0].unit_price == Decimal("4250.50")
     assert library.current_draft.rate_rows[0].item_code == "TANK-5000"

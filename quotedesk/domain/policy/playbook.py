@@ -1,3 +1,5 @@
+"""The playbook. The planner, the image read, and the prompt take the owner's job descriptions from it."""
+
 from decimal import Decimal
 from typing import Literal
 
@@ -10,6 +12,7 @@ IfUnsure = Literal["ask_photo", "range", "inspection", "photo_then_range"]
 
 
 class FactOption(BaseModel):
+    """The FactOption."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     value: str
@@ -19,6 +22,7 @@ class FactOption(BaseModel):
 
 
 class FactDefinition(BaseModel):
+    """The FactDefinition."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     key: str
@@ -38,6 +42,7 @@ class FactDefinition(BaseModel):
 
 
 class JobTypePlay(BaseModel):
+    """The JobTypePlay."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     key: str
@@ -52,6 +57,7 @@ class JobTypePlay(BaseModel):
 
 
 class InspectionTrigger(BaseModel):
+    """The InspectionTrigger."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     condition: str
@@ -61,6 +67,7 @@ class InspectionTrigger(BaseModel):
 
 
 class EscalationTrigger(BaseModel):
+    """The EscalationTrigger."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     condition: str
@@ -68,6 +75,7 @@ class EscalationTrigger(BaseModel):
 
 
 class CommonQuestion(BaseModel):
+    """The CommonQuestion."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     topic: str

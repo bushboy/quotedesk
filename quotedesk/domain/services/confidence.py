@@ -1,3 +1,5 @@
+"""The confidence band. The quote path uses the rate card and the confirmed facts."""
+
 from decimal import Decimal
 from enum import Enum
 from typing import Mapping, Sequence
@@ -6,12 +8,14 @@ from pydantic import BaseModel, ConfigDict
 
 
 class ConfidenceBand(str, Enum):
+    """The ConfidenceBand."""
     HIGH = "high"
     MEDIUM = "medium"
     LOW = "low"
 
 
 class ConfidenceChecks(BaseModel):
+    """The ConfidenceChecks."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     required_fields: bool
@@ -22,12 +26,14 @@ class ConfidenceChecks(BaseModel):
 
 
 class SizeSource(str, Enum):
+    """The SizeSource."""
     PHOTO_INFERRED = "photo_inferred"
     CUSTOMER_STATED = "customer_stated"
     REFERENCE_OBJECT = "reference_object"
 
 
 class SizeFact(BaseModel):
+    """The SizeFact."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     litres: int
@@ -35,6 +41,7 @@ class SizeFact(BaseModel):
 
 
 class MediaUsability(BaseModel):
+    """The MediaUsability."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     has_media: bool
@@ -45,6 +52,7 @@ class MediaUsability(BaseModel):
 
 
 class RecordedMask(BaseModel):
+    """The RecordedMask."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     label: str
@@ -67,6 +75,7 @@ def derive_confidence(checks: ConfidenceChecks) -> ConfidenceBand:
 
 
 def required_fields_complete(values: Mapping[str, object], required: Sequence[str]) -> bool:
+    """True when every required fact the price uses is confirmed."""
     for key in required:
         if key not in values or not _present(values[key]):
             return False
@@ -90,6 +99,7 @@ def cross_model_agreement(
     masks: Sequence[RecordedMask],
     threshold: Decimal,
 ) -> bool:
+    """True when SAM and Spark name the same object. The quote path does not read it."""
     if not has_image and not has_video:
         return True
     if sam_error or len(masks) == 0:
@@ -101,6 +111,7 @@ def cross_model_agreement(
 
 
 def measurement_acceptable(sizes: Sequence[SizeFact]) -> bool:
+    """True when a stated size and an inferred size agree. The quote path does not read it."""
     if not sizes:
         return True
     accepted = [size for size in sizes if size.source is not SizeSource.PHOTO_INFERRED]
@@ -111,10 +122,12 @@ def measurement_acceptable(sizes: Sequence[SizeFact]) -> bool:
 
 
 def media_is_usable(media: MediaUsability) -> bool:
+    """True when the photo is clear enough to read."""
     if not media.has_media:
         return True
     return not (media.blur or media.darkness or media.unintelligible_audio or media.wrong_subject)
 
 
 def rate_card_match(item_codes: Sequence[str], rate_card_codes: set[str]) -> bool:
+    """True when every item code is on the rate card."""
     return all(code in rate_card_codes for code in item_codes)

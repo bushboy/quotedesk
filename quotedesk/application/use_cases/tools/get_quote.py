@@ -3,7 +3,6 @@ from decimal import Decimal
 from zoneinfo import ZoneInfo
 
 from quotedesk.application.dto.audit import AuditEvent
-from quotedesk.application.dto.published import PublishedPolicy
 from quotedesk.application.dto.tenant import TenantContext
 from quotedesk.application.dto.tool_inputs import GetQuoteInput
 from quotedesk.application.dto.tool_outputs import GetQuoteResult
@@ -118,6 +117,8 @@ class GetQuote:
             action=action,
             quote_id=quote.quote_id,
             version=current.number,
+            conversation_id=data.conversation_id,
+            at=at,
         )
         try:
             self._unit.save_quote(context.tenant_id, data.conversation_id, quote)
@@ -159,12 +160,37 @@ _RANK = {
 def _quote_job(case: CaseFile, job, bundle):
     case_facts, extraction, values = _facts(case, job, bundle.playbook, bundle.rate_card)
     decision = decide(case_facts, extraction, SegmentationFacts(), bundle.policy)
+    if _withhold_fixed(case, job.job_id) and decision.outcome == Outcome.FIXED_OFFER:
+        opened = case_facts.model_copy(
+            update={"checks": case_facts.checks.model_copy(update={"required_fields": False})}
+        )
+        try:
+            decision = decide(opened, extraction, SegmentationFacts(), bundle.policy)
+        except PolicyViolation:
+            decision = _as_range(decision)
+        if decision.outcome == Outcome.FIXED_OFFER:
+            decision = _as_range(decision)
     priced = price(
         decision,
         _price_facts(case_facts, bundle.rate_card, bundle.playbook, job.job_type, values),
         bundle.rate_card,
     )
     return decision, case_facts, priced
+
+
+def _withhold_fixed(case: CaseFile, job_id: str) -> bool:
+    from quotedesk.domain.case.contradictions import spec_choice, unresolved_clashes
+
+    return spec_choice(case, job_id) is False or bool(unresolved_clashes(case, job_id))
+
+
+def _as_range(decision: Decision) -> Decision:
+    return decision.model_copy(
+        update={
+            "outcome": Outcome.INDICATIVE_RANGE,
+            "customer_template": "I won't send a fixed price until you confirm that spec.",
+        }
+    )
 
 
 def _primary(quoted: list[tuple[Decision, CaseFacts, PricedQuote]]):
@@ -269,7 +295,9 @@ def _size_source(case: CaseFile, job_id: str):
             continue
         if fact.key == "size_source" and fact.value in ("photo_inferred", "customer_stated", "reference_object"):
             return SizeSource(fact.value)
-        if fact.key == "size_litres" and fact.source == "customer_text":
+        if fact.key == "size_litres" and status_of(fact) == "confirmed":
+            stated = SizeSource.CUSTOMER_STATED
+        elif fact.key == "size_litres" and fact.source == "customer_text":
             stated = SizeSource.CUSTOMER_STATED
     return stated
 

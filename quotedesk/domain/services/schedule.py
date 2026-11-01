@@ -1,3 +1,5 @@
+"""The schedule service. The booking tools ask it for the next day the business can do the work."""
+
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -21,6 +23,7 @@ _NO_DAY = "That calendar has no open day."
 
 
 def civil_date(at: datetime, zone: ZoneInfo) -> date:
+    """The calendar day for an instant in the business zone."""
     _aware(at)
     return at.astimezone(zone).date()
 
@@ -34,6 +37,7 @@ def schedule(
     today: date,
     at: datetime,
 ) -> ScheduleResult:
+    """The next day the business can do this work."""
     if type(today) is not date:
         raise ValidationError(code="schedule.not_a_date", sentence=_NOT_A_DATE)
     _aware(at)

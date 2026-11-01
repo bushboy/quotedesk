@@ -1,3 +1,5 @@
+"""The published-policy DTO. Use cases read the live policy, rate card, and clauses from it."""
+
 from pydantic import BaseModel, ConfigDict, Field
 
 from quotedesk.domain.policy.clauses import ClausePolicy
@@ -7,6 +9,7 @@ from quotedesk.domain.services.price import RateCard
 
 
 class PublishedPolicy(BaseModel):
+    """The PublishedPolicy."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     policy: Policy

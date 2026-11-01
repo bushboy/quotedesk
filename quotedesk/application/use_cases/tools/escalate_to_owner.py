@@ -26,6 +26,7 @@ _MEDIA = {"image": "photo", "audio": "voice note", "video": "video"}
 
 
 class EscalateToOwner:
+    """The EscalateToOwner."""
     def __init__(self, cases, conversations, policies, handovers, inspections, notifier: NotifyOwner, clock, quotes=None) -> None:
         self._cases = cases
         self._conversations = conversations

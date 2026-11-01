@@ -406,3 +406,68 @@ def test_gate_hidden_instruction_is_flagged():
         assert result.sentence is None
         assert sender.sent == []
         assert media.objects == []
+
+
+class Voice:
+    def __init__(self, text: str | None = "The tank is 5000 litres.", fail: bool = False) -> None:
+        self.text = text
+        self.fail = fail
+        self.calls = 0
+
+    def transcribe(self, media_id: str) -> str:
+        self.calls += 1
+        if self.fail:
+            raise ValueError("The transcript was empty.")
+        assert media_id == "media-voice"
+        return self.text or ""
+
+
+def test_a_voice_note_with_a_transcript_skips_the_adapter():
+    voice = Voice()
+    use_case, conversations, sender, _media, _classifier = world()
+    use_case._voice = voice
+    result = use_case.execute(
+        TenantContext(tenant_id=TENANT),
+        message(kind="audio", body=None, transcript="The tank is leaking.", media_id="media-voice", mime="audio/ogg", size_bytes=10),
+        flags(),
+        limits(),
+    )
+    stored = conversations.get(TENANT, CONVERSATION)
+    assert result.stored is True
+    assert voice.calls == 0
+    assert stored is not None
+    assert stored.log[0].body == "The tank is leaking."
+    assert sender.sent == []
+
+
+def test_a_voice_note_without_a_transcript_uses_the_adapter():
+    voice = Voice("Replace the 5000 L tank.")
+    use_case, conversations, sender, _media, _classifier = world()
+    use_case._voice = voice
+    result = use_case.execute(
+        TenantContext(tenant_id=TENANT),
+        message(kind="audio", body=None, media_id="media-voice", mime="audio/ogg", size_bytes=10),
+        flags(),
+        limits(),
+    )
+    stored = conversations.get(TENANT, CONVERSATION)
+    assert result.stored is True
+    assert voice.calls == 1
+    assert stored is not None
+    assert stored.log[0].body == "Replace the 5000 L tank."
+    assert sender.sent == []
+
+
+def test_a_failed_transcript_asks_the_customer_to_type():
+    voice = Voice(fail=True)
+    use_case, conversations, sender, _media, _classifier = world()
+    use_case._voice = voice
+    result = use_case.execute(
+        TenantContext(tenant_id=TENANT),
+        message(kind="audio", body=None, media_id="media-voice", mime="audio/ogg", size_bytes=10),
+        flags(),
+        limits(),
+    )
+    assert result.stored is False
+    assert conversations.rows == {}
+    assert sender.sent == [(WA, "I couldn't hear that voice note. Please type the details.")]

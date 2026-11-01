@@ -1,4 +1,7 @@
+"""The composition root. It builds the app and wires the adapters the use cases call."""
+
 import logging
+import os
 import threading
 from contextlib import asynccontextmanager
 
@@ -74,6 +77,22 @@ def _enricher(settings: Settings, host):
         sam_model_id=settings.sam_model_id,
         sam_base_url=settings.meta_base_url,
         subject={"frameworks": "carport", "aquasure": "tank"}.get(settings.tenant, ""),
+        playbook=bundle_for(settings.tenant).playbook,
+    )
+
+
+def _voice(host):
+    """Muse is used only when MUSE_BASE_URL is set. Otherwise a voice note keeps its existing transcript."""
+    base = os.environ.get("MUSE_BASE_URL", "")
+    if base == "":
+        return None
+    from quotedesk.adapters.outbound.models.muse_voice import MuseVoice
+
+    return MuseVoice(
+        host,
+        SdkTransport(os.environ.get("MUSE_API_KEY", "")),
+        os.environ.get("MUSE_MODEL_ID", "muse-voice"),
+        base,
     )
 
 
@@ -109,6 +128,7 @@ async def _worker(app: FastAPI):
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
+    """The FastAPI app with the adapters wired."""
     _configure_logging()
     if settings is None:
         settings = get_settings()
@@ -184,6 +204,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 sender=_sender(settings),
                 live=True,
                 enricher=_enricher(settings, app.state.sim_media),
+                voice=_voice(app.state.sim_media),
                 tenant=profile,
                 rate_cards=rate_cards,
                 bundles=bundles,

@@ -4,6 +4,7 @@ from quotedesk.domain.policy.playbook import BusinessPlaybook
 
 
 def planner_inputs(conversations, tenant_id, conversation_id, playbook: BusinessPlaybook) -> tuple[str, dict[str, int]]:
+    """The facts the planner reads for the next step."""
     return _text(conversations, tenant_id, conversation_id), _asked(conversations, tenant_id, conversation_id, playbook)
 
 

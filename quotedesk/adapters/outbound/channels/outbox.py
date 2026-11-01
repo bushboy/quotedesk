@@ -1,3 +1,5 @@
+"""The in-process outbox. The chat page and the harness read the messages the turn sent."""
+
 import logging
 from typing import Literal
 
@@ -7,6 +9,7 @@ _log = logging.getLogger(__name__)
 
 
 class OutboxMessage(BaseModel):
+    """The OutboxMessage."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     body: str
@@ -18,6 +21,7 @@ class OutboxMessage(BaseModel):
 
 
 class Outbox:
+    """The Outbox."""
     def __init__(self) -> None:
         self._rows: list[OutboxMessage] = []
         self._next = 0
@@ -47,6 +51,7 @@ class Outbox:
 
 
 class OutboxSender:
+    """The OutboxSender."""
     def __init__(self, outbox: Outbox) -> None:
         self._outbox = outbox
 

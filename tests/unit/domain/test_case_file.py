@@ -95,7 +95,13 @@ def test_an_inference_does_not_replace_a_stated_value():
     case = case.record_fact("tank", SECOND, "position", "ground level", "photo_extraction", EVENT)
     assert case.contradictions == ()
     assert case.current("tank", "position") == "roof"
-    assert len(case.facts("tank")) == 1
+    from quotedesk.domain.case.contradictions import clashes_of
+
+    clash = clashes_of(case, "tank")
+    assert len(clash) == 1
+    assert clash[0].customer_value == "roof"
+    assert clash[0].evidence_value == "ground level"
+    assert clash[0].chosen_side == ""
 
 
 def test_two_stated_sources_that_disagree_are_contested():

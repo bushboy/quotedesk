@@ -1,3 +1,5 @@
+"""The policy check. Publish refuses a draft that breaks a price, a question, or a locked safety rule."""
+
 import re
 
 from pydantic import BaseModel
@@ -27,6 +29,7 @@ _DUPLICATE_FACT = "A job type uses the same fact key twice."
 
 
 def validate_policy(draft: PolicyDraft) -> tuple[PolicyError, ...]:
+    """The errors that stop a draft from being published."""
     errors: list[PolicyError] = []
     codes = {row.item_code for row in draft.rate_rows}
     for clause in draft.clauses:

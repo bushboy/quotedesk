@@ -1,3 +1,5 @@
+"""The identifiers. Quotes, policy versions, and rules use these instead of a bare string."""
+
 import re
 from typing import Any
 
@@ -17,6 +19,7 @@ def _identifier(value: Any, pattern: re.Pattern[str], code: str, sentence: str) 
 
 
 class QuoteId(BaseModel):
+    """The QuoteId."""
     model_config = ConfigDict(frozen=True)
 
     value: str
@@ -35,6 +38,7 @@ class QuoteId(BaseModel):
 
 
 class PolicyVersionId(BaseModel):
+    """The PolicyVersionId."""
     model_config = ConfigDict(frozen=True)
 
     value: str
@@ -53,6 +57,7 @@ class PolicyVersionId(BaseModel):
 
 
 class RuleId(BaseModel):
+    """The RuleId."""
     model_config = ConfigDict(frozen=True)
 
     value: str

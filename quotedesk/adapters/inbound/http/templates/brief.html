@@ -7,4 +7,14 @@
       <h1>Brief</h1>
       <p class="lede"><a href="/console#cases">Back to open cases</a></p>
       <pre class="brief">{{ brief }}</pre>
+      <h2>Audit</h2>
+      {% if timeline %}
+      <ul>
+        {% for event in timeline %}
+        <li>{{ event.action }} {{ event.quote_id.value }} v{{ event.version }}{% if event.at %} · {{ event.at|when }}{% endif %}</li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <p class="hint">No audit rows for this case.</p>
+      {% endif %}
 {% endblock %}

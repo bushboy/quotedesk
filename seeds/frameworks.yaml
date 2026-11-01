@@ -114,6 +114,10 @@ rate_card:
     price: "750.00"
 rules:
 - rule_id: FAB-E01
+  when:
+    op: equals
+    fact: injection
+    value: "true"
   priority: 0
   outcome: escalation
   customer_template: I can't use that message to change the quote. Please phone the
@@ -121,64 +125,176 @@ rules:
   reason: 'Flagged as an injection for the owner: the message instructs the assistant
     or claims an approval.'
 - rule_id: FAB-E02
+  when:
+    op: any
+    of:
+      - op: equals
+        fact: lintel_cracked
+        value: "true"
+      - op: equals
+        fact: glass_broken
+        value: "true"
   priority: 0
   outcome: escalation
   customer_template: We can't price this while the opening looks unsafe. Please leave
     that glass and the lintel alone until we've checked them.
   reason: The lintel is cracked, or glass is broken in place.
 - rule_id: FAB-E03
+  when:
+    op: equals
+    fact: possible_asbestos
+    value: "true"
   priority: 0
   outcome: escalation
   customer_template: We can't price this until someone has checked the old sheeting.
     Please don't cut or scrape it.
   reason: Old carport sheeting may contain asbestos.
 - rule_id: FAB-S01
+  when:
+    op: equals
+    fact: opening
+    value: "widened"
   priority: 1
   outcome: site_assessment
   customer_template: A widened opening needs a site measure. If you go ahead, the
     visit fee is R 750, credited against the work.
   reason: The opening is widened.
 - rule_id: FAB-S02
+  when:
+    op: any
+    of:
+      - op: equals
+        fact: above_ground_floor
+        value: "true"
+      - op: equals
+        fact: multi_unit
+        value: "true"
   priority: 1
   outcome: site_assessment
   customer_template: This one needs a site measure before we can give you a price.
     The visit fee is R 750.
   reason: The job is above the ground floor, or it is more than one opening.
 - rule_id: FAB-F01
+  when:
+    op: all
+    of:
+      - op: equals
+        fact: confidence
+        value: "high"
+      - op: equals
+        fact: opening
+        value: "existing"
+      - op: equals
+        fact: width_known
+        value: "true"
+      - op: equals
+        fact: length_known
+        value: "true"
+      - op: in
+        fact: size_source
+        values: ["customer_stated", "reference_object"]
+      - op: equals
+        fact: standard_band
+        value: "true"
+      - op: equals
+        fact: finish_chosen
+        value: "true"
   priority: 1
   outcome: fixed_offer
   customer_template: We can send a fixed quote for this replacement.
   reason: Replacement in the existing opening, standard size and finish.
 - rule_id: FAB-F02
+  when:
+    op: all
+    of:
+      - op: in
+        fact: confidence
+        values: ["medium", "high"]
+      - op: equals
+        fact: width_known
+        value: "true"
+      - op: equals
+        fact: length_known
+        value: "true"
+      - op: any
+        of:
+          - op: equals
+            fact: items_chosen
+            value: "true"
+          - op: equals
+            fact: finish_chosen
+            value: "true"
   priority: 1
   outcome: fixed_offer
   customer_template: We can send a fixed quote for this sheeting.
   reason: The width, the length, and the sheeting are known.
 - rule_id: FAB-R01
+  when:
+    op: all
+    of:
+      - op: in
+        fact: confidence
+        values: ["medium", "high"]
+      - op: equals
+        fact: width_m
+        value: "6.0"
+      - op: equals
+        fact: length_m
+        value: "7.0"
+      - op: is_missing
+        fact: finish
+      - op: equals
+        fact: items_chosen
+        value: "false"
   priority: 1
   outcome: indicative_range
   customer_template: We can send a price range for this carport. It depends on the
     roof covering.
   reason: 6 m by 7 m with the finish not chosen.
 - rule_id: FAB-R02
+  when:
+    op: all
+    of:
+      - op: in
+        fact: confidence
+        values: ["medium", "high"]
+      - op: equals
+        fact: width_known
+        value: "true"
+      - op: equals
+        fact: length_known
+        value: "true"
+      - op: is_missing
+        fact: finish
+      - op: equals
+        fact: items_chosen
+        value: "false"
   priority: 1
   outcome: indicative_range
   customer_template: The indicative range for that size is in this result. It uses
     the sheeting on the rate card.
   reason: The width and length are known.
 - rule_id: FAB-B01
+  when:
+    op: all
+    of:
+      - op: equals
+        fact: budget_known
+        value: "true"
+      - op: equals
+        fact: range_known
+        value: "true"
+      - op: greater_than
+        fact: range_minimum
+        value: "fact:budget"
   priority: 1
   outcome: indicative_range
   customer_template: We can send a price range, and the nearest option we fit to a
     smaller budget.
   reason: The nearest affordable option is SHEET-ECO.
-- rule_id: FAB-L01
-  priority: 1
-  outcome: site_assessment
-  customer_template: We need a tape measure in the frame before we can price this.
-    A site measure is the sure way.
-  reason: Confidence is low and no earlier rule matched.
 - rule_id: FAB-L02
+  when:
+    op: all
   priority: 1
   outcome: site_assessment
   customer_template: We don't have a standard price for this job. A site measure

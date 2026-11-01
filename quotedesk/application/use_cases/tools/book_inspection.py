@@ -25,6 +25,7 @@ _ZONE = ZoneInfo("Africa/Johannesburg")
 
 
 class BookInspection:
+    """The BookInspection."""
     def __init__(
         self,
         cases: CaseFileRepository,

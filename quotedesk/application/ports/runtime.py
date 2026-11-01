@@ -1,3 +1,5 @@
+"""The runtime ports. Use cases read the clock, the next id, and the unit of work through these."""
+
 from datetime import datetime
 from typing import Protocol
 from uuid import UUID
@@ -10,10 +12,12 @@ from quotedesk.domain.shared.ids import QuoteId
 
 
 class Clock(Protocol):
+    """The port for Clock."""
     def now(self) -> datetime: ...
 
 
 class IdGenerator(Protocol):
+    """The port for IdGenerator."""
     def next_quote_id(self) -> QuoteId: ...
 
     def next_fact_id(self) -> UUID: ...
@@ -22,6 +26,7 @@ class IdGenerator(Protocol):
 
 
 class UnitOfWork(Protocol):
+    """The port for UnitOfWork."""
     def get_quote(self, tenant_id: UUID, conversation_id: UUID) -> Quote | None: ...
 
     def save_quote(self, tenant_id: UUID, conversation_id: UUID, quote: Quote) -> None: ...

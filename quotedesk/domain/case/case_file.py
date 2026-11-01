@@ -1,6 +1,8 @@
+"""The case file. The planner and the quote use case read the facts the conversation has recorded."""
+
 from decimal import Decimal
 from typing import Any, Literal
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict
 
@@ -27,6 +29,7 @@ _JOB = "That job is not on the case."
 
 
 class CaseFact(BaseModel):
+    """The CaseFact."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     fact_id: UUID
@@ -44,6 +47,7 @@ class CaseFact(BaseModel):
 
 
 class Job(BaseModel):
+    """The Job."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     job_id: str
@@ -53,6 +57,7 @@ class Job(BaseModel):
 
 
 class CaseFile(BaseModel):
+    """The CaseFile."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     conversation_id: UUID
@@ -110,7 +115,9 @@ class CaseFile(BaseModel):
         active_status = status_of(active)
         new_status = status_of(new)
         if active_status in _READY and new_status == "inferred":
-            return self
+            if active.value == new.value:
+                return self
+            return self._keep_evidence(job_id, job.facts, active, new)
         if active_status == "inferred" and new_status in _READY:
             return self._replace(job_id, job.facts, active, new)
         from quotedesk.domain.case.contradictions import detect_contradiction
@@ -151,6 +158,70 @@ class CaseFile(BaseModel):
             }
         )
         return self._replace(job_id, self._job(job_id).facts, active, confirmed)
+
+    def confirm_spec(self, job_id: str, fact_id: UUID, event_id: UUID) -> "CaseFile":
+        """A yes on the replay. Inferred price facts become confirmed."""
+        updated = self
+        for fact in self.facts(job_id):
+            if fact.superseded_by is None and not fact.contested and status_of(fact) == "inferred":
+                updated = updated.confirm(job_id, fact.key, uuid4(), event_id)
+        return updated.record_fact(
+            job_id,
+            fact_id,
+            "spec_confirmed",
+            "true",
+            "customer_text",
+            event_id,
+            status="confirmed",
+        )
+
+    def decline_spec(self, job_id: str, fact_id: UUID, event_id: UUID) -> "CaseFile":
+        """A no on the replay. A fixed quote stays withheld."""
+        return self.record_fact(
+            job_id,
+            fact_id,
+            "spec_confirmed",
+            "false",
+            "customer_text",
+            event_id,
+            status="confirmed",
+        )
+
+    def resolve_clash(self, job_id: str, key: str, side: str, fact_id: UUID, event_id: UUID) -> "CaseFile":
+        """Remember which side the customer chose. The chosen value becomes the current fact."""
+        from quotedesk.domain.case.contradictions import unresolved_clashes
+
+        clash = next((item for item in unresolved_clashes(self, job_id) if item.key == key), None)
+        if clash is None or side not in ("customer", "evidence"):
+            return self
+        chosen = clash.customer_value if side == "customer" else clash.evidence_value
+        updated = self
+        active = updated.active_fact(job_id, key)
+        if active is None or active.value != chosen:
+            updated = updated.record_fact(
+                job_id,
+                uuid4(),
+                key,
+                chosen,
+                "customer_text",
+                event_id,
+                status="confirmed",
+            )
+        else:
+            confirmed = active.model_copy(update={"status": "confirmed", "contested": False, "state": "known"})
+            facts = tuple(
+                confirmed if fact.fact_id == active.fact_id else fact for fact in updated.facts(job_id)
+            )
+            updated = updated._write(job_id, facts)
+        return updated.record_fact(
+            job_id,
+            fact_id,
+            f"clash:{key}",
+            side,
+            "customer_text",
+            event_id,
+            status="confirmed",
+        )
 
     def active_fact(self, job_id: str, key: str) -> CaseFact | None:
         for fact in self.facts(job_id):
@@ -198,8 +269,51 @@ class CaseFile(BaseModel):
             update["contradictions"] = contradictions
         return self.model_copy(update=update)
 
+    def _keep_evidence(self, job_id: str, facts: tuple[CaseFact, ...], active: CaseFact, new: CaseFact) -> "CaseFile":
+        """Keep a disagreeing photo reading without letting it replace the customer's value."""
+        stored = new.model_copy(update={"superseded_by": active.fact_id})
+        updated = self._clear_resolution(job_id, facts, active.key, stored.fact_id, new.value)
+        kept = updated.facts(job_id) + (stored,)
+        opened = updated._clear_spec(job_id, kept)
+        return opened._write(job_id, opened.facts(job_id))
+
+    def _clear_resolution(
+        self,
+        job_id: str,
+        facts: tuple[CaseFact, ...],
+        key: str,
+        evidence_id: UUID,
+        evidence_value: str,
+    ) -> "CaseFile":
+        prior = [
+            fact
+            for fact in facts
+            if fact.key == key and fact.source in _INFERRED_SOURCES and fact.value != evidence_value
+        ]
+        if not prior:
+            return self
+        resolution = self.active_fact(job_id, f"clash:{key}")
+        if resolution is None:
+            return self
+        replaced = tuple(
+            fact.model_copy(update={"superseded_by": evidence_id}) if fact.fact_id == resolution.fact_id else fact
+            for fact in facts
+        )
+        return self._write(job_id, replaced)
+
+    def _clear_spec(self, job_id: str, facts: tuple[CaseFact, ...]) -> "CaseFile":
+        spec = self.active_fact(job_id, "spec_confirmed")
+        if spec is None:
+            return self._write(job_id, facts) if facts is not self.facts(job_id) else self
+        replaced = tuple(
+            fact.model_copy(update={"superseded_by": spec.fact_id}) if fact.fact_id == spec.fact_id else fact
+            for fact in facts
+        )
+        return self._write(job_id, replaced)
+
 
 def derived_status(source: FactSource, state: FactState) -> FactStatus:
+    """The status a fact has when the caller did not set one."""
     if state == "unknown":
         return "unknown"
     if source in _INFERRED_SOURCES:
@@ -208,6 +322,7 @@ def derived_status(source: FactSource, state: FactState) -> FactStatus:
 
 
 def status_of(fact: CaseFact) -> FactStatus:
+    """The status stored on a fact."""
     if fact.contested or fact.status == "contested":
         return "contested"
     if fact.state == "unknown" or fact.status == "unknown":

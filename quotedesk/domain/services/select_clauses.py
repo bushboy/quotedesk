@@ -1,3 +1,5 @@
+"""The clause selection. The quote use case asks it which conditions belong on this quote."""
+
 import re
 from decimal import Decimal
 
@@ -36,6 +38,7 @@ def select_clauses(
     job_type: str,
     policy: ClausePolicy,
 ) -> ClauseSelection:
+    """The conditions that print on this quote."""
     if decision.outcome == Outcome.ESCALATION or job_type != "carport":
         return ClauseSelection(conditions=(), customer_template=decision.customer_template)
     selected = _select(policy, facts)

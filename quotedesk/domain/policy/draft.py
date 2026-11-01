@@ -1,3 +1,5 @@
+"""The policy draft. The editor changes it, and publish copies a valid draft into the live policy."""
+
 from decimal import Decimal
 from typing import Literal
 
@@ -8,6 +10,7 @@ from quotedesk.domain.policy.when import When
 
 
 class PolicyError(BaseModel):
+    """Raised when Polic fails."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     code: str
@@ -16,6 +19,7 @@ class PolicyError(BaseModel):
 
 
 class DraftRateRow(BaseModel):
+    """The DraftRateRow."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     item_code: str
@@ -30,6 +34,7 @@ class DraftRateRow(BaseModel):
 
 
 class DraftClause(BaseModel):
+    """The DraftClause."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     clause_id: str
@@ -38,6 +43,7 @@ class DraftClause(BaseModel):
 
 
 class RequiredFact(BaseModel):
+    """The RequiredFact."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     key: str
@@ -45,6 +51,7 @@ class RequiredFact(BaseModel):
 
 
 class DraftRule(BaseModel):
+    """The DraftRule."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     rule_id: str
@@ -55,6 +62,7 @@ class DraftRule(BaseModel):
 
 
 class PolicyDraft(BaseModel):
+    """The PolicyDraft."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     deposit_percent: int

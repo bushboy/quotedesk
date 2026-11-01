@@ -1,3 +1,5 @@
+"""The prompt builder. The turn asks it for the messages the model sees."""
+
 from quotedesk.domain.policy.playbook import BusinessPlaybook
 
 PLATFORM_TASK = (

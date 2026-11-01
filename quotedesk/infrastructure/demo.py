@@ -394,11 +394,6 @@ class Unit:
         self._pending_result = None
 
 
-class QuoteClock:
-    def now(self) -> datetime:
-        return WHEN
-
-
 class TurnClock:
     def __init__(self) -> None:
         self.instant = WHEN + timedelta(seconds=5)
@@ -756,6 +751,7 @@ def install(
     inspections=None,
     notices=None,
     bundles=None,
+    voice=None,
 ) -> None:
     """`live` runs on wall-clock time with a short quiet window, for a person at the chat page.
 
@@ -798,7 +794,7 @@ def install(
     if model is not None:
         slot.model = model
     clock = SystemClock() if live else TurnClock()
-    receive = ReceiveInboundEvent(conversations, sender, Media(), Ordinary(), clock)
+    receive = ReceiveInboundEvent(conversations, sender, Media(), Ordinary(), clock, voice)
     catalog = Catalog(published.playbook)
     policies = Policies(published, rate_cards)
     policies.active = profile.tenant_id

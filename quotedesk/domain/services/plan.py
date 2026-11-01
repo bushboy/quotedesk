@@ -8,6 +8,7 @@ from enum import Enum
 from pydantic import BaseModel, ConfigDict
 
 from quotedesk.domain.case.case_file import CaseFact, CaseFile, Job, price_ready, ready_values, status_of
+from quotedesk.domain.case.contradictions import Clash, spec_choice, unresolved_clashes
 from quotedesk.domain.case.facts import CaseFacts, ExtractionFacts, JobKind, SegmentationFacts
 from quotedesk.domain.policy.playbook import BusinessPlaybook, FactDefinition, FactOption
 from quotedesk.domain.policy.rules import Outcome, Policy
@@ -81,7 +82,7 @@ def plan_next_step(
     else:
         steps = tuple(_job_step(job, case, playbook, policy, counts) for job in case.jobs)
         step = min(steps, key=lambda item: _ORDER[item.kind.value])
-    return _phrase(step, playbook, customer_text)
+    return _blur_notice(_phrase(step, playbook, customer_text), case)
 
 
 def _opening(playbook: BusinessPlaybook) -> NextStep:
@@ -134,6 +135,9 @@ def _job_step(
         step = _from_decision(decision, job.job_id)
         if step.kind in (StepKind.ESCALATE, StepKind.INSPECTION):
             return step
+    waiting = unresolved_clashes(case, job.job_id)
+    if waiting:
+        return _clash_step(job.job_id, _job_label(play) if play is not None else "", waiting[0], play)
     if inferred:
         return _confirm(job.job_id, _job_label(play) if play is not None else "", inferred[:3])
     if missing is not None and asked.get(missing.key, 0) < 2:
@@ -147,6 +151,10 @@ def _job_step(
         return NextStep(kind=StepKind.ASK, sentence=_ASK, job_id=job.job_id)
     if decision is None:
         return NextStep(kind=StepKind.QUOTE, sentence=_QUOTE, job_id=job.job_id)
+    if decision.outcome is Outcome.FIXED_OFFER and spec_choice(case, job.job_id) is not True:
+        if spec_choice(case, job.job_id) is False:
+            return _declined(job, current, case, policy, () if play is None else _sheet_options(play), decision)
+        return _replay(job.job_id, _job_label(play) if play is not None else "", case, play)
     return _from_decision(decision, job.job_id)
 
 
@@ -181,6 +189,23 @@ def _stop(playbook: BusinessPlaybook, job_id: str, fact, twice: bool) -> NextSte
         fact_key=fact.key,
         reason="The customer could not answer a required fact.",
     )
+
+
+_BLUR = "That photo is hard to read. Do you have another picture?"
+
+
+def _blur_notice(step: NextStep, case: CaseFile) -> NextStep:
+    """A blur or an unreadable photo asks for another picture. It does not block a quote."""
+    if step.kind not in (StepKind.ASK, StepKind.CONFIRM) or not step.job_id:
+        return step
+    if not any(job.job_id == step.job_id for job in case.jobs):
+        return step
+    fact = case.active_fact(step.job_id, "media_usable")
+    if fact is None or fact.value.strip().casefold() not in ("false", "no", "n"):
+        return step
+    if _BLUR in step.sentence:
+        return step
+    return step.model_copy(update={"sentence": f"{step.sentence} {_BLUR}"})
 
 
 def _phrase(step: NextStep, playbook: BusinessPlaybook, text: str) -> NextStep:
@@ -284,6 +309,83 @@ def _ask(job_id: str, job_label: str, fact: FactDefinition, seen: bool) -> NextS
     )
 
 
+def _clash_step(job_id: str, job_label: str, clash: Clash, play) -> NextStep:
+    customer = _clash_label(play, clash.key, clash.customer_value)
+    evidence = _clash_label(play, clash.key, clash.evidence_value)
+    why = f" ({clash.evidence})" if clash.evidence else ""
+    return NextStep(
+        kind=StepKind.CONFIRM,
+        sentence=f"You said {customer}. The photo looks like {evidence}{why}. Which should I price?",
+        job_id=job_id,
+        job_label=job_label,
+        fact_key=clash.key,
+    )
+
+
+def _replay(job_id: str, job_label: str, case: CaseFile, play) -> NextStep:
+    parts: list[str] = []
+    if play is not None:
+        current = _current(case, job_id)
+        for fact in play.facts:
+            if not fact.required or not _relevant(fact, play.key, current):
+                continue
+            if fact.key == "sheet" and _sheet_known(current, fact):
+                active = case.active_fact(job_id, "item_codes")
+            else:
+                active = case.active_fact(job_id, fact.key)
+            if active is None or status_of(active) not in ("stated", "confirmed") or not active.value.strip():
+                continue
+            label = fact.label.strip() if fact.label.strip() else fact.key.replace("_", " ")
+            parts.append(f"{label} {_plain(fact, active.value)}")
+    for clash in clashes_settled(case, job_id):
+        chosen = _clash_label(play, clash.key, clash.chosen_value)
+        customer = _clash_label(play, clash.key, clash.customer_value)
+        evidence = _clash_label(play, clash.key, clash.evidence_value)
+        parts.append(f"You said {customer}. The photo looks like {evidence}. You confirmed {chosen}")
+    body = ", ".join(parts) if parts else "the details you gave me"
+    notes = [
+        fact.value.strip()
+        for fact in case.facts(job_id)
+        if fact.key == "photo_note" and fact.superseded_by is None and fact.value.strip()
+    ]
+    noted = f" The photo notes: {'; '.join(notes)}." if notes else ""
+    return NextStep(
+        kind=StepKind.CONFIRM,
+        sentence=f"I'll price this as: {body}.{noted} Is that the spec to price?",
+        job_id=job_id,
+        job_label=job_label,
+        fact_key="spec_confirmed",
+    )
+
+
+def clashes_settled(case: CaseFile, job_id: str) -> tuple[Clash, ...]:
+    from quotedesk.domain.case.contradictions import clashes_of
+
+    return tuple(clash for clash in clashes_of(case, job_id) if clash.chosen_side)
+
+
+def _clash_label(play, key: str, value: str) -> str:
+    if play is None:
+        return value
+    for fact in play.facts:
+        if fact.key == key:
+            return _value_label(fact, value)
+    return value
+
+
+def _declined(job: Job, current: dict[str, str], case: CaseFile, policy: Policy, options, decision) -> NextStep:
+    ranged = _decision(job, current, case, policy, options, force_open=True)
+    if ranged is not None and ranged.outcome is not Outcome.FIXED_OFFER:
+        return _from_decision(ranged, job.job_id)
+    return NextStep(
+        kind=StepKind.QUOTE,
+        sentence="I won't send a fixed price until you confirm that spec.",
+        job_id=job.job_id,
+        reason=decision.reasons[0] if decision.reasons else "",
+        rule_id=decision.rule_id.value,
+    )
+
+
 def _confirm(job_id: str, job_label: str, pairs: list[tuple[FactDefinition, CaseFact]]) -> NextStep:
     assumptions = tuple(
         Assumption(
@@ -307,6 +409,15 @@ def _confirm(job_id: str, job_label: str, pairs: list[tuple[FactDefinition, Case
         fact_key=assumptions[0].fact_key,
         assumptions=assumptions,
     )
+
+
+def _plain(fact: FactDefinition, value: str) -> str:
+    folded = value.strip().casefold()
+    if folded in ("true", "yes", "y"):
+        return "yes"
+    if folded in ("false", "no", "n"):
+        return "no"
+    return _value_label(fact, value)
 
 
 def _value_label(fact: FactDefinition, value: str) -> str:
@@ -371,11 +482,16 @@ def _sheet_known(current: dict[str, str], fact: FactDefinition) -> bool:
     return chosen_sheet(current, fact.options) is not None
 
 
-def _decision(job: Job, current: dict[str, str], case: CaseFile, policy: Policy, options=()):
+def _decision(job: Job, current: dict[str, str], case: CaseFile, policy: Policy, options=(), force_open: bool = False):
     if not policy.rules:
         return None
     try:
-        return decide(_case_facts(job, current, case, options), _extraction(current), SegmentationFacts(), policy)
+        facts = _case_facts(job, current, case, options)
+        if force_open:
+            facts = facts.model_copy(
+                update={"checks": facts.checks.model_copy(update={"required_fields": False})}
+            )
+        return decide(facts, _extraction(current), SegmentationFacts(), policy)
     except PolicyViolation:
         return None
 

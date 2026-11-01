@@ -1,8 +1,14 @@
 from decimal import Decimal
+from pathlib import Path
 
+from quotedesk.adapters.outbound.parsers.aquasure import load_policy
 from quotedesk.domain.policy.rules import Outcome, Policy, PolicyRule
-from quotedesk.domain.policy.when import published_when
 from quotedesk.domain.shared.ids import PolicyVersionId, RuleId
+
+_WHEN = {
+    rule.rule_id.value: rule.when
+    for rule in load_policy(Path(__file__).resolve().parents[3] / "seeds" / "frameworks.yaml").rules
+}
 
 
 def _rule(
@@ -18,7 +24,7 @@ def _rule(
         outcome=outcome,
         customer_template=customer_template,
         reason=reason,
-        when=published_when(rule_id),
+        when=_WHEN[rule_id],
     )
 
 
@@ -112,13 +118,6 @@ def fabricator_policy() -> Policy:
                 Outcome.INDICATIVE_RANGE,
                 "We can send a price range, and the nearest option we fit to a smaller budget.",
                 "The nearest affordable option is SHEET-ECO.",
-            ),
-            _rule(
-                "FAB-L01",
-                1,
-                Outcome.SITE_ASSESSMENT,
-                "We need a tape measure in the frame before we can price this. A site measure is the sure way.",
-                "Confidence is low and no earlier rule matched.",
             ),
             _rule(
                 "FAB-L02",

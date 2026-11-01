@@ -317,6 +317,18 @@
           </div>
           <div class="card" aria-labelledby="draft-title">
             <h3 id="draft-title">Draft</h3>
+            <form method="post" action="/console/rate-card/import" enctype="multipart/form-data">
+              <label for="rate-card">Rate card file</label>
+              <input id="rate-card" name="rate_card" type="file" accept=".csv,.xlsx,.docx,.pptx,.pdf">
+              <button type="submit">Import</button>
+            </form>
+            <form method="post" action="/console/policy/rollback">
+              <label for="rollback-version">Restore version</label>
+              <input id="rollback-version" name="source_version" required>
+              <label for="rollback-reason">Reason</label>
+              <input id="rollback-reason" name="reason" required>
+              <button type="submit">Roll back</button>
+            </form>
             {% if p.draft %}
             <form id="draft" method="post" action="/editor/publish" novalidate data-valid="{{ 'true' if not p.errors else 'false' }}">
               <div class="field">

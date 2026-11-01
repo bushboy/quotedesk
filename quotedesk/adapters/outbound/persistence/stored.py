@@ -529,6 +529,38 @@ class StoredUnit:
             loaded = self._quotes.find(connection, tenant_id, quote_id.value)
         return loaded
 
+    def list_audits(self, tenant_id: UUID):
+        """Audit rows for this tenant, joined to the quote so a case brief can filter them."""
+        from quotedesk.application.dto.audit import AuditEvent
+
+        with self._engine.begin() as connection:
+            bind_tenant(connection, tenant_id)
+            rows = connection.execute(
+                text(
+                    """
+                    SELECT audit_event.action, audit_event.quote_id, audit_event.version, quote.conversation_id
+                    FROM audit_event
+                    LEFT JOIN quote
+                      ON quote.tenant_id = audit_event.tenant_id
+                     AND quote.quote_id = audit_event.quote_id
+                    WHERE audit_event.tenant_id = :tenant_id
+                    ORDER BY audit_event.audit_id
+                    """
+                ),
+                {"tenant_id": tenant_id},
+            ).all()
+        return tuple(
+            AuditEvent(
+                tenant_id=tenant_id,
+                action=row.action,
+                quote_id=QuoteId(row.quote_id),
+                version=row.version,
+                conversation_id=row.conversation_id,
+            )
+            for row in rows
+            if row.quote_id
+        )
+
     def list_quotes(self, tenant_id: UUID):
         with self._engine.begin() as connection:
             return self._quotes.list_for(connection, tenant_id)

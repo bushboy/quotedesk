@@ -47,6 +47,7 @@ class Conversations:
     def __init__(self) -> None:
         self.rows: dict[tuple[UUID, UUID], Conversation] = {}
         self._messages: list[tuple[UUID, InboundMessage]] = []
+        self._replies: list[tuple[datetime, str]] = []
 
     def get(self, tenant_id: UUID, conversation_id: UUID) -> Conversation | None:
         return self.rows.get((tenant_id, conversation_id))
@@ -62,6 +63,12 @@ class Conversations:
 
     def remember(self, tenant_id: UUID, message: InboundMessage) -> None:
         self._messages.append((tenant_id, message))
+
+    def record_reply(self, tenant_id: UUID, conversation_id: UUID, at: datetime, body: str) -> None:
+        self._replies.append((at, body))
+
+    def replies(self, tenant_id: UUID, conversation_id: UUID) -> tuple[tuple[datetime, str], ...]:
+        return tuple(self._replies)
 
     def messages(self, tenant_id: UUID, conversation_id: UUID) -> tuple[InboundMessage, ...]:
         return tuple(
@@ -344,7 +351,7 @@ def test_typed_replacement_issues_water_f01():
     assert quote.body["outcome"] == "fixed_offer"
     assert quote.body["total"]["amount"] == "5550.00"
     assert sender.sent == [(WA, QUOTE)]
-    assert cases.case.current("tank", "agreement") == "true"
+    assert cases.case.current("tank", "rate_card") == "true"
 
 
 def test_an_alias_does_not_price_and_the_planner_asks_the_fact():
@@ -445,7 +452,11 @@ def test_a_sheet_on_a_known_carport_is_quoted():
     conversations, _, sender, _, turn = harness(Record(), business=business, policies=_sheet_policies())
     say(conversations, "Economy sheeting for the 5 by 7 carport.", 0, str(EVENT))
     turn.execute(CONTEXT, CONVERSATION)
-    assert sender.sent == [(WA, "We can send a fixed quote for this sheeting. The total is R 297500.00. Economy sheeting R 297500.00. /card/QD-1042?code=1042")]
+    assert sender.sent[0][1].endswith("Is that the spec to price?")
+    assert "The total is" not in sender.sent[0][1]
+    say(conversations, "Yes", 0, str(uuid4()))
+    turn.execute(CONTEXT, CONVERSATION)
+    assert sender.sent[1] == (WA, "We can send a fixed quote for this sheeting. The total is R 297500.00. Economy sheeting R 297500.00. /card/QD-1042?code=1042")
 
 
 def test_a_sheet_choice_without_an_opening_asks_about_the_frame():

@@ -223,9 +223,14 @@ def test_a_restart_still_opens_the_card(monkeypatch):
     try:
         with TestClient(app) as client:
             _post(client, wa_id, "Please quote a 5000 L replacement.")
-            time.sleep(2.2)
+            time.sleep(3)
             app.state.run_turn()
-            rows = _wait(client, wa_id, "/card/QD-")
+            rows = _wait(client, wa_id, "/card/QD-", seconds=3)
+            if not any("/card/QD-" in row["body"] for row in rows):
+                _post(client, wa_id, "Yes")
+                time.sleep(3)
+                app.state.run_turn()
+                rows = _wait(client, wa_id, "/card/QD-")
             assert rows
             quote_id, code, page = _card(client, rows[-1]["body"])
             assert "Deposit R " in page

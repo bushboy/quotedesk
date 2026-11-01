@@ -2,6 +2,7 @@
 
 
 class NotifyOwner:
+    """The NotifyOwner."""
     def __init__(self, notices, sender, mail=None) -> None:
         self._notices = notices
         self._sender = sender

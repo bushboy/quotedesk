@@ -1,8 +1,9 @@
+"""The repository ports. Use cases load and save cases, conversations, quotes, and policies through these."""
+
 from datetime import datetime
 from typing import Protocol
 from uuid import UUID
 
-from quotedesk.application.dto.audit import AuditEvent
 from quotedesk.application.dto.changes import DepositLinkRecord
 from quotedesk.application.dto.inbound import InboundMessage
 from quotedesk.application.dto.published import PublishedPolicy
@@ -16,12 +17,14 @@ from quotedesk.domain.shared.ids import QuoteId
 
 
 class CaseFileRepository(Protocol):
+    """The port for CaseFileRepository."""
     def get(self, tenant_id: UUID, conversation_id: UUID) -> CaseFile | None: ...
 
     def save(self, tenant_id: UUID, case: CaseFile) -> None: ...
 
 
 class ConversationRepository(Protocol):
+    """The port for ConversationRepository."""
     def get(self, tenant_id: UUID, conversation_id: UUID) -> Conversation | None: ...
 
     def save(self, tenant_id: UUID, conversation: Conversation) -> None: ...
@@ -36,46 +39,55 @@ class ConversationRepository(Protocol):
 
 
 class JobCatalog(Protocol):
+    """The port for JobCatalog."""
     def required(self, job_type: str) -> tuple[str, ...]: ...
 
 
 class VerificationCodes(Protocol):
+    """The VerificationCodes."""
     def issue(self, tenant_id: UUID, quote_id: QuoteId) -> str: ...
 
     def matches(self, tenant_id: UUID, quote_id: QuoteId, code: str) -> bool: ...
 
 
 class Acceptances(Protocol):
+    """The Acceptances."""
     def has(self, tenant_id: UUID, quote_id: QuoteId, version: int) -> bool: ...
 
 
 class DepositLinks(Protocol):
+    """The DepositLinks."""
     def find(self, tenant_id: UUID, idempotency_key: str) -> DepositLinkRecord | None: ...
 
     def save(self, record: DepositLinkRecord) -> None: ...
 
 
 class Deposits(Protocol):
+    """The Deposits."""
     def paid(self, tenant_id: UUID, quote_id: QuoteId) -> bool: ...
 
 
 class CapacityRepository(Protocol):
+    """The port for CapacityRepository."""
     def get(self, tenant_id: UUID) -> Capacity: ...
 
     def save(self, tenant_id: UUID, capacity: Capacity) -> None: ...
 
 
 class SlotHolds(Protocol):
+    """The SlotHolds."""
     def find(self, tenant_id: UUID, idempotency_key: str) -> HoldResult | None: ...
 
     def save(self, tenant_id: UUID, idempotency_key: str, result: HoldResult) -> None: ...
 
 
 class PolicyRepository(Protocol):
+    """The port for PolicyRepository."""
     def published(self, tenant_id: UUID) -> PublishedPolicy | None: ...
 
 
 class QuoteRepository(Protocol):
+    """The port for QuoteRepository."""
     def get(self, tenant_id: UUID, conversation_id: UUID) -> Quote | None: ...
 
     def get_by_id(self, tenant_id: UUID, quote_id: QuoteId) -> Quote | None: ...
@@ -86,8 +98,7 @@ class QuoteRepository(Protocol):
 
 
 class TenantSettings(Protocol):
+    """The TenantSettings."""
     def for_tenant(self, tenant_id: UUID) -> CommercialSettings: ...
 
 
-class AuditLog(Protocol):
-    def record(self, event: AuditEvent) -> None: ...

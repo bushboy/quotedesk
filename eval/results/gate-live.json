@@ -1,0 +1,6 @@
+{
+  "ran_on": "2026-11-01",
+  "model": "live",
+  "passed": false,
+  "error": "META_API_KEY is not set, so the live model was not called. No accuracy number was produced."
+}

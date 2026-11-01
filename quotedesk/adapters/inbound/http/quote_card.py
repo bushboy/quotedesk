@@ -1,3 +1,5 @@
+"""The quote-card HTTP adapter. The customer opens it to read an issued quote."""
+
 import json
 import re
 from pathlib import Path
@@ -31,4 +33,5 @@ def _render(state: str) -> HTMLResponse | PlainTextResponse:
 
 @router.get("/dev/quote-card/{state}", response_model=None)
 def preview_quote_card(state: str) -> HTMLResponse | PlainTextResponse:
+    """Render the quote card for one issued quote."""
     return _render(state)

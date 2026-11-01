@@ -1,3 +1,5 @@
+"""The money type. Prices are decimal rands."""
+
 import re
 from decimal import Decimal, ROUND_HALF_EVEN
 from typing import Any, Literal
@@ -58,6 +60,7 @@ def _currency(currency: str) -> None:
 
 
 class Money(BaseModel):
+    """The Money."""
     model_config = ConfigDict(frozen=True)
 
     amount: Decimal

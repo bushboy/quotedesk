@@ -1,3 +1,5 @@
+"""The tool outputs. The use cases return these to the turn and the console."""
+
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Literal
@@ -13,6 +15,7 @@ from quotedesk.domain.shared.money import Money
 
 
 class GetQuoteResult(BaseModel):
+    """The GetQuoteResult a use case returns."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     quote_id: QuoteId
@@ -36,6 +39,7 @@ class GetQuoteResult(BaseModel):
 
 
 class RequestChangeResult(BaseModel):
+    """The RequestChangeResult a use case returns."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     quote_id: QuoteId
@@ -47,6 +51,7 @@ class RequestChangeResult(BaseModel):
 
 
 class UpdateCaseResult(BaseModel):
+    """The UpdateCaseResult a use case returns."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     job_id: str
@@ -57,6 +62,7 @@ class UpdateCaseResult(BaseModel):
 
 
 class AvailabilityResult(BaseModel):
+    """The AvailabilityResult a use case returns."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     status: str
@@ -65,6 +71,7 @@ class AvailabilityResult(BaseModel):
 
 
 class HoldResult(BaseModel):
+    """The HoldResult a use case returns."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     status: str
@@ -73,6 +80,7 @@ class HoldResult(BaseModel):
 
 
 class QuoteStatusResult(BaseModel):
+    """The QuoteStatusResult a use case returns."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     found: bool
@@ -83,6 +91,7 @@ class QuoteStatusResult(BaseModel):
 
 
 class AcceptQuoteResult(BaseModel):
+    """The AcceptQuoteResult a use case returns."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     quote_id: QuoteId
@@ -91,12 +100,14 @@ class AcceptQuoteResult(BaseModel):
 
 
 class DepositLinkResult(BaseModel):
+    """The DepositLinkResult a use case returns."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     url: str
 
 
 class ApproveResult(BaseModel):
+    """The ApproveResult a use case returns."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     quote_id: QuoteId
@@ -107,6 +118,7 @@ class ApproveResult(BaseModel):
 
 
 class BookInspectionResult(BaseModel):
+    """The BookInspectionResult a use case returns."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     inspection_id: UUID
@@ -119,6 +131,7 @@ class BookInspectionResult(BaseModel):
 
 
 class EscalateToOwnerResult(BaseModel):
+    """The EscalateToOwnerResult a use case returns."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     sentence: str
@@ -127,6 +140,7 @@ class EscalateToOwnerResult(BaseModel):
 
 
 class PendingRow(BaseModel):
+    """The PendingRow."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     quote_id: QuoteId

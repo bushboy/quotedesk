@@ -1,3 +1,5 @@
+"""The change DTOs. The editor and the deposit flow record what the owner changed."""
+
 from decimal import Decimal
 from typing import Literal
 from uuid import UUID
@@ -9,6 +11,7 @@ from quotedesk.domain.shared.ids import QuoteId
 
 
 class ChangeRecord(BaseModel):
+    """The ChangeRecord."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     tenant_id: UUID
@@ -21,6 +24,7 @@ class ChangeRecord(BaseModel):
 
 
 class DepositLinkRecord(BaseModel):
+    """The DepositLinkRecord."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     tenant_id: UUID

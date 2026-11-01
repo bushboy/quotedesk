@@ -1,8 +1,14 @@
 from decimal import Decimal
+from pathlib import Path
 
+from quotedesk.adapters.outbound.parsers.aquasure import load_policy
 from quotedesk.domain.policy.rules import Outcome, Policy, PolicyRule
-from quotedesk.domain.policy.when import published_when
 from quotedesk.domain.shared.ids import PolicyVersionId, RuleId
+
+_WHEN = {
+    rule.rule_id.value: rule.when
+    for rule in load_policy(Path(__file__).resolve().parents[3] / "seeds" / "aquasure.yaml").rules
+}
 
 
 def _rule(
@@ -18,7 +24,7 @@ def _rule(
         outcome=outcome,
         customer_template=customer_template,
         reason=reason,
-        when=published_when(rule_id),
+        when=_WHEN[rule_id],
     )
 
 
@@ -117,13 +123,6 @@ def aquasure_policy() -> Policy:
                 Outcome.FIXED_OFFER,
                 "We can send a fixed quote for this pump.",
                 "A pump on an existing tank.",
-            ),
-            _rule(
-                "WATER-L01",
-                1,
-                Outcome.ESCALATION,
-                "Your message is recorded for further consultation. Someone from the business will contact you.",
-                "Confidence is low and no earlier rule matched, so the conversation is recorded.",
             ),
             _rule(
                 "WATER-L02",

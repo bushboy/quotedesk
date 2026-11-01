@@ -1,3 +1,5 @@
+"""The schedule model. The scheduling service in domain/services/schedule.py books a day from these types."""
+
 from datetime import date, datetime
 from typing import Literal
 
@@ -20,6 +22,7 @@ def _civil(value: object) -> date | None:
 
 
 class ScheduleRequest(BaseModel):
+    """The ScheduleRequest."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     kind: RequestKind
@@ -35,12 +38,14 @@ class ScheduleRequest(BaseModel):
 
 
 class SlotHold(BaseModel):
+    """The SlotHold."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     hold_expires_at: datetime
 
 
 class CapacitySlot(BaseModel):
+    """The CapacitySlot."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     day: date
@@ -49,6 +54,7 @@ class CapacitySlot(BaseModel):
 
 
 class Capacity(BaseModel):
+    """The Capacity."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     slots: tuple[CapacitySlot, ...] = ()
@@ -62,6 +68,7 @@ class Capacity(BaseModel):
 
 
 class ScheduleSettings(BaseModel):
+    """The ScheduleSettings."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     lead_time_working_days: dict[str, int]
@@ -73,12 +80,14 @@ class ScheduleSettings(BaseModel):
 
 
 class DepositState(BaseModel):
+    """The DepositState."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     paid: bool
 
 
 class ScheduleCommitment(BaseModel):
+    """The ScheduleCommitment."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     status: ScheduleStatus
@@ -94,6 +103,7 @@ class ScheduleCommitment(BaseModel):
 
 
 class ScheduleResult(BaseModel):
+    """The ScheduleResult a use case returns."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     commitment: ScheduleCommitment

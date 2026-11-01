@@ -191,6 +191,10 @@ rate_card:
     price: "750.00"
 rules:
 - rule_id: WATER-E01
+  when:
+    op: equals
+    fact: injection
+    value: "true"
   priority: 0
   outcome: escalation
   customer_template: I can't use that message to change the quote. Please phone the
@@ -198,63 +202,222 @@ rules:
   reason: 'Flagged as an injection for the owner: the message instructs the assistant
     or claims an approval.'
 - rule_id: WATER-E02
+  when:
+    op: all
+    of:
+      - op: any
+        of:
+          - op: equals
+            fact: installation_damaged
+            value: "true"
+          - op: in
+            fact: stand_condition
+            values: ["leaning", "cracked", "sagging"]
+          - op: equals
+            fact: structure_damage
+            value: "true"
+          - op: equals
+            fact: stand_hazard_mentioned
+            value: "true"
+      - op: any
+        of:
+          - op: equals
+            fact: simple_swap
+            value: "false"
+          - op: in
+            fact: confidence
+            values: ["low", "medium"]
+          - op: in
+            fact: job
+            values: ["new_system", "borehole", "unknown"]
+          - op: equals
+            fact: size_known
+            value: "false"
+          - op: is_missing
+            fact: size_source
+          - op: in
+            fact: size_source
+            values: ["photo_inferred", "reference_object"]
+          - op: equals
+            fact: existing_level_base
+            value: "false"
+          - op: equals
+            fact: items_chosen
+            value: "false"
+          - op: equals
+            fact: rate_card_match
+            value: "false"
+      - op: any
+        of:
+          - op: equals
+            fact: size_known
+            value: "false"
+          - op: in
+            fact: job
+            values: ["borehole", "unknown"]
+          - op: equals
+            fact: simple_swap
+            value: "false"
   priority: 0
   outcome: site_assessment
   customer_template: We'll book an inspection. The installation is damaged, and it
     is not clear this is a simple tank replacement.
   reason: The installation is damaged, and a simple tank replacement is not confirmed.
 - rule_id: WATER-E03
+  when:
+    op: any
+    of:
+      - op: equals
+        fact: exposed_wiring
+        value: "true"
+      - op: equals
+        fact: active_flooding
+        value: "true"
   priority: 0
   outcome: escalation
   customer_template: Please isolate the power near the water, and stay clear of it
     until we've checked the site.
   reason: Exposed wiring or active flooding was recorded.
 - rule_id: WATER-S01
+  when:
+    op: equals
+    fact: job
+    value: "borehole"
   priority: 1
   outcome: site_assessment
   customer_template: A borehole needs someone on site. If you go ahead, the visit
     fee is R 750, credited against the work.
   reason: The job is a borehole.
 - rule_id: WATER-S02
+  when:
+    op: any
+    of:
+      - op: all
+        of:
+          - op: equals
+            fact: elevated
+            value: "true"
+          - op: equals
+            fact: structure_damage
+            value: "false"
+      - op: equals
+        fact: sloped_ground
+        value: "true"
+      - op: equals
+        fact: pipe_run_unknown
+        value: "true"
   priority: 1
   outcome: site_assessment
   customer_template: This install needs someone on site before we can give you a
     price. The visit fee is R 750.
   reason: The ground, the stand, or the pipe run needs a visit.
 - rule_id: WATER-F01
+  when:
+    op: all
+    of:
+      - op: any
+        of:
+          - op: is_missing
+            fact: simple_swap
+          - op: equals
+            fact: simple_swap
+            value: "true"
+      - op: equals
+        fact: confidence
+        value: "high"
+      - op: equals
+        fact: job
+        value: "replacement"
+      - op: equals
+        fact: size_known
+        value: "true"
+      - op: equals
+        fact: size_source
+        value: "customer_stated"
+      - op: equals
+        fact: existing_level_base
+        value: "true"
+      - op: equals
+        fact: items_chosen
+        value: "true"
+      - op: equals
+        fact: rate_card_match
+        value: "true"
   priority: 1
   outcome: fixed_offer
   customer_template: We can send a fixed quote for this replacement.
   reason: Like-for-like replacement on a level base with a stated size.
 - rule_id: WATER-F02
+  when:
+    op: all
+    of:
+      - op: equals
+        fact: job
+        value: "new_system"
+      - op: in
+        fact: size_litres
+        values: ["2500", "5000", "10000"]
   priority: 1
   outcome: fixed_offer
   customer_template: We can send a fixed quote for this new installation.
   reason: A new installation of a tank on the rate card.
 - rule_id: WATER-R01
+  when:
+    op: all
+    of:
+      - op: in
+        fact: confidence
+        values: ["medium", "high"]
+      - op: equals
+        fact: new_tank_and_pump
+        value: "true"
+      - op: equals
+        fact: base_unconfirmed
+        value: "true"
   priority: 1
   outcome: indicative_range
   customer_template: We can send a price range for a new tank and pump. It assumes
     the base still has to be confirmed.
   reason: New tank and pump with the base unconfirmed.
 - rule_id: WATER-R02
+  when:
+    op: all
+    of:
+      - op: equals
+        fact: size_known
+        value: "true"
+      - op: in
+        fact: job
+        values: ["replacement", "new_system"]
+      - op: any
+        of:
+          - op: is_missing
+            fact: simple_swap
+          - op: equals
+            fact: simple_swap
+            value: "true"
   priority: 1
   outcome: indicative_range
   customer_template: The indicative range for that tank is in this result. It can
     change once we confirm the base.
   reason: The tank size is known for a new installation or a swap.
 - rule_id: WATER-F03
+  when:
+    op: all
+    of:
+      - op: equals
+        fact: job
+        value: "pump"
+      - op: in
+        fact: pump
+        values: ["PUMP-STD", "PUMP-PRESSURE"]
   priority: 1
   outcome: fixed_offer
   customer_template: We can send a fixed quote for this pump.
   reason: A pump on an existing tank.
-- rule_id: WATER-L01
-  priority: 1
-  outcome: escalation
-  customer_template: Your message is recorded for further consultation. Someone from
-    the business will contact you.
-  reason: Confidence is low and no earlier rule matched, so the conversation is recorded.
 - rule_id: WATER-L02
+  when:
+    op: all
   priority: 1
   outcome: escalation
   customer_template: Your message is recorded for further consultation. Someone from

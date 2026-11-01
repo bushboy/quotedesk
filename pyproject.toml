@@ -12,6 +12,7 @@ dependencies = [
     "openpyxl",
     "pyyaml",
     "openai",
+    "python-multipart",
 ]
 
 [project.optional-dependencies]
@@ -22,6 +23,8 @@ dev = [
     "sqlalchemy>=2",
     "psycopg[binary]",
     "alembic",
+    "ruff",
+    "vulture",
 ]
 
 [build-system]
@@ -34,3 +37,14 @@ include = ["quotedesk*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+
+[tool.ruff]
+line-length = 120
+src = ["quotedesk", "tests"]
+
+[tool.ruff.lint]
+select = ["F401", "F841"]
+
+[tool.vulture]
+min_confidence = 80
+paths = ["quotedesk"]

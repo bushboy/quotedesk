@@ -1,3 +1,5 @@
+"""The process settings. The composition root reads the environment from here."""
+
 import os
 from typing import Literal
 
@@ -24,11 +26,13 @@ _PROVIDERS = ("meta", "baseten")
 
 
 class SettingsError(Exception):
+    """Raised when Setting fails."""
     def __init__(self, sentence: str) -> None:
         super().__init__(sentence)
 
 
 class Settings(BaseSettings):
+    """The Settings."""
     model_config = SettingsConfigDict(extra="ignore")
 
     database_url: str
@@ -51,6 +55,7 @@ class Settings(BaseSettings):
 
 
 def get_settings() -> Settings:
+    """The settings for this process."""
     url = os.environ.get("DATABASE_URL")
     if url is None or url == "":
         raise SettingsError(_REQUIRED)

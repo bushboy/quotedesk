@@ -1,3 +1,5 @@
+"""The audit DTO. The quote use case records one event, and the case brief lists them."""
+
 from datetime import datetime
 from uuid import UUID
 
@@ -7,6 +9,7 @@ from quotedesk.domain.shared.ids import QuoteId
 
 
 class AuditEvent(BaseModel):
+    """The AuditEvent."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     tenant_id: UUID

@@ -55,10 +55,6 @@ def known_tenant(slug: str) -> TenantProfile:
     return profile
 
 
-def unknown_tenant_sentence() -> str:
-    return _UNKNOWN
-
-
 def open_tenant(database_url: str, slug: str) -> tuple[TenantProfile, str, bool]:
     """The business, where it was read from, and whether the database answered.
 
@@ -74,18 +70,6 @@ def open_tenant(database_url: str, slug: str) -> tuple[TenantProfile, str, bool]
     if loaded is None:
         return builtin, "built-in", True
     return loaded, "tenant table", True
-
-
-def resolve_tenant(database_url: str, slug: str) -> tuple[TenantProfile, str]:
-    """The active business, and whether it came from the table or the built-in row.
-
-    A missing table or a closed database keeps the built-in row for that slug.
-    A row that is present wins, so an edit in the table is what the agent sees.
-    """
-    profile, source, _reachable = open_tenant(database_url, slug)
-    if source == "unavailable":
-        return profile, "built-in"
-    return profile, source
 
 
 def _from_table(database_url: str, slug: str) -> TenantProfile | None:

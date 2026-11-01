@@ -203,6 +203,8 @@ The engine is a pure Python function, `decide(case_file, media_facts, published_
 
 All five pass → high. One fails (other than rate card match) → medium. Rate card match fails, or two or more fail → low. Low never produces a price. The test set (section below) calibrates these rules, and the result goes back into strategy §2.1.
 
+A photo that disagrees with the customer does not settle the quote by lowering that band. The agent keeps both values, asks which one to price, and stores the side the customer confirms. It does not ask that clash again unless a new reading arrives. A fixed quote is sent only after the customer confirms the replayed spec. A declined spec is a price range or an escalation, with no fixed total. A blur or a SAM miss does not block a spec the customer has confirmed. An inferred photo size stays out of the price until that confirmation.
+
 **Water security rules** (demo policy v1; amounts are placeholders until a real installer's rate card is loaded)
 
 | Rule | Condition | Outcome | System action |
@@ -214,7 +216,7 @@ All five pass → high. One fails (other than rate card match) → medium. Rate 
 | WATER-S02 | New elevated stand, sloped ground, or pipe run the customer cannot estimate | (c) Site assessment | Offer paid site visit |
 | WATER-F01 | Like-for-like tank or pump replacement on an existing level base, size stated, high confidence | (a) Fixed offer | Fixed quote, auto-send allowed |
 | WATER-R01 | New tank and pump system, base or pipe run unconfirmed, medium or high confidence | (b) Indicative range | Range quote with listed assumptions |
-| WATER-L01 | Low confidence, no other rule matched | (c) Site assessment | Ask for a better photo once, then offer site visit |
+| WATER-L01 | Retired. Low confidence no longer asks for a tape measure. An unconfirmed spec is a range or an escalation. | | |
 
 **Fabricator rules** (demo policy v1)
 
@@ -228,7 +230,7 @@ All five pass → high. One fails (other than rate card match) → medium. Rate 
 | FAB-F01 | Replacement in an existing opening, dimensions stated or measured against a reference, standard size band and finish, high confidence | (a) Fixed offer | Fixed quote, auto-send allowed |
 | FAB-R01 | Existing opening, non-standard size or finish not chosen, medium or high confidence | (b) Indicative range | Range across finishes, with assumptions |
 | FAB-B01 | Customer budget stated and below the range minimum | (b) Indicative range | Show range and the nearest affordable option; no estimator dispatched |
-| FAB-L01 | Low confidence, no other rule matched | (c) Site assessment | Ask for tape measure in frame once, then offer site measure |
+| FAB-L01 | Retired. Low confidence no longer asks for a tape measure. An unconfirmed spec is a range or an escalation. | | |
 
 **Discounts and changes** (both tenants): discounts up to the tenant cap apply automatically and create a new quote version; anything above the cap, any change to liability terms, and any claimed owner approval go to `PENDING_APPROVAL`. Approvals apply to one quote version only and expire.
 

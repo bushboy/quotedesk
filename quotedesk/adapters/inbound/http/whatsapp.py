@@ -1,3 +1,5 @@
+"""The WhatsApp HTTP adapter. Meta calls the webhook, and the outbox page reads what the turn sent."""
+
 import hashlib
 import hmac
 import json
@@ -20,6 +22,7 @@ _MEDIA = ("image", "audio", "video")
 
 @router.get("/whatsapp/webhook", response_model=None)
 def verify(request: Request) -> PlainTextResponse:
+    """Answer Meta's webhook verification."""
     params = request.query_params
     expected = request.app.state.settings.whatsapp_verify_token
     token = params.get("hub.verify_token")
@@ -35,6 +38,7 @@ def verify(request: Request) -> PlainTextResponse:
 
 @router.post("/whatsapp/webhook")
 async def webhook(request: Request, background: BackgroundTasks) -> Response:
+    """Accept one inbound WhatsApp event."""
     raw = await request.body()
     secret = request.app.state.settings.whatsapp_app_secret
     if secret and not _signed(raw, secret, request.headers.get("x-hub-signature-256", "")):
@@ -88,6 +92,7 @@ async def webhook(request: Request, background: BackgroundTasks) -> Response:
 
 @router.get("/whatsapp/history")
 def history(request: Request, wa_id: str) -> list[dict[str, str]]:
+    """Return the messages stored for one conversation."""
     transcript = getattr(request.app.state.conversations, "transcript", None)
     if transcript is None:
         return []
@@ -96,6 +101,7 @@ def history(request: Request, wa_id: str) -> list[dict[str, str]]:
 
 @router.get("/whatsapp/outbox")
 def read_outbox(request: Request, wa_id: str | None = None, after: int | None = None) -> list[dict[str, object]]:
+    """Return the messages the turn has sent."""
     rows = request.app.state.outbox.pending()
     if wa_id is not None:
         rows = tuple(row for row in rows if row.wa_id == wa_id)

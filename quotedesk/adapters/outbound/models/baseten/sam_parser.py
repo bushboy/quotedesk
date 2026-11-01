@@ -1,3 +1,5 @@
+"""The SAM response parser. The image adapter turns a segmenter payload into masks."""
+
 from decimal import Decimal
 from typing import Mapping
 
@@ -5,6 +7,7 @@ from pydantic import BaseModel, ConfigDict
 
 
 class SamMask(BaseModel):
+    """The SamMask."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     label: str
@@ -13,12 +16,14 @@ class SamMask(BaseModel):
 
 
 class SamSuccess(BaseModel):
+    """The SamSuccess."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     masks: tuple[SamMask, ...]
 
 
 class SamFailure(BaseModel):
+    """The SamFailure."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     code: str
@@ -26,6 +31,7 @@ class SamFailure(BaseModel):
 
 
 def parse_sam_response(payload: Mapping[str, object]) -> SamSuccess | SamFailure:
+    """Turn one SAM payload into masks or a failure."""
     error = payload.get("error")
     if error is not None:
         if not isinstance(error, dict):

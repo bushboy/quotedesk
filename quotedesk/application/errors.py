@@ -1,4 +1,7 @@
+"""The application errors. Use cases raise these when a tenant, a case, or a model call is missing."""
+
 class ApplicationError(Exception):
+    """Raised when Applicatio fails."""
     def __init__(self, code: str, sentence: str) -> None:
         super().__init__(sentence)
         self.code = code
@@ -9,25 +12,30 @@ class ApplicationError(Exception):
 
 
 class TenantRequired(ApplicationError):
+    """The TenantRequired."""
     def __init__(self) -> None:
         super().__init__(code="tenant.required", sentence="A use case needs a tenant.")
 
 
 class CaseNotFound(ApplicationError):
+    """The CaseNotFound."""
     def __init__(self) -> None:
         super().__init__(code="case.not_found", sentence="That case is not on this tenant.")
 
 
 class QuoteNotFound(ApplicationError):
+    """The QuoteNotFound."""
     def __init__(self) -> None:
         super().__init__(code="quote.not_found", sentence="That quote is not on this tenant.")
 
 
 class ModelTimeout(ApplicationError):
+    """The ModelTimeout."""
     def __init__(self) -> None:
         super().__init__(code="model.timeout", sentence="The model did not answer in time.")
 
 
 class ToolArgumentsInvalid(ApplicationError):
+    """The ToolArgumentsInvalid."""
     def __init__(self) -> None:
         super().__init__(code="tool.arguments", sentence="The tool arguments could not be read.")

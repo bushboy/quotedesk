@@ -1,3 +1,5 @@
+"""The tool inputs. The model and the console pass these into the use cases."""
+
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Annotated, Any, Literal, Self
@@ -18,6 +20,7 @@ FactSource = Literal[
 
 
 class GetQuoteInput(BaseModel):
+    """The GetQuoteInput a caller passes in."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     conversation_id: UUID
@@ -27,6 +30,7 @@ _FORBIDDEN_FACT_KEYS = frozenset({"unit_price", "outcome", "clause_text"})
 
 
 class FactInput(BaseModel):
+    """The FactInput a caller passes in."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     key: str
@@ -48,6 +52,7 @@ def _reject_float(value: Any) -> Any:
 
 
 class ClauseChange(BaseModel):
+    """The ClauseChange."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     clause_id: str
@@ -55,6 +60,7 @@ class ClauseChange(BaseModel):
 
 
 class RequestChangeInput(BaseModel):
+    """The RequestChangeInput a caller passes in."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     quote_id: QuoteId
@@ -74,6 +80,7 @@ class RequestChangeInput(BaseModel):
 
 
 class UpdateCaseInput(BaseModel):
+    """The UpdateCaseInput a caller passes in."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     conversation_id: UUID
@@ -84,6 +91,7 @@ class UpdateCaseInput(BaseModel):
 
 
 class CheckAvailabilityInput(BaseModel):
+    """The CheckAvailabilityInput a caller passes in."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     job_type: str
@@ -91,6 +99,7 @@ class CheckAvailabilityInput(BaseModel):
 
 
 class HoldSlotInput(BaseModel):
+    """The HoldSlotInput a caller passes in."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     quote_id: QuoteId
@@ -100,6 +109,7 @@ class HoldSlotInput(BaseModel):
 
 
 class BookInspectionInput(BaseModel):
+    """The BookInspectionInput a caller passes in."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     conversation_id: UUID
@@ -110,6 +120,7 @@ class BookInspectionInput(BaseModel):
 
 
 class EscalateToOwnerInput(BaseModel):
+    """The EscalateToOwnerInput a caller passes in."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     conversation_id: UUID
@@ -117,12 +128,14 @@ class EscalateToOwnerInput(BaseModel):
 
 
 class AcceptQuoteInput(BaseModel):
+    """The AcceptQuoteInput a caller passes in."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     quote_id: QuoteId
 
 
 class GetQuoteStatusInput(BaseModel):
+    """The GetQuoteStatusInput a caller passes in."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     quote_id: QuoteId
@@ -130,6 +143,7 @@ class GetQuoteStatusInput(BaseModel):
 
 
 class CreateDepositLinkInput(BaseModel):
+    """The CreateDepositLinkInput a caller passes in."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     quote_id: QuoteId
@@ -137,6 +151,7 @@ class CreateDepositLinkInput(BaseModel):
 
 
 class ApproveExceptionInput(BaseModel):
+    """The ApproveExceptionInput a caller passes in."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     quote_id: QuoteId
@@ -146,6 +161,7 @@ class ApproveExceptionInput(BaseModel):
 
 
 class RejectExceptionInput(BaseModel):
+    """The RejectExceptionInput a caller passes in."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     quote_id: QuoteId
@@ -154,6 +170,7 @@ class RejectExceptionInput(BaseModel):
 
 
 class PublishInput(BaseModel):
+    """The PublishInput a caller passes in."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     reason: str
@@ -161,6 +178,7 @@ class PublishInput(BaseModel):
 
 
 class RollbackInput(BaseModel):
+    """The RollbackInput a caller passes in."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     source_version: PolicyVersionId

@@ -1,3 +1,5 @@
+"""The quote model. The quote use case issues a version, and the card reads it."""
+
 from datetime import date, datetime
 from decimal import Decimal
 from enum import Enum
@@ -20,6 +22,7 @@ _AFTER_EXPIRY = "An approval after expiry does not apply."
 
 
 class QuoteState(str, Enum):
+    """The QuoteState."""
     DRAFT = "DRAFT"
     PENDING_APPROVAL = "PENDING_APPROVAL"
     ISSUED = "ISSUED"
@@ -90,6 +93,7 @@ _FROM_OUTCOME = {
 
 
 class QuoteLine(BaseModel):
+    """The QuoteLine."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     item_code: str
@@ -100,6 +104,7 @@ class QuoteLine(BaseModel):
 
 
 class Approval(BaseModel):
+    """The Approval."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     applies_to_version: int
@@ -107,6 +112,7 @@ class Approval(BaseModel):
 
 
 class QuoteVersion(BaseModel):
+    """The QuoteVersion."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     number: int
@@ -136,6 +142,7 @@ def _expiry(value: Any) -> date:
 
 
 class Quote(BaseModel):
+    """The Quote."""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     quote_id: QuoteId

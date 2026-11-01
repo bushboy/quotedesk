@@ -6,7 +6,6 @@ from uuid import uuid4
 
 from quotedesk.application.dto.agent import HandoverNote
 from quotedesk.application.dto.inbound import InboundMessage
-from quotedesk.application.dto.tenant import TenantContext
 from quotedesk.application.dto.tool_inputs import BookInspectionInput, EscalateToOwnerInput
 from quotedesk.application.use_cases.tools.book_inspection import BookInspection
 from quotedesk.application.use_cases.tools.escalate_to_owner import EscalateToOwner

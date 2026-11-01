@@ -1,3 +1,5 @@
+"""The seed parser. The composition root loads a business policy, playbook, and rate card from YAML."""
+
 from decimal import Decimal
 from pathlib import Path
 
@@ -21,6 +23,7 @@ from quotedesk.domain.shared.money import Money
 
 
 def load_policy(path: Path) -> Policy:
+    """Load one published policy from a seed file."""
     raw = yaml.safe_load(path.read_text(encoding="utf-8"))
     minimum = raw.get("range_minimum")
     return Policy(
@@ -43,6 +46,7 @@ def load_policy(path: Path) -> Policy:
 
 
 def load_playbook(path: Path) -> BusinessPlaybook:
+    """Load the playbook from a seed file."""
     raw = yaml.safe_load(path.read_text(encoding="utf-8"))
     block = raw.get("playbook") or {}
     return BusinessPlaybook(
@@ -126,6 +130,7 @@ def _escalation(raw: dict) -> EscalationTrigger:
 
 
 def load_rate_card(path: Path) -> RateCard:
+    """Load the rate card from a seed file."""
     raw = yaml.safe_load(path.read_text(encoding="utf-8"))
     block = raw.get("rate_card") or {}
     items = tuple(_rate_item(item) for item in block.get("items") or ())
