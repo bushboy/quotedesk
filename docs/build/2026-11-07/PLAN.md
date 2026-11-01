@@ -29,37 +29,37 @@ Muse Image, `muse-image-1.0`.
 
 ## 2. Renderer
 
-- [ ] The composition root builds the renderer only when `CARPORT_PICTURE` is `on`. Off passes nothing, and the turn returns before any drawing.
-- [ ] A port returns image bytes, or fails. The turn never sees the Meta URL.
-- [ ] `muse-image-1.0` is called for FrameWorks only, with `META_API_KEY` and the existing Meta base URL.
-- [ ] An edit posts the customer photo. A generation posts no photo.
-- [ ] `enable_web_search` and `enable_image_search` are false. `reasoning_strength` is `high`.
-- [ ] The bytes, the prompt, and the key are not logged.
-- [ ] No key, or a failed call, returns no picture. The quote sentence is unchanged.
+- [x] The composition root builds the renderer only when `CARPORT_PICTURE` is `on`. Off passes nothing, and the turn returns before any drawing.
+- [x] A port returns image bytes, or fails. The turn never sees the Meta URL.
+- [x] `muse-image-1.0` is called for FrameWorks only, with `META_API_KEY` and the existing Meta base URL.
+- [x] An edit posts the customer photo. A generation posts no photo.
+- [x] `enable_web_search` and `enable_image_search` are false. `reasoning_strength` is `high`.
+- [x] The bytes, the prompt, and the key are not logged.
+- [x] No key, or a failed call, returns no picture. The quote sentence is unchanged.
 
 ## 3. What is drawn
 
-- [ ] The playbook marks `SHADE-NET` as a sagging sheet. The prompt asks for a curved roof on that sheet.
-- [ ] `SHEET-ECO`, `SHEET-COLOUR`, and `SHEET-INSUL` stay a straight pitched roof.
-- [ ] The prompt uses the confirmed sheet label, width, and length. A gutter and a frame finish are included when they are known.
-- [ ] The prompt contains no rand amount and no brand.
-- [ ] A range, an escalation, and a site measure draw nothing.
-- [ ] AquaSure never calls the renderer.
+- [x] The playbook marks `SHADE-NET` as a sagging sheet. The prompt asks for a curved roof on that sheet.
+- [x] `SHEET-ECO`, `SHEET-COLOUR`, and `SHEET-INSUL` stay a straight pitched roof.
+- [x] The prompt uses the confirmed sheet label, width, and length. A gutter and a frame finish are included when they are known.
+- [x] The prompt contains no rand amount and no brand.
+- [x] A range, an escalation, and a site measure draw nothing.
+- [x] AquaSure never calls the renderer.
 
 ## 4. Onto their garage, or an imaginary one
 
-- [ ] The latest usable customer photo of a garage, wall, or house is the edit input.
-- [ ] No photo, or `media_usable` false, generates the carport against a plain wall and a single garage.
-- [ ] The reply says the drawing used their photo, or that the photo was hard to use and the drawing is imaginary.
-- [ ] The picture follows the quote. The quote total is the same sentence as today, then the drawing.
+- [x] The latest usable customer photo of a garage, wall, or house is the edit input.
+- [x] No photo, or `media_usable` false, generates the carport against a plain wall and a single garage.
+- [x] The reply says the drawing used their photo, or that the photo was hard to use and the drawing is imaginary.
+- [x] The picture follows the quote. The quote total is the same sentence as today, then the drawing.
 
 ## 5. Tests
 
-- [ ] A confirmed shade-net carport with a garage photo asks for an edit and a curved roof. The quote total is unchanged.
-- [ ] A confirmed IBR carport with no photo asks for a generation and a straight roof.
-- [ ] A blurry photo asks for a generation, and the reply says the photo was hard to use.
-- [ ] A renderer failure still sends the quote and no picture.
-- [ ] AquaSure sends no picture.
-- [ ] With `CARPORT_PICTURE` off, a confirmed FrameWorks quote sends the same sentence as today and no picture.
-- [ ] The tests pass the renderer in. They do not call Muse Image.
-- [ ] `pytest` is green. Record the count.
+- [x] A confirmed shade-net carport with a garage photo asks for an edit and a curved roof. The quote total is unchanged.
+- [x] A confirmed IBR carport with no photo asks for a generation and a straight roof.
+- [x] A blurry photo asks for a generation, and the reply says the photo was hard to use.
+- [x] A renderer failure still sends the quote and no picture.
+- [x] AquaSure sends no picture.
+- [x] With `CARPORT_PICTURE` off, a confirmed FrameWorks quote sends the same sentence as today and no picture.
+- [x] The tests pass the renderer in. They do not call Muse Image.
+- [x] `pytest` is green. 477 passed.
