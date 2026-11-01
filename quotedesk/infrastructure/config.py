@@ -19,6 +19,7 @@ _BASETEN_MODEL_AGENT = "BASETEN_MODEL_ID is required when AGENT_PROVIDER is base
 _BASETEN_KEY_IMAGE = "BASETEN_API_KEY is required when IMAGE_PROVIDER is baseten."
 _BASETEN_MODEL_IMAGE = "BASETEN_MODEL_ID is required when IMAGE_PROVIDER is baseten."
 _SAM_MODEL = "sam-3.1"
+_CARPORT_PICTURE = "CARPORT_PICTURE is on or off."
 _TENANT = "TENANT is aquasure or frameworks."
 _META_BASE = "https://api.meta.ai/v1"
 _BASETEN_BASE = "https://inference.baseten.co/v1"
@@ -50,8 +51,19 @@ class Settings(BaseSettings):
     baseten_model_id: str = ""
     baseten_image_model_id: str = ""
     sam_model_id: str = _SAM_MODEL
+    carport_picture: bool = False
     tenant: str = "aquasure"
     store: StoreKind = "postgres"
+
+
+def _on(raw: str) -> bool:
+    """CARPORT_PICTURE. Unset is off. The composition root reads this. The quote path does not."""
+    value = raw.strip().casefold()
+    if value in ("", "off"):
+        return False
+    if value == "on":
+        return True
+    raise SettingsError(_CARPORT_PICTURE)
 
 
 def get_settings() -> Settings:
@@ -90,6 +102,7 @@ def get_settings() -> Settings:
     if live and key == "":
         raise SettingsError(_SPARK_KEY)
     sam_model_id = os.environ.get("SAM_MODEL_ID", "") or _SAM_MODEL
+    carport_picture = _on(os.environ.get("CARPORT_PICTURE", "off"))
     base = os.environ.get("META_BASE_URL", "") or _META_BASE
     baseten_base = os.environ.get("BASETEN_BASE_URL", "") or _BASETEN_BASE
     tenant = os.environ.get("TENANT", "aquasure")
@@ -111,6 +124,7 @@ def get_settings() -> Settings:
         baseten_model_id=baseten_model_id,
         baseten_image_model_id=baseten_image_model_id,
         sam_model_id=sam_model_id,
+        carport_picture=carport_picture,
         tenant=tenant,
         store=store,
     )

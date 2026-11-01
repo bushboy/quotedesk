@@ -1,4 +1,5 @@
 import importlib
+from pathlib import Path
 
 import pytest
 
@@ -23,6 +24,7 @@ def test_settings_read_from_env(monkeypatch):
         "BASETEN_MODEL_ID",
         "BASETEN_IMAGE_MODEL_ID",
         "SAM_MODEL_ID",
+        "CARPORT_PICTURE",
     ):
         monkeypatch.delenv(name, raising=False)
     with pytest.raises(SettingsError) as missing:
@@ -46,6 +48,7 @@ def test_settings_read_from_env(monkeypatch):
     assert get_settings().agent_provider == "meta"
     assert get_settings().image_provider == "meta"
     assert get_settings().sam_model_id == "sam-3.1"
+    assert get_settings().carport_picture is False
     assert get_settings().tenant == "aquasure"
     monkeypatch.setenv("SAM_MODEL_ID", "sam-3.1-preview")
     assert get_settings().sam_model_id == "sam-3.1-preview"
@@ -66,6 +69,31 @@ def test_settings_read_from_env(monkeypatch):
     with pytest.raises(SettingsError) as startup:
         create_app()
     assert str(startup.value) == REQUIRED
+
+
+def test_carport_picture_is_off_until_switched_on(monkeypatch):
+    monkeypatch.setenv("DATABASE_URL", "postgresql://from-the-environment/only")
+    monkeypatch.setenv("MODEL", "script")
+    monkeypatch.delenv("CARPORT_PICTURE", raising=False)
+    assert get_settings().carport_picture is False
+    monkeypatch.setenv("CARPORT_PICTURE", "on")
+    assert get_settings().carport_picture is True
+    monkeypatch.setenv("CARPORT_PICTURE", "off")
+    assert get_settings().carport_picture is False
+    monkeypatch.setenv("CARPORT_PICTURE", "yes")
+    with pytest.raises(SettingsError) as unknown:
+        get_settings()
+    assert str(unknown.value) == "CARPORT_PICTURE is on or off."
+    root = Path(__file__).resolve().parents[2]
+    for relative in (
+        "quotedesk/application/use_cases/conversation/run_agent_turn.py",
+        "quotedesk/application/use_cases/tools/get_quote.py",
+        "quotedesk/domain/services/plan.py",
+        "quotedesk/application/prompts.py",
+    ):
+        text = (root / relative).read_text(encoding="utf-8")
+        assert "muse-image" not in text
+        assert "carport_picture" not in text
 
 
 def test_importing_the_entrypoint_does_not_build_the_app(monkeypatch):
