@@ -31,11 +31,11 @@ The chat page already records a voice note and posts it with no transcript. `Mus
 
 ## 3. Play back what we heard
 
-- [ ] The reply after a voice note begins with "I heard: {transcript}."
-- [ ] The prefix is added once. A reply that already starts with it is left as it is.
-- [ ] The transcript stays the event body, so the turn can record facts from it.
-- [ ] The playback sentence is not stored as a price fact.
-- [ ] Test: a voice note whose words state a 5000 L swap is answered with "I heard:" and those words, and the turn does not send the fixed quote yet.
+- [x] The reply after a voice note begins with "I heard: {transcript}."
+- [x] The prefix is added once. A reply that already starts with it is left as it is.
+- [x] The transcript stays the event body, so the turn can record facts from it.
+- [x] The playback sentence is not stored as a price fact.
+- [x] Test: a voice note whose words state a 5000 L swap is answered with "I heard:" and those words, and the turn does not send the fixed quote yet.
 
 ## 4. A spoken yes
 

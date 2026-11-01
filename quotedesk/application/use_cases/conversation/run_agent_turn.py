@@ -579,7 +579,7 @@ class RunAgentTurn:
         outcome: TurnOutcome,
     ) -> TurnOutcome:
         fresh = self._conversations.get(context.tenant_id, conversation_id) or conversation
-        named = with_name(self._conversations, context.tenant_id, wa_id, body)
+        named = _with_heard(with_name(self._conversations, context.tenant_id, wa_id, body), _heard(self, context, conversation_id, batch))
         batch_id = "|".join(event.provider_message_id for event in batch)
         reserve = getattr(self._conversations, "reserve_outbound", None)
         action = "send"
@@ -1331,6 +1331,34 @@ def _quote_facts(payload, card_base, card_code, price_kind, card_link):
         if code:
             card_link = f"{card_link}?code={code}"
     return price_kind, card_link
+
+
+def _heard(turn: RunAgentTurn, context: TenantContext, conversation_id: UUID, batch: tuple) -> str:
+    """The transcript of the latest voice note in this turn. A text message contributes nothing."""
+    if not batch:
+        return ""
+    reader = getattr(turn._conversations, "messages", None)
+    if reader is None:
+        return ""
+    latest = batch[-1]
+    found = reader(context.tenant_id, conversation_id)
+    message = next((item for item in found if item.provider_message_id == latest.provider_message_id), None)
+    if message is None or message.kind != "audio":
+        return ""
+    return (message.transcript or latest.body or "").strip()
+
+
+def _with_heard(body: str, transcript: str) -> str:
+    """The reply begins with the transcript once, in the words the engine returned."""
+    heard = transcript.strip()
+    if not heard:
+        return body
+    prefix = f"I heard: {heard}."
+    if body.startswith(prefix):
+        return body
+    if not body.strip():
+        return prefix
+    return f"{prefix} {body}"
 
 
 def _with_card(text: str, card_link: str | None) -> str:

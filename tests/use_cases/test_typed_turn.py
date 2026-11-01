@@ -686,3 +686,76 @@ def test_second_turn_sees_the_recorded_size():
     turn.execute(CONTEXT, CONVERSATION)
     seen = model.prompts[-1]
     assert any(fact.key == "size_litres" and fact.value == "5000" for fact in seen.case.facts)
+
+
+VOICE = "Replace the 5000 L tank on the existing level base."
+
+
+def hear(conversations: Conversations, body: str, seconds: float, message_id: str) -> None:
+    current = conversations.get(TENANT, CONVERSATION) or Conversation.open(CONVERSATION)
+    conversations.save(TENANT, current.append(message_id, at(seconds), body).conversation)
+    conversations.remember(
+        TENANT,
+        InboundMessage(
+            conversation_id=CONVERSATION,
+            provider_message_id=message_id,
+            wa_id=WA,
+            at=at(seconds),
+            kind="audio",
+            body=None,
+            transcript=body,
+            transcript_confidence=Decimal("0.91"),
+            media_id="media-voice",
+            mime="audio/ogg",
+        ),
+    )
+
+
+class _Swap:
+    def __init__(self, speak: str) -> None:
+        self.speak = speak
+
+    def complete(self, prompt: TurnPrompt) -> ModelReply:
+        fact = {"source": "customer_text", "event_id": prompt.messages[-1].provider_message_id}
+        return ModelReply(
+            text=self.speak,
+            tool_calls=(
+                ToolCall(
+                    name="update_case",
+                    arguments={
+                        "conversation_id": str(CONVERSATION),
+                        "job_id": "tank",
+                        "job_type": "replacement",
+                        "facts": [
+                            {"key": "size_litres", "value": "5000", **fact},
+                            {"key": "existing_level_base", "value": "true", **fact},
+                            {"key": "item_codes", "value": "TANK-5000", **fact},
+                        ],
+                    },
+                ),
+            ),
+        )
+
+
+def test_a_voice_note_is_played_back_and_does_not_quote_yet():
+    conversations, cases, sender, _, turn = harness(_Swap("Thanks."))
+    hear(conversations, VOICE, 0, str(EVENT))
+    turn.execute(CONTEXT, CONVERSATION)
+    reply = sender.sent[0][1]
+    assert reply.startswith(f"I heard: {VOICE}.")
+    assert VOICE in reply
+    assert "The total is" not in reply
+    assert "/card/" not in reply
+    assert cases.case.current("tank", "size_litres") == "5000"
+    assert all(not fact.value.startswith("I heard:") for job in cases.case.jobs for fact in job.facts)
+    stored = conversations.get(TENANT, CONVERSATION)
+    assert stored is not None
+    assert stored.events[-1].body == VOICE
+
+
+def test_a_reply_that_already_plays_the_transcript_is_left_as_it_is():
+    spoken = f"I heard: {VOICE}. Thanks."
+    conversations, _, sender, _, turn = harness(_Swap(spoken))
+    hear(conversations, VOICE, 0, str(EVENT))
+    turn.execute(CONTEXT, CONVERSATION)
+    assert sender.sent[0][1] == spoken
