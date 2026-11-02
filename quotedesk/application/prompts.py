@@ -14,6 +14,7 @@ PLATFORM_TASK = (
     "Do not stop after only recording the conversation.\n"
     "If it cannot be quoted, call get_quote and use its customer_template.\n"
     "Record facts they stated with update_case. Use the latest message id as event_id and source customer_text.\n"
+    "A fact key is the bare name, such as sheet or bays. Do not put the job name in front of the key.\n"
     "A new job on update_case sets job_type.\n"
     "Do not write required_fields, agreement, measurement, media_usable, rate_card, unit_price, outcome, or clause_text.\n"
     "Call get_quote when the case can be priced. When they ask how soon, call check_availability and answer with its turnaround. "
@@ -60,7 +61,7 @@ def _reference(playbook: BusinessPlaybook | None) -> str:
     for job in playbook.job_types:
         for fact in job.facts:
             if fact.question.strip():
-                lines.append(f"{job.key} {fact.key}: {fact.question.strip()}")
+                lines.append(f"{fact.key}: {fact.question.strip()}")
     for question in playbook.questions:
         lines.append(f"{question.topic}: {question.answer.strip()}")
     return "\n".join(lines)

@@ -9,7 +9,7 @@ from quotedesk.application.dto.published import PublishedPolicy
 from quotedesk.application.dto.inbound import InboundMessage
 from quotedesk.application.dto.tenant import TenantContext
 from quotedesk.application.dto.tool_outputs import AvailabilityResult, RequestChangeResult
-from quotedesk.application.use_cases.conversation.run_agent_turn import HandoverToHuman, RunAgentTurn
+from quotedesk.application.use_cases.conversation.run_agent_turn import NAME_ASK, HandoverToHuman, RunAgentTurn
 from quotedesk.application.use_cases.tools.get_quote import GetQuote
 from quotedesk.application.use_cases.tools.update_case import UpdateCase
 from quotedesk.domain.case.case_file import CaseFile
@@ -49,6 +49,13 @@ class Conversations:
         self.rows: dict[tuple[UUID, UUID], Conversation] = {}
         self._messages: list[tuple[UUID, InboundMessage]] = []
         self._replies: list[tuple[datetime, str]] = []
+        self._names: dict[tuple[UUID, str], str] = {}
+
+    def name(self, tenant_id: UUID, wa_id: str) -> str | None:
+        return self._names.get((tenant_id, wa_id))
+
+    def rename(self, tenant_id: UUID, wa_id: str, display_name: str) -> None:
+        self._names[(tenant_id, wa_id)] = display_name
 
     def get(self, tenant_id: UUID, conversation_id: UUID) -> Conversation | None:
         return self.rows.get((tenant_id, conversation_id))
@@ -219,8 +226,16 @@ class PriceFake:
         self.calls += 1
 
 
-def harness(model, case: CaseFile | None = None, business: BusinessView | None = None, policies=None):
+def harness(
+    model,
+    case: CaseFile | None = None,
+    business: BusinessView | None = None,
+    policies=None,
+    customer_name: str | None = "Lerato",
+):
     conversations = Conversations()
+    if customer_name:
+        conversations.rename(TENANT, WA, customer_name)
     cases = Cases(case or CaseFile.open(CONVERSATION, TENANT))
     policies = policies or Policies()
     ids = Ids()
@@ -883,3 +898,47 @@ def test_a_voice_note_that_is_not_the_spec_answer_is_played_back():
     stored = conversations.get(TENANT, CONVERSATION)
     assert stored is not None
     assert stored.events[-1].body == "The base is concrete."
+
+
+def test_a_quote_is_not_created_until_the_customer_gives_a_name():
+    conversations, _, sender, _, turn = harness(QuoteScript("The total is R 5550.00."), customer_name=None)
+    say(conversations, TANK, 0, str(EVENT))
+    turn.execute(CONTEXT, CONVERSATION)
+    assert turn._get_quote._unit.get_quote(TENANT, CONVERSATION) is None
+    assert sender.sent
+    body = sender.sent[0][1]
+    assert NAME_ASK in body
+    assert "/card/" not in body
+    assert "total" not in body.casefold()
+
+
+def test_a_building_photo_asks_for_the_name_and_does_not_quote():
+    class Photo:
+        def complete(self, prompt: TurnPrompt) -> ModelReply:
+            if prompt.tool_payloads:
+                return ModelReply(text="Is that the spec to price?", tool_calls=())
+            return ModelReply(
+                text="",
+                tool_calls=(ToolCall(name="get_quote", arguments={"conversation_id": str(CONVERSATION)}),),
+            )
+
+    conversations, _, sender, _, turn = harness(Photo(), customer_name=None)
+    current = conversations.get(TENANT, CONVERSATION) or Conversation.open(CONVERSATION)
+    conversations.save(TENANT, current.append("photo-1", at(0), "The double garage.").conversation)
+    conversations.remember(
+        TENANT,
+        InboundMessage(
+            conversation_id=CONVERSATION,
+            provider_message_id="photo-1",
+            wa_id=WA,
+            at=at(0),
+            kind="image",
+            body="The double garage.",
+        ),
+    )
+    turn.execute(CONTEXT, CONVERSATION)
+    assert turn._get_quote._unit.get_quote(TENANT, CONVERSATION) is None
+    body = sender.sent[0][1]
+    assert NAME_ASK in body
+    assert "Is that the spec to price?" not in body
+    assert "/card/" not in body

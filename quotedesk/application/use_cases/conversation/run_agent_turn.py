@@ -47,7 +47,8 @@ from quotedesk.application.ports.runtime import Clock
 from quotedesk.domain.conversation.events import ConversationEvent
 from quotedesk.domain.policy.playbook import BusinessPlaybook
 from quotedesk.domain.policy.rules import Outcome
-from quotedesk.domain.services.plan import NextStep, StepKind, fact_applies, plan_next_step
+from quotedesk.domain.case.case_file import quote_issued
+from quotedesk.domain.services.plan import STANDS, NextStep, StepKind, fact_applies, plan_next_step, wants_revision
 from quotedesk.domain.services.commitments import TurnFacts, check_reply
 from quotedesk.domain.case.case_file import price_ready, status_of
 from quotedesk.domain.services.confidence import (
@@ -191,6 +192,15 @@ def _asked_for_name(conversations, tenant_id, conversation_id: UUID) -> bool:
         return False
     rows = replies(tenant_id, conversation_id)
     return bool(rows) and NAME_ASK in rows[-1][1]
+
+
+def _must_ask_name(conversations, tenant_id, conversation_id: UUID) -> bool:
+    """A number we can see, with no name stored, has to be asked before a quote."""
+    wa_id = _wa_id(conversations, tenant_id, conversation_id)
+    named = getattr(conversations, "name", None)
+    if not wa_id or named is None:
+        return False
+    return not named(tenant_id, wa_id)
 
 
 def _known_name(conversations, tenant_id, conversation_id: UUID) -> str | None:
@@ -430,6 +440,17 @@ class RunAgentTurn:
                 facts = TurnFacts(price_kind=price_kind, card_link=card_link)
             return self._say_step(context, conversation, conversation_id, wa_id, batch, facts, payloads)
         facts, answered = self._run_tools(context, reply, prompt, batch, conversation_id)
+        if _needs_name(answered.tool_payloads):
+            return self._say_step(
+                context,
+                conversation,
+                conversation_id,
+                wa_id,
+                batch,
+                TurnFacts(),
+                answered.tool_payloads,
+                hold=True,
+            )
         if _hold_price(self._step, answered.tool_payloads):
             return self._say_step(
                 context,
@@ -492,6 +513,14 @@ class RunAgentTurn:
             text = self._step.sentence
         else:
             text = priced
+        verifying = "is that the spec to price" in text.casefold() or "which should I price" in text.casefold()
+        if (
+            not self._picture_replaces(context, conversation_id)
+            and _case_stands(self, context, conversation_id)
+            and not wants_revision(_batch_text(batch))
+            and (_stood(answered.tool_payloads) or verifying)
+        ):
+            text = STANDS
         planned = _planned_sentence(self._step, answered)
         if planned:
             text = planned
@@ -627,6 +656,8 @@ class RunAgentTurn:
             if finish is not None and reserve is not None and not replace:
                 finish(context.tenant_id, batch_id)
             self._follow_with_picture(context, conversation_id, wa_id, named, replace)
+            if not replace and _sent_fixed(named):
+                _mark_issued(self, context, conversation_id)
             if replace and finish is not None and reserve is not None:
                 finish(context.tenant_id, batch_id)
         if status == "escalated":
@@ -673,6 +704,14 @@ class RunAgentTurn:
         pictures = self._pictures
         if pictures is None:
             return
+        notice = getattr(pictures, "notice", None)
+        if notice is not None:
+            try:
+                line = notice(context, conversation_id, body)
+            except Exception:
+                line = None
+            if line:
+                self._send_picture(context, conversation_id, wa_id, line)
         try:
             drawn = pictures.after_quote(context, conversation_id, body)
         except Exception:
@@ -842,6 +881,11 @@ class RunAgentTurn:
     def _task_for(self, context: TenantContext, conversation) -> str:
         self._step = self._next(context, conversation.conversation_id)
         task = _task(self._conversations, context, conversation, self._policies)
+        if _must_ask_name(self._conversations, context.tenant_id, conversation.conversation_id):
+            task = (
+                f"{task}\nYou do not know the customer's name. Ask this before a price: {NAME_ASK} "
+                "Do not call get_quote until the customer has given a name."
+            )
         return (
             f"{task}\nThe next step is {self._step.kind.value}. {self._step.sentence} "
             "Phrase that step. If the photo already estimates that fact, say the estimate and ask them to confirm it. "
@@ -872,7 +916,17 @@ class RunAgentTurn:
 
         text, asked = planner_inputs(self._conversations, context.tenant_id, conversation_id, playbook)
         case = _remember_reply(self, context, conversation_id, case, text)
-        return plan_next_step(case, playbook, policy, asked=asked, customer_text=text)
+        if wants_revision(text):
+            case = _clear_issued(case)
+            if self._cases is not None:
+                self._cases.save(context.tenant_id, case)
+        elif _sent_before(self, context, conversation_id):
+            _mark_issued(self, context, conversation_id)
+            case = self._case(context, conversation_id) or case
+        step = plan_next_step(case, playbook, policy, asked=asked, customer_text=text)
+        if _must_ask_name(self._conversations, context.tenant_id, conversation_id) and step.kind is StepKind.QUOTE:
+            return NextStep(kind=StepKind.ASK, sentence=NAME_ASK, job_id=step.job_id, fact_key="customer_name")
+        return step
 
     def _case(self, context: TenantContext, conversation_id: UUID):
         if self._cases is None:
@@ -1175,6 +1229,11 @@ class RunAgentTurn:
         return ToolPayload(name="update_case", body=_body(result))
 
     def _quote(self, context, arguments: dict, batch, amounts: list, clauses: list) -> ToolPayload:
+        conversation_id = _argument_conversation(arguments, self._active_conversation)
+        if _must_ask_name(self._conversations, context.tenant_id, conversation_id):
+            return ToolPayload(name="get_quote", body={"needs_name": True})
+        if _case_stands(self, context, conversation_id) and not wants_revision(_batch_text(batch)):
+            return ToolPayload(name="get_quote", body={"stood": True})
         try:
             data = GetQuoteInput(**arguments)
         except (ModelError, ValidationError):
@@ -1623,6 +1682,96 @@ def _stated_price(text: str, prompt) -> bool:
         if sentence and sentence in text:
             return True
     return False
+
+
+def _needs_name(payloads) -> bool:
+    return any(getattr(item, "name", None) == "get_quote" and item.body.get("needs_name") for item in payloads)
+
+
+def _stood(payloads) -> bool:
+    return any(getattr(item, "name", None) == "get_quote" and item.body.get("stood") for item in payloads)
+
+
+def _sent_fixed(body: str) -> bool:
+    return "the total is" in body.casefold() and "/card/" in body
+
+
+def _sent_before(turn: RunAgentTurn, context: TenantContext, conversation_id: UUID) -> bool:
+    """A fixed quote already went out in this conversation, even before this build stored the marker."""
+    if _case_stands(turn, context, conversation_id):
+        return False
+    replies = getattr(turn._conversations, "replies", None)
+    if replies is None:
+        return False
+    return any(_sent_fixed(body or "") for _at, body in replies(context.tenant_id, conversation_id))
+
+
+def _batch_text(batch) -> str:
+    return "\n".join(getattr(event, "body", "") or "" for event in batch)
+
+
+def _argument_conversation(arguments: dict, active: UUID | None) -> UUID:
+    raw = arguments.get("conversation_id") or active
+    if isinstance(raw, UUID):
+        return raw
+    return UUID(str(raw))
+
+
+def _case_stands(turn: RunAgentTurn, context: TenantContext, conversation_id: UUID) -> bool:
+    case = turn._case(context, conversation_id)
+    if case is None:
+        return False
+    return any(quote_issued(case, job.job_id) for job in case.jobs)
+
+
+def _mark_issued(turn: RunAgentTurn, context: TenantContext, conversation_id: UUID) -> None:
+    """Remember that this conversation's quote was sent, so a later photo does not reopen it."""
+    from uuid import uuid4
+
+    if turn._cases is None:
+        return
+    case = turn._cases.get(context.tenant_id, conversation_id)
+    if case is None:
+        return
+    updated = case
+    changed = False
+    event_id = uuid4()
+    for job in case.jobs:
+        if quote_issued(updated, job.job_id):
+            continue
+        updated = updated.record_fact(
+            job.job_id,
+            uuid4(),
+            "quote_issued",
+            "true",
+            "owner",
+            event_id,
+            status="confirmed",
+        )
+        changed = True
+    if changed:
+        turn._cases.save(context.tenant_id, updated)
+
+
+def _clear_issued(case):
+    """A revision request opens the quote again."""
+    from uuid import uuid4
+
+    updated = case
+    event_id = uuid4()
+    for job in case.jobs:
+        if not quote_issued(updated, job.job_id):
+            continue
+        updated = updated.record_fact(
+            job.job_id,
+            uuid4(),
+            "quote_issued",
+            "false",
+            "customer_text",
+            event_id,
+            status="confirmed",
+        )
+    return updated
 
 
 def _hold_price(step: NextStep, payloads) -> bool:

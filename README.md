@@ -28,7 +28,7 @@ python -m uvicorn quotedesk.infrastructure.main:create_app --factory --host 127.
 
 Open http://127.0.0.1:8000/chat. http://127.0.0.1:8000/health returns `{"status":"ok"}`.
 
-With `MODEL=spark`, each turn asks the host in `AGENT_PROVIDER`. The reply is that model's, after the tools run. A price, a date, an inclusion, or a guarantee still has to come from a tool. The card for the 5000 L fixture opens only with code `1042`. Refresh loads the same version. **Clear chat** in the menu calls `POST /sim/reset` and starts that conversation again.
+With `MODEL=spark`, each turn asks the host in `AGENT_PROVIDER`. The reply is that model's, after the tools run. A price, a date, an inclusion, or a guarantee still has to come from a tool. The card for the 5000 L fixture opens only with code `1042`. Refresh loads the same version. **Reset session** in the menu calls `POST /sim/reset-number` and clears every session for that number. Other numbers stay.
 
 ## Model settings
 

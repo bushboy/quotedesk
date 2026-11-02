@@ -71,6 +71,7 @@ class Speaking:
 
 def harness(model, enricher: Enricher):
     conversations = Conversations()
+    conversations.rename(TENANT, WA, "Lerato")
     cases = Cases(CaseFile.open(CONVERSATION, TENANT))
     policies = Policies()
     ids = Ids()

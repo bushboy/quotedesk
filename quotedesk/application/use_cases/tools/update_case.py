@@ -78,10 +78,11 @@ class UpdateCase:
             case = case.add_job(data.job_id, data.job_type)
         job = _find(case, data.job_id)
         assert job is not None
+        defined = _defined(self._catalog, job.job_type or "")
+        data = _plain_facts(data, job.job_type or "", defined)
         recorded = {fact.key for fact in data.facts}
         explicit_codes = "item_codes" in recorded
         linked_codes: list[str] = []
-        defined = _defined(self._catalog, job.job_type or "")
         for fact in data.facts:
             if fact.key in _CONFIDENCE and not data.system:
                 continue
@@ -96,7 +97,7 @@ class UpdateCase:
                     state="unknown",
                 )
                 continue
-            value = _normalise(fact.key, fact.value, job.job_type or "", self._catalog, data.system, fact.source)
+            value = _normalise(fact.key, fact.value, defined, data.system, fact.source)
             case = case.record_fact(
                 data.job_id,
                 self._ids.next_fact_id(),
@@ -166,10 +167,38 @@ def _without_name(data: UpdateCaseInput) -> UpdateCaseInput:
     return data.model_copy(update={"facts": facts, "job_type": job_type or None})
 
 
-def _normalise(key: str, value: str, job_type: str, catalog, system: bool, source: str) -> str:
+def _plain_facts(data: UpdateCaseInput, job_type: str, defined: dict) -> UpdateCaseInput:
+    """The model copies the job name onto the key. The case stores the bare key."""
+    facts = tuple(
+        fact.model_copy(update={"key": _plain_key(fact.key, job_type, defined)}) for fact in data.facts
+    )
+    if facts == data.facts:
+        return data
+    return data.model_copy(update={"facts": facts})
+
+
+def _plain_key(key: str, job_type: str, defined: dict) -> str:
+    prefix = job_type.strip().casefold()
+    folded = key.strip()
+    lower = folded.casefold()
+    if not prefix or not lower.startswith(prefix):
+        return key
+    known = {name.casefold(): name for name in defined}
+    known.update({name: name for name in _BOOKKEEPING | _DECISION})
+    for separator in (" ", ".", "_", "/"):
+        head = f"{prefix}{separator}"
+        if not lower.startswith(head):
+            continue
+        rest = folded[len(head) :].strip()
+        found = known.get(rest.casefold())
+        if found is not None:
+            return found
+    return key
+
+
+def _normalise(key: str, value: str, defined: dict, system: bool, source: str) -> str:
     if key in _ALIASES:
         raise ValidationError(code="fact.alias", sentence=_ALIAS)
-    defined = _defined(catalog, job_type)
     media = source in ("photo_extraction", "video_extraction", "voice_transcript")
     allowed = key in defined or key in _BOOKKEEPING or key in _DECISION or (system and key in _CONFIDENCE) or media
     if defined and not allowed:

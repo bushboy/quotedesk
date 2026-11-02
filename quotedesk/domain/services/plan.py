@@ -7,7 +7,7 @@ from enum import Enum
 
 from pydantic import BaseModel, ConfigDict
 
-from quotedesk.domain.case.case_file import CaseFact, CaseFile, Job, price_ready, ready_values, status_of
+from quotedesk.domain.case.case_file import CaseFact, CaseFile, Job, price_ready, quote_issued, ready_values, status_of
 from quotedesk.domain.case.contradictions import Clash, spec_choice, unresolved_clashes
 from quotedesk.domain.case.facts import CaseFacts, ExtractionFacts, JobKind, SegmentationFacts
 from quotedesk.domain.policy.playbook import BusinessPlaybook, FactDefinition, FactOption
@@ -19,6 +19,8 @@ from quotedesk.domain.shared.errors import PolicyViolation
 
 _ASK = "What should I quote for you?"
 _QUOTE = "I'll price that from the rate card."
+STANDS = "The quote above still stands."
+_REVISE = re.compile(r"\b(?:revise|revision|change|instead|different)\b", re.IGNORECASE)
 _TWICE = "I've asked twice, so I won't ask again."
 _UNSURE = "You don't know that, so I won't ask again."
 _GREETING = re.compile(r"^(?:hi|hello|hey|good morning|good afternoon|good evening)\b", re.IGNORECASE)
@@ -80,7 +82,7 @@ def plan_next_step(
     if not case.jobs:
         step = _opening(playbook)
     else:
-        steps = tuple(_job_step(job, case, playbook, policy, counts) for job in case.jobs)
+        steps = tuple(_job_step(job, case, playbook, policy, counts, customer_text) for job in case.jobs)
         step = min(steps, key=lambda item: _ORDER[item.kind.value])
     return _blur_notice(_phrase(step, playbook, customer_text), case)
 
@@ -97,13 +99,21 @@ def _opening(playbook: BusinessPlaybook) -> NextStep:
     return NextStep(kind=StepKind.ASK, sentence=_ASK, fact_key="job_type")
 
 
+def wants_revision(text: str) -> bool:
+    """The customer asked to change the quoted options. Anything else leaves the quote."""
+    return _REVISE.search(text or "") is not None
+
+
 def _job_step(
     job: Job,
     case: CaseFile,
     playbook: BusinessPlaybook,
     policy: Policy,
     asked: dict[str, int],
+    customer_text: str = "",
 ) -> NextStep:
+    if quote_issued(case, job.job_id) and not wants_revision(customer_text):
+        return NextStep(kind=StepKind.ASK, sentence=STANDS, job_id=job.job_id)
     current = _current(case, job.job_id)
     play = _play_for(playbook, job)
     required = () if play is None else tuple(fact for fact in play.facts if fact.required)

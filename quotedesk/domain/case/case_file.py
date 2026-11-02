@@ -274,6 +274,8 @@ class CaseFile(BaseModel):
         stored = new.model_copy(update={"superseded_by": active.fact_id})
         updated = self._clear_resolution(job_id, facts, active.key, stored.fact_id, new.value)
         kept = updated.facts(job_id) + (stored,)
+        if quote_issued(updated, job_id):
+            return updated._write(job_id, kept)
         opened = updated._clear_spec(job_id, kept)
         return opened._write(job_id, opened.facts(job_id))
 
@@ -319,6 +321,14 @@ def derived_status(source: FactSource, state: FactState) -> FactStatus:
     if source in _INFERRED_SOURCES:
         return "inferred"
     return "stated"
+
+
+def quote_issued(case, job_id: str) -> bool:
+    """True after a fixed quote for this job was sent. A later photo does not reopen it."""
+    fact = case.active_fact(job_id, "quote_issued")
+    if fact is None or fact.state == "unknown" or not fact.value.strip():
+        return False
+    return fact.value.strip().casefold() in ("true", "yes")
 
 
 def status_of(fact: CaseFact) -> FactStatus:

@@ -1,7 +1,8 @@
 """Decides whether a confirmed carport quote gets a drawing, and what the drawing says.
 
-The quote sentence is already chosen before this runs. A missing photo, a blurry photo,
-or a failed drawing does not change that sentence.
+The quote sentence is already chosen before this runs. The turn sends a short line
+before the drawing starts, so the customer knows a picture is still coming.
+A missing photo, a blurry photo, or a failed drawing does not change the quote sentence.
 """
 
 import base64
@@ -9,20 +10,25 @@ import re
 from typing import NamedTuple
 
 from quotedesk.application.ports.pictures import PictureRequest
+from quotedesk.domain.case.case_file import quote_issued
 from quotedesk.domain.case.contradictions import spec_choice
 
 _SITE = re.compile(r"\b(garage|wall|house)\b", re.IGNORECASE)
-_ASK = re.compile(r"\b(render|preview|drawing)\b|\bpicture of\b", re.IGNORECASE)
-_RAND = re.compile(r"\br\s*[\d,]+", re.IGNORECASE)
-_ABOVE = (
-    "The camera is above the carport, looking down, between 5 and 10 metres away, "
-    "so the whole roof and its sheeting are visible."
+_ASK = re.compile(
+    r"\b(?:render|preview|drawing|sketch)\b|\b(?:picture|image)\b|\blook like\b",
+    re.IGNORECASE,
 )
+_RAND = re.compile(r"\br\s*[\d,]+", re.IGNORECASE)
 _LEVEL = (
     "The camera is at eye level with the ground, between 5 and 10 metres away, "
     "so the whole carport is in the frame."
 )
-_VIEWS = (("above", _ABOVE, "from above"), ("level", _LEVEL, "from eye level"))
+_POSTS = (
+    "Posts stand only at the four corners. No post stands in the middle of a side, "
+    "so the entrance stays open. The roof runs from corner to corner of the surface it covers."
+)
+_VIEWS = (("level", _LEVEL, "from eye level"),)
+COMING = "A drawing of that carport is coming next."
 FAILED = "I couldn't draw that carport. The quote above still stands."
 
 
@@ -48,13 +54,15 @@ class CarportSketch:
         """A request for a picture is answered by the drawings, not by a text refusal."""
         return self._prepared(context, conversation_id) is not None and _asked(self, context, conversation_id)
 
+    def notice(self, context, conversation_id, body: str) -> str | None:
+        """The line sent before a drawing, so the customer knows more is coming."""
+        if self._due(context, conversation_id, body) is None:
+            return None
+        return COMING
+
     def after_quote(self, context, conversation_id, body: str) -> tuple[Drawn, ...] | None:
-        if "carport" not in self._trade.casefold():
-            return None
-        prepared = self._prepared(context, conversation_id)
+        prepared = self._due(context, conversation_id, body)
         if prepared is None:
-            return None
-        if not _fixed_quote(body) and not _asked(self, context, conversation_id):
             return None
         case, playbook = prepared
         ready = _ready(case, playbook)
@@ -86,6 +94,16 @@ class CarportSketch:
             return (Drawn(FAILED, None),)
         return tuple(drawn)
 
+    def _due(self, context, conversation_id, body: str):
+        if "carport" not in self._trade.casefold():
+            return None
+        prepared = self._prepared(context, conversation_id)
+        if prepared is None:
+            return None
+        if not _fixed_quote(body) and not _asked(self, context, conversation_id):
+            return None
+        return prepared
+
     def _prepared(self, context, conversation_id):
         case = self._cases.get(context.tenant_id, conversation_id)
         published = None if self._policies is None else self._policies.published(context.tenant_id)
@@ -107,22 +125,25 @@ def drawing_prompt(
 ) -> str:
     """The drawing instruction. It names the spec and no price."""
     if curved:
-        roof = f"The roof is {label}. It sags in a curve between the posts."
+        roof = f"The roof is {label}. It is soft material and sags in a curve between the corner posts."
     else:
-        roof = f"The roof is a straight pitched roof of {label}."
+        roof = f"The roof is a flat roof of {label}."
     extras = []
     if finish:
         extras.append(f"The frame is {finish}.")
     if gutter:
         extras.append("A gutter runs along the front.")
     if onto_photo:
-        place = "Keep this garage and this wall. Add the carport against the wall. Do not change the building."
+        place = (
+            "Keep this garage and this wall. Add the carport from corner to corner of this front. "
+            "Do not change the building."
+        )
     else:
-        place = "The carport stands against a plain plastered wall of a single garage."
+        place = "The carport stands against a plain plastered wall of a single garage, from corner to corner of that front."
     words = f"A carport {width} metres wide and {length} metres long. {roof}"
     if extras:
         words = f"{words} {' '.join(extras)}"
-    return f"{words} {place} {view} No logos. No prices. No writing."
+    return f"{words} {_POSTS} {place} {view} No logos. No prices. No writing."
 
 
 def _caption(used_photo: bool, hard: bool, view: str) -> str:
@@ -168,7 +189,7 @@ def _data_url(data: bytes) -> str:
 
 def _ready(case, playbook):
     for job in case.jobs:
-        if spec_choice(case, job.job_id) is not True:
+        if spec_choice(case, job.job_id) is not True and not quote_issued(case, job.job_id):
             continue
         width = _value(case, job.job_id, "width_m")
         length = _value(case, job.job_id, "length_m")

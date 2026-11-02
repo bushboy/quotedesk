@@ -8,6 +8,7 @@ from quotedesk.application.dto.tool_inputs import FactInput, UpdateCaseInput
 from quotedesk.application.errors import CaseNotFound, TenantRequired
 from quotedesk.application.use_cases.tools.update_case import UpdateCase
 from quotedesk.domain.case.case_file import CaseFile
+from quotedesk.domain.policy.playbook import FactDefinition
 from quotedesk.domain.shared.errors import ValidationError
 
 TENANT = UUID("11111111-1111-4111-8111-111111111111")
@@ -16,6 +17,7 @@ EVENT = UUID("44444444-4444-4444-8444-444444444444")
 FIRST = UUID("55555555-5555-4555-8555-555555555555")
 SECOND = UUID("66666666-6666-4666-8666-666666666666")
 THIRD = UUID("77777777-7777-4777-8777-777777777777")
+FOURTH = UUID("88888888-8888-4888-8888-888888888888")
 
 
 class Cases:
@@ -230,3 +232,38 @@ def test_update_case_flags_contradiction():
     assert facts[1].contested is True
     assert facts[0].superseded_by is None
     assert facts[1].superseded_by is None
+
+
+class CarportCatalog:
+    def required(self, job_type: str) -> tuple[str, ...]:
+        return ("sheet", "existing_frame") if job_type == "carport" else ()
+
+    def facts(self, job_type: str) -> tuple[FactDefinition, ...]:
+        if job_type != "carport":
+            return ()
+        return (
+            FactDefinition(key="sheet", type="choice", question="Which roof would you like?"),
+            FactDefinition(key="bays", type="number", question="How many cars should it cover?"),
+            FactDefinition(key="width_m", type="number"),
+            FactDefinition(key="length_m", type="number"),
+        )
+
+
+def test_a_job_name_in_front_of_the_fact_key_is_stored_as_the_bare_key():
+    cases = Cases(CaseFile.open(CONVERSATION, TENANT))
+    tool = UpdateCase(cases, CarportCatalog(), Ids((FIRST, SECOND, THIRD, FOURTH)))
+    result = tool.execute(
+        TenantContext(tenant_id=TENANT),
+        UpdateCaseInput(
+            conversation_id=CONVERSATION,
+            job_id="carport",
+            job_type="carport",
+            facts=(fact("carport sheet", "Galvanised IBR sheeting"), fact("carport bays", "1")),
+        ),
+    )
+    assert result.current["sheet"] == "Galvanised IBR sheeting"
+    assert result.current["bays"] == "1"
+    assert result.current["width_m"] == "3"
+    assert result.current["length_m"] == "6"
+    assert "carport sheet" not in result.current
+    assert "carport bays" not in result.current
