@@ -10,6 +10,7 @@ from tests.use_cases.test_typed_turn import (
     TENANT,
     WA,
     at,
+    accept_until,
     harness,
     replacement_calls,
 )
@@ -58,7 +59,8 @@ def test_unstructured_words_are_answered_by_the_model():
     assert first.messages[-1].body == CUSTOMER
     assert CHOSEN not in first.task
     assert QUOTE not in first.task
-    assert sender.sent == [(WA, CHOSEN)]
+    accept_until(conversations, turn, sender.sent, CHOSEN)
+    assert (WA, CHOSEN) in sender.sent
 
 
 def test_a_wrong_conversation_id_still_uses_the_open_thread():
@@ -77,7 +79,8 @@ def test_a_wrong_conversation_id_still_uses_the_open_thread():
     conversations, _, sender, _, turn = harness(WrongId())
     say(conversations, CUSTOMER)
     turn.execute(CONTEXT, CONVERSATION)
-    assert sender.sent == [(WA, CHOSEN)]
+    accept_until(conversations, turn, sender.sent, CHOSEN)
+    assert (WA, CHOSEN) in sender.sent
 
 
 def test_a_greeting_is_sent():
@@ -96,10 +99,11 @@ def test_a_chosen_sentence_with_the_wrong_total_is_refused():
     conversations, _, sender, _, turn = harness(model)
     say(conversations, CUSTOMER)
     turn.execute(CONTEXT, CONVERSATION)
-    assert sender.sent == [(
+    accept_until(conversations, turn, sender.sent, "R 5550.00")
+    assert (
         WA,
         "We can send a fixed quote for this replacement. The total is R 5550.00. "
         "5000 L tank R 4250.00. Remove and dispose of the old tank R 450.00. "
         "Swap labour R 850.00. /card/QD-1042?code=1042",
-    )]
+    ) in sender.sent
     assert all("R 3 000" not in body for _, body in sender.sent)

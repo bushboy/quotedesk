@@ -160,7 +160,7 @@ def test_an_out_of_scope_request_uses_the_playbook_reply_and_notes_the_owner():
 def test_a_damaged_installation_records_an_inspection():
     inspections = MemoryInspections()
     quotes = Quotes(Quote.open(QuoteId("QD-1042"), date(2026, 11, 30)).issue(Outcome.SITE_ASSESSMENT, version=1, at=WHEN))
-    cases = Cases(_damaged())
+    cases = Cases(_damaged().record_fact("tank", uuid4(), "address", "14 Oak Street", "customer_text", EVENT))
     card = RateCard(vat_inclusive=True, site_visit_fee=Money("750.00"), items=())
     tool = BookInspection(
         cases,
@@ -173,6 +173,8 @@ def test_a_damaged_installation_records_an_inspection():
     )
     offered = tool.execute(CONTEXT, BookInspectionInput(conversation_id=CONVERSATION, job_id="tank"))
     stored = inspections.for_conversation(TENANT, CONVERSATION)[0]
+    assert stored.address == "14 Oak Street"
+    assert "The address is 14 Oak Street." in offered.sentence
     assert stored.rule_id == "WATER-E02"
     assert stored.status.value == "offered"
     assert stored.fee == "R 750.00"

@@ -282,6 +282,15 @@ def say(conversations: Conversations, body: str, seconds: float, message_id: str
     )
 
 
+def accept_until(conversations, turn, sent, marker: str, limit: int = 8) -> None:
+    """Say yes until the latest reply contains the marker. One fact is confirmed at a time."""
+    for _ in range(limit):
+        if any(marker in body for _, body in sent):
+            return
+        say(conversations, "Yes", 0, f"yes-{uuid4()}")
+        turn.execute(CONTEXT, CONVERSATION)
+
+
 def replacement_calls(prompt) -> tuple[ToolCall, ...]:
     event_id = prompt.messages[-1].provider_message_id
     fact = {"source": "customer_text", "event_id": event_id}
@@ -366,7 +375,8 @@ def test_typed_replacement_issues_water_f01():
     assert quote.body["rule_id"]["value"] == "WATER-F01"
     assert quote.body["outcome"] == "fixed_offer"
     assert quote.body["total"]["amount"] == "5550.00"
-    assert sender.sent == [(WA, QUOTE)]
+    assert sender.sent[0][1] == "You said the tank size is 5000 L tank. Is that right? Reply yes or no."
+    assert "5550" not in sender.sent[0][1]
     assert cases.case.current("tank", "rate_card") == "true"
 
 
@@ -468,11 +478,11 @@ def test_a_sheet_on_a_known_carport_is_quoted():
     conversations, _, sender, _, turn = harness(Record(), business=business, policies=_sheet_policies())
     say(conversations, "Economy sheeting for the 5 by 7 carport.", 0, str(EVENT))
     turn.execute(CONTEXT, CONVERSATION)
-    assert sender.sent[0][1].endswith("Is that the spec to price?")
+    assert sender.sent[0][1].startswith("You said the size is 5 m by 7 m.")
+    assert sender.sent[0][1].endswith("Is that right? Reply yes or no.")
     assert "The total is" not in sender.sent[0][1]
-    say(conversations, "Yes", 0, str(uuid4()))
-    turn.execute(CONTEXT, CONVERSATION)
-    assert sender.sent[1] == (WA, "We can send a fixed quote for this sheeting. The total is R 297500.00. Economy sheeting R 297500.00. /card/QD-1042?code=1042")
+    accept_until(conversations, turn, sender.sent, "The total is")
+    assert sender.sent[-1] == (WA, "We can send a fixed quote for this sheeting. The total is R 297500.00. Economy sheeting R 297500.00. /card/QD-1042?code=1042")
 
 
 def test_a_sheet_choice_without_an_opening_asks_about_the_frame():
@@ -487,7 +497,7 @@ def test_a_sheet_choice_without_an_opening_asks_about_the_frame():
     conversations, _, sender, _, turn = harness(Record(), business=business, policies=_sheet_policies())
     say(conversations, "Economy sheeting.", 0, str(EVENT))
     turn.execute(CONTEXT, CONVERSATION)
-    assert sender.sent == [(WA, "Is this sheeting onto the existing frame?")]
+    assert sender.sent == [(WA, "What is the width in metres?")]
 
 
 def test_missing_size_does_not_invent_a_price():
@@ -522,8 +532,8 @@ def test_missing_size_does_not_invent_a_price():
     turn.execute(CONTEXT, CONVERSATION)
     quote = next(item for item in model.prompts[1].tool_payloads if item.name == "get_quote")
     assert quote.body["rule_id"]["value"] == "WATER-L02"
-    assert sender.sent == [(WA, THIN)]
-    assert "R" not in THIN
+    assert sender.sent[0][1].startswith("Which tank size do you want?")
+    assert "R" not in sender.sent[0][1]
 
 
 def test_invented_amount_is_still_refused():
@@ -531,13 +541,10 @@ def test_invented_amount_is_still_refused():
     conversations, _, sender, _, turn = harness(model)
     say(conversations, TANK, 0, str(EVENT))
     turn.execute(CONTEXT, CONVERSATION)
-    assert sender.sent == [(
-        WA,
-        "We can send a fixed quote for this replacement. The total is R 5550.00. "
-        "5000 L tank R 4250.00. Remove and dispose of the old tank R 450.00. "
-        "Swap labour R 850.00. /card/QD-1042?code=1042",
-    )]
-    assert all("R 3 000" not in body for _, body in sender.sent)
+    assert "R 3 000" not in sender.sent[0][1]
+    assert sender.sent[0][1].startswith("You said the tank size is 5000 L tank.")
+    accept_until(conversations, turn, sender.sent, "The total is R 5550.00")
+    assert "R 3 000" not in " ".join(body for _, body in sender.sent)
 
 
 def test_date_comes_from_check_availability():
@@ -563,6 +570,7 @@ def test_date_comes_from_check_availability():
         conversations, _, sender, clock, turn = harness(model)
         say(conversations, TANK, 0, str(EVENT))
         turn.execute(CONTEXT, CONVERSATION)
+        accept_until(conversations, turn, sender.sent, "The total is")
         say(conversations, "When can you do it?", 6, "when-1")
         clock.instant = at(11)
         turn.execute(CONTEXT, CONVERSATION)
@@ -607,6 +615,7 @@ def test_ten_percent_waits_and_states_no_new_total():
         conversations, _, sender, clock, turn = harness(model)
         say(conversations, TANK, 0, str(EVENT))
         turn.execute(CONTEXT, CONVERSATION)
+        accept_until(conversations, turn, sender.sent, "The total is")
         say(conversations, "Can I have 10 percent off?", 6, "off-1")
         clock.instant = at(11)
         turn.execute(CONTEXT, CONVERSATION)
@@ -652,7 +661,7 @@ def test_a_whatsapp_message_id_is_accepted_as_event_id():
     say(conversations, "5000l", 0, "wamid.SIM5000")
     turn.execute(CONTEXT, CONVERSATION)
     assert cases.case.current("tank", "size_litres") == "5000"
-    assert sender.sent == [(WA, "Noted.")]
+    assert sender.sent[0][1].startswith("You said the tank size is 5000 L tank.")
 
 
 def test_unknown_tool_is_not_called():
@@ -782,8 +791,8 @@ def test_a_played_back_spec_is_confirmed_before_it_is_priced():
     turn.execute(CONTEXT, CONVERSATION)
     reply = sender.sent[0][1]
     assert reply.startswith(f"I heard: {VOICE}.")
+    assert reply.endswith("Is that right? Reply yes or no.")
     assert reply.count("I heard:") == 1
-    assert reply.endswith("Is that the spec to price?")
     assert "The total is" not in reply
     assert "/card/" not in reply
 
@@ -825,14 +834,15 @@ def _replayed_swap():
     conversations, cases, sender, _, turn = harness(model)
     say(conversations, TANK, 0, str(EVENT))
     turn.execute(CONTEXT, CONVERSATION)
-    assert sender.sent[0][1].endswith("Is that the spec to price?")
+    accept_until(conversations, turn, sender.sent, "Is that the spec to price?")
+    assert sender.sent[-1][1].endswith("Is that the spec to price? Reply yes or no.")
     return model, conversations, cases, sender, turn
 
 
 def _unsure(transcript: str) -> str:
     return (
         f"I heard: {transcript}. I'm not sure I heard that clearly. "
-        "Please confirm by typing. Is that the spec to price?"
+        "Please reply yes or no. Is that the spec to price?"
     )
 
 
@@ -840,7 +850,7 @@ def test_a_sure_spoken_yes_confirms_the_spec_and_sends_the_quote():
     _model, conversations, cases, sender, turn = _replayed_swap()
     hear(conversations, "Yes", 0, "voice-yes", Decimal("0.8"))
     turn.execute(CONTEXT, CONVERSATION)
-    reply = sender.sent[1][1]
+    reply = sender.sent[-1][1]
     assert reply.startswith("I heard: Yes.")
     assert "The total is R 5550.00" in reply
     assert "/card/QD-1042" in reply
@@ -852,8 +862,8 @@ def test_an_unsure_spoken_yes_asks_for_a_typed_yes():
     calls = model.calls
     hear(conversations, "Yes", 0, "voice-yes", Decimal("0.79"))
     turn.execute(CONTEXT, CONVERSATION)
-    assert sender.sent[1][1] == _unsure("Yes")
-    assert "The total is" not in sender.sent[1][1]
+    assert sender.sent[-1][1] == _unsure("Yes")
+    assert "The total is" not in sender.sent[-1][1]
     assert spec_choice(cases.case, "tank") is None
     assert model.calls == calls
 
@@ -862,9 +872,9 @@ def test_a_spoken_yes_with_no_score_asks_for_a_typed_yes():
     _model, conversations, cases, sender, turn = _replayed_swap()
     hear(conversations, "Yes", 0, "voice-yes", None)
     turn.execute(CONTEXT, CONVERSATION)
-    assert sender.sent[1][1] == _unsure("Yes")
+    assert sender.sent[-1][1] == _unsure("Yes")
     assert spec_choice(cases.case, "tank") is None
-    assert "/card/" not in sender.sent[1][1]
+    assert "/card/" not in sender.sent[-1][1]
 
 
 def test_a_typed_yes_after_an_unsure_voice_note_sends_the_quote():
@@ -873,8 +883,8 @@ def test_a_typed_yes_after_an_unsure_voice_note_sends_the_quote():
     turn.execute(CONTEXT, CONVERSATION)
     say(conversations, "Yes", 0, "typed-yes")
     turn.execute(CONTEXT, CONVERSATION)
-    assert sender.sent[2][1].startswith("We can send a fixed quote")
-    assert "The total is R 5550.00" in sender.sent[2][1]
+    assert sender.sent[-1][1].startswith("We can send a fixed quote")
+    assert "The total is R 5550.00" in sender.sent[-1][1]
     assert spec_choice(cases.case, "tank") is True
 
 
@@ -882,16 +892,16 @@ def test_a_spoken_no_below_the_bar_does_not_decline_the_spec():
     _model, conversations, cases, sender, turn = _replayed_swap()
     hear(conversations, "No", 0, "voice-no", Decimal("0.2"))
     turn.execute(CONTEXT, CONVERSATION)
-    assert sender.sent[1][1] == _unsure("No")
+    assert sender.sent[-1][1] == _unsure("No")
     assert spec_choice(cases.case, "tank") is None
-    assert "The total is" not in sender.sent[1][1]
+    assert "The total is" not in sender.sent[-1][1]
 
 
 def test_a_voice_note_that_is_not_the_spec_answer_is_played_back():
     _model, conversations, cases, sender, turn = _replayed_swap()
     hear(conversations, "The base is concrete.", 0, "voice-base", Decimal("0.2"))
     turn.execute(CONTEXT, CONVERSATION)
-    reply = sender.sent[1][1]
+    reply = sender.sent[-1][1]
     assert reply.startswith("I heard: The base is concrete.")
     assert "I'm not sure I heard that clearly" not in reply
     assert spec_choice(cases.case, "tank") is None

@@ -32,6 +32,12 @@ def _asked(conversations, tenant_id, conversation_id, playbook: BusinessPlaybook
     for job in playbook.job_types:
         for fact in job.facts:
             question = fact.question.strip()
-            if question:
-                counts[fact.key] = sum(1 for _, body in rows if question in (body or ""))
+            key = fact.key[:-2] if fact.key.endswith("_m") else fact.key
+            label = (fact.label.strip() or key.replace("_", " ")).casefold()
+            counts[fact.key] = sum(
+                1
+                for _, body in rows
+                if question in (body or "")
+                or ("Is that right?" in (body or "") and f"the {label} " in (body or "").casefold())
+            )
     return counts

@@ -115,7 +115,7 @@ def _one(slug: str, item: dict) -> dict:
     context = TenantContext(tenant_id=profile.tenant_id)
     application.state.turn.execute(context, conversation_id)
     step = application.state.turn._step
-    if step.kind is StepKind.CONFIRM and step.sentence.endswith("Is that the spec to price?"):
+    if step.kind is StepKind.CONFIRM and "Is that the spec to price?" in step.sentence:
         current = application.state.conversations.get(profile.tenant_id, conversation_id)
         application.state.conversations.save(
             profile.tenant_id,

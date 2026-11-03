@@ -62,12 +62,14 @@ class BookInspection:
         window = _window(self._capacity, self._settings, self._clock, context.tenant_id)
         status = InspectionStatus.BOOKED if data.confirm else InspectionStatus.OFFERED
         now = self._clock.now()
+        job_id = data.job_id or step.job_id
+        address = _address(case, job_id, data.address)
         inspection = Inspection(
             inspection_id=uuid4(),
             tenant_id=context.tenant_id,
             conversation_id=data.conversation_id,
-            job_id=data.job_id or step.job_id,
-            address=data.address.strip(),
+            job_id=job_id,
+            address=address,
             rule_id=rule_id,
             fee=fee,
             window_start=window,
@@ -79,7 +81,12 @@ class BookInspection:
         self._inspections.save(context.tenant_id, inspection)
         if status is InspectionStatus.BOOKED:
             _book_quote(self._quotes, context.tenant_id, data.conversation_id, now)
-        sentence = _sentence(step.sentence if step.kind is StepKind.INSPECTION else "We'll book an inspection.", fee, window)
+        sentence = _sentence(
+            step.sentence if step.kind is StepKind.INSPECTION else "We'll book an inspection.",
+            fee,
+            window,
+            address,
+        )
         return BookInspectionResult(
             inspection_id=inspection.inspection_id,
             status=status.value,
@@ -146,8 +153,23 @@ def _window(capacity, settings: ScheduleSettings, clock: Clock, tenant_id):
     return result.commitment.earliest_window
 
 
-def _sentence(base: str, fee: str, window) -> str:
+def _address(case, job_id: str, given: str) -> str:
+    typed = given.strip()
+    if typed or not job_id:
+        return typed
+    try:
+        stored = case.active_fact(job_id, "address")
+    except PolicyViolation:
+        return ""
+    if stored is None:
+        return ""
+    return stored.value.strip()
+
+
+def _sentence(base: str, fee: str, window, address: str = "") -> str:
     parts = [base.strip()]
+    if address:
+        parts.append(f"The address is {address}.")
     if fee:
         parts.append(f"The visit fee is {fee}.")
     if window is not None:

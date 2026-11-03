@@ -48,7 +48,19 @@ from quotedesk.domain.conversation.events import ConversationEvent
 from quotedesk.domain.policy.playbook import BusinessPlaybook
 from quotedesk.domain.policy.rules import Outcome
 from quotedesk.domain.case.case_file import quote_issued
-from quotedesk.domain.services.plan import STANDS, NextStep, StepKind, fact_applies, plan_next_step, wants_revision
+from quotedesk.domain.services.plan import (
+    STANDS,
+    YES_NO,
+    NextStep,
+    StepKind,
+    ask_for_visit_address,
+    assume_from_context,
+    fact_applies,
+    plan_next_step,
+    question_brief,
+    take_customer_answer,
+    wants_revision,
+)
 from quotedesk.domain.services.commitments import TurnFacts, check_reply
 from quotedesk.domain.case.case_file import price_ready, status_of
 from quotedesk.domain.services.confidence import (
@@ -113,7 +125,7 @@ _NOT_A_NAME = frozenset(
     }
 )
 _INTRODUCED = re.compile(
-    r"(?i)\b(?:my name is|name is|call me|my name)\s+"
+    r"(?i)\b(?:use the name|my name is|name is|call me|my name)\s+"
     r"([A-Za-z][A-Za-z'’\-]*(?:\s+[A-Za-z][A-Za-z'’\-]*){0,3})"
 )
 
@@ -137,22 +149,35 @@ def remember_name(conversations, tenant_id, conversation_id: UUID, wa_id: str, e
         return
     text = "\n".join(getattr(event, "body", "") or "" for event in events).strip()
     found = _introduced_name(text)
-    if found is None:
-        if named(tenant_id, wa_id) or not _asked_for_name(conversations, tenant_id, conversation_id):
-            return
+    if found is None and not named(tenant_id, wa_id) and _asked_for_name(conversations, tenant_id, conversation_id):
         found = _bare_name(text)
         if found and _already_said(conversations, tenant_id, conversation_id, found):
             found = None
     if found:
         rename(tenant_id, wa_id, found)
+        return
+    if not named(tenant_id, wa_id):
+        _recover_name(conversations, tenant_id, conversation_id, wa_id)
 
 
 def with_name(conversations, tenant_id, wa_id: str, text: str) -> str:
-    """Ask once we still do not know who the number belongs to."""
-    named = getattr(conversations, "name", None)
-    if named is None or not wa_id or named(tenant_id, wa_id) or NAME_ASK in text:
-        return text
-    return f"{text.rstrip()} {NAME_ASK}".strip()
+    """A missing name is its own question. It is not added to another sentence."""
+    return text
+
+
+def _recover_name(conversations, tenant_id, conversation_id: UUID, wa_id: str) -> None:
+    """A name already said in this chat is kept. The question is not asked again."""
+    rename = getattr(conversations, "rename", None)
+    messages = getattr(conversations, "messages", None)
+    if rename is None or messages is None:
+        return
+    for message in messages(tenant_id, conversation_id):
+        if getattr(message, "kind", "") == "image":
+            continue
+        found = _introduced_name(getattr(message, "body", "") or "")
+        if found:
+            rename(tenant_id, wa_id, found)
+            return
 
 
 def _introduced_name(text: str) -> str | None:
@@ -440,6 +465,7 @@ class RunAgentTurn:
                 facts = TurnFacts(price_kind=price_kind, card_link=card_link)
             return self._say_step(context, conversation, conversation_id, wa_id, batch, facts, payloads)
         facts, answered = self._run_tools(context, reply, prompt, batch, conversation_id)
+        self._step = self._next(context, conversation_id)
         if _needs_name(answered.tool_payloads):
             return self._say_step(
                 context,
@@ -544,9 +570,10 @@ class RunAgentTurn:
                     return self._say_step(context, conversation, conversation_id, wa_id, batch, facts, answered.tool_payloads)
             else:
                 return self._say_step(context, conversation, conversation_id, wa_id, batch, facts, answered.tool_payloads)
-        outcome = _classify(text, answered)
+        outcome = _classify(self._step.sentence if _gathering(self._step) else text, answered)
         status = "escalated" if outcome is TurnOutcome.ESCALATED else "answered"
-        return self._commit(context, conversation, conversation_id, wa_id, batch, text, status, outcome)
+        body = self._step.sentence if _gathering(self._step) else text
+        return self._commit(context, conversation, conversation_id, wa_id, batch, body, status, outcome)
 
     def _spoken(self, prompt: TurnPrompt) -> ModelReply | None:
         reply = self._complete(prompt)
@@ -881,15 +908,19 @@ class RunAgentTurn:
     def _task_for(self, context: TenantContext, conversation) -> str:
         self._step = self._next(context, conversation.conversation_id)
         task = _task(self._conversations, context, conversation, self._policies)
+        case = self._case(context, conversation.conversation_id)
+        name, settled = _name_state(self, context, conversation.conversation_id, case, self._step.job_id)
         if _must_ask_name(self._conversations, context.tenant_id, conversation.conversation_id):
             task = (
-                f"{task}\nYou do not know the customer's name. Ask this before a price: {NAME_ASK} "
-                "Do not call get_quote until the customer has given a name."
+                f"{task}\nYou do not know the customer's name. The next question asks for it, "
+                "so you can address them. The name is not part of the price."
             )
+        brief = question_brief(case, _playbook(self, context), name, settled) if case is not None else ""
         return (
-            f"{task}\nThe next step is {self._step.kind.value}. {self._step.sentence} "
-            "Phrase that step. If the photo already estimates that fact, say the estimate and ask them to confirm it. "
-            "Do not choose a different step."
+            f"{task}\nThe next step is {self._step.kind.value}. {self._step.sentence}\n"
+            "Send only that question. Do not add another question. "
+            "When the step asks them to confirm, keep the yes or no wording.\n"
+            f"{brief}"
         )
 
     def _next(self, context: TenantContext, conversation_id: UUID) -> NextStep:
@@ -915,7 +946,17 @@ class RunAgentTurn:
         from quotedesk.application.use_cases.tools.planner_inputs import planner_inputs
 
         text, asked = planner_inputs(self._conversations, context.tenant_id, conversation_id, playbook)
-        case = _remember_reply(self, context, conversation_id, case, text)
+        case = _remember_reply(self, context, conversation_id, case, text, playbook)
+        noted = assume_from_context(
+            case,
+            playbook,
+            _context_notes(self, context, conversation_id),
+            _context_text(self, context, conversation_id),
+        )
+        if noted is not case:
+            case = noted
+            if self._cases is not None:
+                self._cases.save(context.tenant_id, case)
         if wants_revision(text):
             case = _clear_issued(case)
             if self._cases is not None:
@@ -923,10 +964,10 @@ class RunAgentTurn:
         elif _sent_before(self, context, conversation_id):
             _mark_issued(self, context, conversation_id)
             case = self._case(context, conversation_id) or case
-        step = plan_next_step(case, playbook, policy, asked=asked, customer_text=text)
+        step = ask_for_visit_address(case, plan_next_step(case, playbook, policy, asked=asked, customer_text=text))
         if _must_ask_name(self._conversations, context.tenant_id, conversation_id) and step.kind is StepKind.QUOTE:
-            return NextStep(kind=StepKind.ASK, sentence=NAME_ASK, job_id=step.job_id, fact_key="customer_name")
-        return step
+            step = NextStep(kind=StepKind.ASK, sentence=NAME_ASK, job_id=step.job_id, fact_key="customer_name")
+        return _apply_name(self, context, conversation_id, case, step)
 
     def _case(self, context: TenantContext, conversation_id: UUID):
         if self._cases is None:
@@ -934,14 +975,15 @@ class RunAgentTurn:
         return self._cases.get(context.tenant_id, conversation_id)
 
     def _say_step(self, context, conversation, conversation_id, wa_id, batch, facts, payloads, hold: bool = False):
-        sentence = self._step.sentence if hold else (_grounded(payloads, facts) or self._step.sentence)
+        one_question = hold or _gathering(self._step)
+        sentence = self._step.sentence if one_question else (_grounded(payloads, facts) or self._step.sentence)
         owner = _owner_took(payloads)
         if self._step.kind is StepKind.ESCALATE and not owner:
             self._handover.execute(context, conversation_id, reason=self._step.reason or "The next step is to escalate.")
         if self._step.kind is StepKind.ESCALATE or owner:
             body = sentence or _HANDOVER
             return self._commit(context, conversation, conversation_id, wa_id, batch, body, "escalated", TurnOutcome.ESCALATED)
-        body = sentence if hold else _with_card(sentence, facts.card_link)
+        body = sentence if hold or _gathering(self._step) else _with_card(sentence, facts.card_link)
         return self._commit(
             context,
             conversation,
@@ -1000,7 +1042,7 @@ class RunAgentTurn:
             )
             for job in case.jobs
             for fact in job.facts
-            if fact.superseded_by is None and not fact.contested
+            if fact.superseded_by is None and not fact.contested and not _bookkeeping_key(fact.key)
         )
         missing: tuple[str, ...] = ()
         if self._catalog is not None and case.jobs:
@@ -1408,11 +1450,12 @@ class RunAgentTurn:
         )
 
 
-def _remember_reply(turn: RunAgentTurn, context: TenantContext, conversation_id: UUID, case, text: str):
+def _remember_reply(turn: RunAgentTurn, context: TenantContext, conversation_id: UUID, case, text: str, playbook=None):
     """Store a yes, a no, or a chosen side when the previous reply asked for one."""
     from uuid import uuid4
 
-    from quotedesk.domain.case.contradictions import accept_spec_reply
+    from quotedesk.domain.case.contradictions import accept_spec_reply, spec_answer
+    from quotedesk.domain.policy.playbook import BusinessPlaybook
 
     replies = None if turn._conversations is None else getattr(turn._conversations, "replies", None)
     rows = () if replies is None else replies(context.tenant_id, conversation_id)
@@ -1420,12 +1463,183 @@ def _remember_reply(turn: RunAgentTurn, context: TenantContext, conversation_id:
         return case
     if _unsure_confirmation(turn, context, conversation_id) is not None:
         return case
-    chosen = accept_spec_reply(case, rows[-1][1] or "", text, uuid4())
+    book = playbook if isinstance(playbook, BusinessPlaybook) else BusinessPlaybook()
+    last = rows[-1][1] or ""
+    chosen = take_customer_answer(case, book, last, text, uuid4())
+    chosen = _remember_name_answer(turn, context, conversation_id, chosen, last, text)
+    chosen = accept_spec_reply(chosen, last, text, uuid4())
+    if chosen is case:
+        earlier = _earlier_answer(turn, context, conversation_id)
+        if earlier and earlier.strip() != text.strip() and spec_answer(earlier):
+            chosen = accept_spec_reply(case, last, earlier, uuid4())
     if chosen is case:
         return case
     if turn._cases is not None:
         turn._cases.save(context.tenant_id, chosen)
     return chosen
+
+
+def _remember_name_answer(turn: RunAgentTurn, context: TenantContext, conversation_id: UUID, case, last: str, text: str):
+    """A yes to the name, or a reply to the name question, acknowledges that name."""
+    from uuid import uuid4
+
+    from quotedesk.domain.case.contradictions import spec_answer
+
+    if not case.jobs:
+        return case
+    job_id = case.jobs[0].job_id
+    asked = last.strip() == NAME_ASK or last.strip().endswith(NAME_ASK)
+    confirmed = last.startswith("I'll use ") and "Is that right?" in last and spec_answer(text) == "yes"
+    if not asked and not confirmed:
+        return case
+    if case.active_fact(job_id, "name_acknowledged") is not None:
+        return case
+    return case.record_fact(
+        job_id,
+        uuid4(),
+        "name_acknowledged",
+        "true",
+        "customer_text",
+        uuid4(),
+        status="confirmed",
+    )
+
+
+def _playbook(turn: RunAgentTurn, context: TenantContext):
+    from quotedesk.domain.policy.playbook import BusinessPlaybook
+
+    if turn._policies is None:
+        return BusinessPlaybook()
+    bundle = turn._policies.published(context.tenant_id)
+    if bundle is None:
+        return BusinessPlaybook()
+    return bundle.playbook
+
+
+def _name_state(turn: RunAgentTurn, context: TenantContext, conversation_id: UUID, case, job_id: str) -> tuple[str, bool]:
+    """A stored name is already inferred. Ask only when there is none."""
+    del case, job_id
+    wa_id = _wa_id(turn._conversations, context.tenant_id, conversation_id) or ""
+    named = None if turn._conversations is None else getattr(turn._conversations, "name", None)
+    if named is None or not wa_id:
+        return "", True
+    name = (named(context.tenant_id, wa_id) or "").strip()
+    if name:
+        return name, True
+    return "", False
+
+
+def _context_notes(turn: RunAgentTurn, context: TenantContext, conversation_id: UUID) -> tuple[str, ...]:
+    """The photo summary and notes already read for this conversation."""
+    messages = None if turn._conversations is None else getattr(turn._conversations, "messages", None)
+    getter = None if turn._conversations is None else getattr(turn._conversations, "enrichment", None)
+    if messages is None or getter is None:
+        return ()
+    notes: list[str] = []
+    for message in messages(context.tenant_id, conversation_id):
+        if getattr(message, "kind", "") != "image":
+            continue
+        result = getter(context.tenant_id, message.provider_message_id)
+        if result is None:
+            continue
+        summary = getattr(result, "summary", "") or ""
+        if summary.strip():
+            notes.append(summary.strip())
+        notes.extend(item.strip() for item in (getattr(result, "notes", ()) or ()) if item and item.strip())
+    return tuple(dict.fromkeys(notes))
+
+
+def _context_text(turn: RunAgentTurn, context: TenantContext, conversation_id: UUID) -> str:
+    """Every customer sentence, including a caption on a photo."""
+    messages = None if turn._conversations is None else getattr(turn._conversations, "messages", None)
+    if messages is None:
+        return ""
+    parts: list[str] = []
+    for message in messages(context.tenant_id, conversation_id):
+        body = (getattr(message, "body", "") or "").strip()
+        if body and body != "Customer photo.":
+            parts.append(body)
+    return "\n".join(parts)
+
+
+def _name_confirmed(turn: RunAgentTurn, context: TenantContext, conversation_id: UUID) -> bool:
+    """A yes after the name confirmation counts before a job exists."""
+    from quotedesk.domain.case.contradictions import spec_answer
+
+    messages = None if turn._conversations is None else getattr(turn._conversations, "messages", None)
+    replies = None if turn._conversations is None else getattr(turn._conversations, "replies", None)
+    if messages is None or replies is None:
+        return False
+    events = [
+        (message.at, "in", message.body or "")
+        for message in messages(context.tenant_id, conversation_id)
+        if (message.body or "").strip() and getattr(message, "kind", "") != "image"
+    ]
+    events.extend((at, "out", body or "") for at, body in replies(context.tenant_id, conversation_id))
+    events.sort(key=lambda item: item[0])
+    last_out = ""
+    for _at, kind, body in events:
+        if kind == "out":
+            last_out = body
+            continue
+        if last_out.startswith("I'll use ") and "Is that right?" in last_out and spec_answer(body) == "yes":
+            return True
+    return False
+
+
+def _apply_name(turn: RunAgentTurn, context: TenantContext, conversation_id: UUID, case, step: NextStep) -> NextStep:
+    """The name is the first open question, and it is never glued to another."""
+    if step.kind in (StepKind.ESCALATE, StepKind.INSPECTION):
+        return step
+    if step.sentence == STANDS or "Which should I price?" in step.sentence:
+        return step
+    name, settled = _name_state(turn, context, conversation_id, case, step.job_id)
+    if settled or name:
+        return step
+    return NextStep(kind=StepKind.ASK, sentence=NAME_ASK, job_id=step.job_id, fact_key="customer_name")
+
+
+def _gathering(step: NextStep) -> bool:
+    """A fact question or a confirmation is sent as planned. A standing quote is not."""
+    if step.kind not in (StepKind.ASK, StepKind.CONFIRM):
+        return False
+    if not step.sentence.strip() or step.sentence == STANDS or "Which should I price?" in step.sentence:
+        return False
+    return bool(step.fact_key) and step.fact_key != "job_type"
+
+
+def _bookkeeping_key(key: str) -> bool:
+    return key.startswith(("ack:", "rejected:", "clash:", "alt:", "unknown:")) or key in {
+        "spec_confirmed",
+        "name_acknowledged",
+        "quote_issued",
+    }
+
+
+def _earlier_answer(turn: RunAgentTurn, context: TenantContext, conversation_id: UUID) -> str:
+    """A yes or no that followed the spec question, when a later message did not answer it."""
+    from quotedesk.domain.case.contradictions import spec_answer
+
+    messages = getattr(turn._conversations, "messages", None)
+    replies = getattr(turn._conversations, "replies", None)
+    if messages is None or replies is None:
+        return ""
+    events = [
+        (message.at, "in", message.body or "")
+        for message in messages(context.tenant_id, conversation_id)
+        if (message.body or "").strip() and getattr(message, "kind", "") != "image"
+    ]
+    events.extend((at, "out", body or "") for at, body in replies(context.tenant_id, conversation_id))
+    events.sort(key=lambda item: item[0])
+    last_out = ""
+    missed = ""
+    for _at, kind, body in events:
+        if kind == "out":
+            last_out = body
+            continue
+        if "Is that the spec to price?" in last_out and spec_answer(body):
+            missed = body
+    return missed
 
 
 def _evidence(turn: RunAgentTurn, context: TenantContext, conversation_id: UUID, events, kinds: dict[str, str]):
@@ -1518,7 +1732,7 @@ def _unsure_confirmation(turn: RunAgentTurn, context: TenantContext, conversatio
         return None
     return (
         f"I heard: {transcript}. I'm not sure I heard that clearly. "
-        "Please confirm by typing. Is that the spec to price?"
+        "Please reply yes or no. Is that the spec to price?"
     )
 
 

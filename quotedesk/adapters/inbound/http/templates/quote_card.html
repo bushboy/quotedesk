@@ -4,6 +4,7 @@
   <h1>{{ card.headline }}</h1>
   {% if card.rule_id %}<p class="rule">Rule {{ card.rule_id }}</p>{% endif %}
   {% if card.business_name %}<p class="meta">{{ card.business_name }}</p>{% endif %}
+  {% if card.customer_name %}<p class="meta">Prepared for {{ card.customer_name }}</p>{% endif %}
   {% if card.quote_id %}<p class="meta">{{ card.quote_id }}</p>{% endif %}
   {% if card.body %}<p class="body">{{ card.body }}</p>{% endif %}
   {% if card.lines %}

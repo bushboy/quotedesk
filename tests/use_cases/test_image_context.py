@@ -17,7 +17,7 @@ from tests.use_cases.test_photo_turn import (
     tank_mask,
     text,
 )
-from tests.use_cases.test_typed_turn import CONTEXT, CONVERSATION, QUOTE, TENANT, WA, replacement_calls
+from tests.use_cases.test_typed_turn import CONTEXT, CONVERSATION, QUOTE, TENANT, WA, accept_until, replacement_calls
 
 IMAGE_B = "66666666-6666-4666-8666-666666666667"
 LATER = "77777777-7777-4777-8777-777777777777"
@@ -96,7 +96,8 @@ def test_two_images_are_two_rows():
     assert [row.provider_message_id for row in rows] == [IMAGE, IMAGE_B]
     assert rows[0].objects == ("tank",)
     assert rows[1].objects == ("pump",)
-    assert sender.sent == [(WA, "We can send a fixed quote for this replacement. /card/QD-1042?code=1042")]
+    accept_until(conversations, turn, sender.sent, "/card/QD-1042")
+    assert (WA, "We can send a fixed quote for this replacement. /card/QD-1042?code=1042") in sender.sent
 
 
 def test_a_later_text_still_sees_the_photo():
@@ -127,6 +128,7 @@ def test_a_later_text_still_sees_the_photo():
     assert image.body == CAPTION
     assert model.prompts[1].extractions[0].summary == SUMMARY
     assert enricher.calls == [IMAGE]
+    accept_until(conversations, turn, sender.sent, QUOTE)
     assert sender.sent[-1][1] == QUOTE
 
 
@@ -147,7 +149,8 @@ def test_caption_size_can_be_customer_stated():
     turn.execute(CONTEXT, CONVERSATION)
     quote = next(item for item in model.prompts[1].tool_payloads if item.name == "get_quote")
     assert quote.body["total"]["amount"] == "5550.00"
-    assert sender.sent == [(WA, QUOTE)]
+    accept_until(conversations, turn, sender.sent, QUOTE)
+    assert (WA, QUOTE) in sender.sent
 
 
 def test_a_size_only_in_the_summary_does_not_issue():
@@ -158,7 +161,8 @@ def test_a_size_only_in_the_summary_does_not_issue():
     picture(conversations, CAPTION, 0, IMAGE)
     turn.execute(CONTEXT, CONVERSATION)
     assert model.prompts[0].extractions[0].summary == "A 5000 L tank on a level base."
-    assert sender.sent == [(WA, "The indicative range for that tank is in this result. It can change once we confirm the base. /card/QD-1042?code=1042")]
+    assert sender.sent[0][1].startswith("You said the tank size is 5000 L tank.")
+    assert "/card/" not in sender.sent[0][1]
 
 
 def test_a_confirmed_quote_survives_a_blur_or_a_sam_miss():
@@ -175,4 +179,5 @@ def test_a_confirmed_quote_survives_a_blur_or_a_sam_miss():
         picture(conversations, CAPTION_SIZE, 0, IMAGE)
         turn.execute(CONTEXT, CONVERSATION)
         assert model.prompts[0].extractions[0].summary == SUMMARY
-        assert sender.sent == [(WA, "We can send a fixed quote for this replacement. /card/QD-1042?code=1042")]
+        accept_until(conversations, turn, sender.sent, "/card/QD-1042")
+        assert (WA, "We can send a fixed quote for this replacement. /card/QD-1042?code=1042") in sender.sent

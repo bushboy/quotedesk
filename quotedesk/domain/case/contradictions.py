@@ -1,5 +1,6 @@
 """The clash record. The planner replays a photo that disagrees with what the customer said."""
 
+import re
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict
@@ -36,7 +37,11 @@ def clashes_of(case, job_id: str) -> tuple[Clash, ...]:
     facts = case.facts(job_id)
     keys: list[str] = []
     for fact in facts:
-        if fact.key.startswith("clash:") or fact.key == "spec_confirmed" or fact.key in keys:
+        if (
+            fact.key.startswith(("clash:", "ack:", "rejected:"))
+            or fact.key in {"spec_confirmed", "name_acknowledged"}
+            or fact.key in keys
+        ):
             continue
         keys.append(fact.key)
     found: list[Clash] = []
@@ -75,11 +80,11 @@ def unresolved_clashes(case, job_id: str) -> tuple[Clash, ...]:
 
 
 def spec_answer(text: str) -> str | None:
-    """A yes or a no in the words a typed reply already uses. Anything else is unset."""
+    """A yes or a no at the start of the reply. Later words do not change it."""
     folded = text.strip().casefold()
-    if folded in ("yes", "yes.", "yep", "yeah", "correct") or folded.startswith("yes ") or folded.startswith("yes,"):
+    if re.match(r"(?:yes|yep|yeah|correct)\b", folded):
         return "yes"
-    if folded in ("no", "no.", "nope") or folded.startswith("no ") or folded.startswith("no,"):
+    if re.match(r"(?:no|nope)\b", folded):
         return "no"
     return None
 

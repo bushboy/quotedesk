@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from quotedesk.application.dto.tenant import TenantContext
 from quotedesk.application.dto.tool_inputs import UpdateCaseInput
 from quotedesk.application.dto.tool_outputs import UpdateCaseResult
@@ -5,6 +7,7 @@ from quotedesk.application.errors import CaseNotFound, TenantRequired
 from quotedesk.application.ports.repositories import CaseFileRepository, JobCatalog
 from quotedesk.application.ports.runtime import IdGenerator
 from quotedesk.domain.case.case_file import CaseFile
+from quotedesk.domain.case.checklist import mark_unknown
 from quotedesk.domain.services.finish import sheet_choice
 from quotedesk.domain.services.plan import fact_applies
 from quotedesk.domain.shared.errors import PolicyViolation, ValidationError
@@ -87,6 +90,9 @@ class UpdateCase:
             if fact.key in _CONFIDENCE and not data.system:
                 continue
             if _unsure(fact.value):
+                if (job.job_type or "") == "carport" and fact.key in {"sheet", "width_m", "length_m", "existing_frame", "opening"}:
+                    case = mark_unknown(case, data.job_id, fact.key, fact.event_id)
+                    continue
                 case = case.record_fact(
                     data.job_id,
                     self._ids.next_fact_id(),
@@ -251,6 +257,8 @@ def _suggest_bays(case: CaseFile, job_id: str, ids, defined: dict) -> CaseFile:
     size = _BAYS.get(active.value.strip())
     if size is None:
         return case
+    names = {"1": "One bay", "2": "Two bays", "3": "Three bays"}
+    evidence = f"{names.get(active.value.strip(), 'That size')} is about {size[0]} by {size[1]} m."
     for key, value in zip(("width_m", "length_m"), size, strict=True):
         current = case.active_fact(job_id, key)
         if current is not None and current.value.strip():
@@ -263,7 +271,8 @@ def _suggest_bays(case: CaseFile, job_id: str, ids, defined: dict) -> CaseFile:
             active.source,
             active.event_id,
             status="inferred",
-            evidence="From the number of bays.",
+            evidence=evidence,
+            confidence=Decimal("0.8"),
         )
     return case
 

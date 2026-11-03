@@ -34,6 +34,7 @@ from tests.use_cases.test_typed_turn import (
     QuoteScript,
     _record_sheet,
     _sheet_policies,
+    accept_until,
     at,
     harness,
     say,
@@ -417,6 +418,10 @@ class _Record:
         )
 
 
+def _quote_at(sent) -> int:
+    return next(index for index, (_, body) in enumerate(sent) if "The total is" in body)
+
+
 def _quote(sheet: str, policies, attach):
     business = BusinessView(name="FrameWorks", trade="carports and sheeting")
     conversations, cases, _sender, _clock, turn = harness(_Record(sheet), business=business, policies=policies)
@@ -427,8 +432,7 @@ def _quote(sheet: str, policies, attach):
         turn._pictures = attach(drawer, cases, conversations, policies)
     say(conversations, "Sheeting for the 5 by 7 carport.", 0, str(uuid4()))
     turn.execute(CONTEXT, CONVERSATION)
-    say(conversations, "Yes", 0, str(uuid4()))
-    turn.execute(CONTEXT, CONVERSATION)
+    accept_until(conversations, turn, box.sent, "The total is")
     return box, drawer, conversations
 
 
@@ -447,15 +451,15 @@ def test_a_shade_net_quote_with_the_photo_already_on_the_case_draws_it():
     _image(conversations, "The garage wall.", "garage", "img-garage")
     say(conversations, "Shade net for the 5 by 7 carport.", 0, str(uuid4()))
     turn.execute(CONTEXT, CONVERSATION)
-    say(conversations, "Yes", 0, str(uuid4()))
-    turn.execute(CONTEXT, CONVERSATION)
+    accept_until(conversations, turn, box.sent, "The total is")
     plain, _untouched, _ignored = _quote("SHADE-NET", policies, None)
-    assert box.sent[1] == plain.sent[1]
-    assert "The total is" in box.sent[1][1]
-    assert box.sent[2] == (WA, COMING)
-    assert box.images[2] is None
-    assert box.sent[3][1] == "This is a drawing of that spec on your photo, from eye level, not a measure."
-    assert box.images[3] and box.images[3].startswith("data:image/png;base64,")
+    priced = _quote_at(box.sent)
+    assert box.sent[priced] == plain.sent[_quote_at(plain.sent)]
+    assert "The total is" in box.sent[priced][1]
+    assert box.sent[priced + 1] == (WA, COMING)
+    assert box.images[priced + 1] is None
+    assert box.sent[priced + 2][1] == "This is a drawing of that spec on your photo, from eye level, not a measure."
+    assert box.images[priced + 2] and box.images[priced + 2].startswith("data:image/png;base64,")
     assert [request.photo for request in drawer.requests] == [b"garage-bytes"]
     assert "sags in a curve" in drawer.requests[0].prompt
     assert "eye level with the ground" in drawer.requests[0].prompt
@@ -469,9 +473,10 @@ def test_an_ibr_quote_with_no_photo_asks_for_a_straight_roof():
     assert "flat roof of Galvanised IBR sheeting" in drawer.requests[0].prompt
     assert "No post stands in the middle of a side" in drawer.requests[0].prompt
     assert all(request.photo is None for request in drawer.requests)
-    assert box.sent[2] == (WA, COMING)
-    assert box.sent[3][1] == "This is a drawing of that spec against a plain wall and garage, from eye level, not a measure."
-    assert "The total is R 297500.00" in box.sent[1][1]
+    priced = _quote_at(box.sent)
+    assert box.sent[priced + 1] == (WA, COMING)
+    assert box.sent[priced + 2][1] == "This is a drawing of that spec against a plain wall and garage, from eye level, not a measure."
+    assert "The total is R 297500.00" in box.sent[priced][1]
 
 
 def test_a_render_request_sends_the_drawings_and_not_the_refusal():
@@ -518,13 +523,13 @@ def test_a_blurry_garage_photo_on_a_quote_says_the_photo_was_hard_to_use():
     _image(conversations, "The garage.", "garage", "img-blur")
     say(conversations, "Economy sheeting for the 5 by 7 carport.", 0, str(uuid4()))
     turn.execute(CONTEXT, CONVERSATION)
-    say(conversations, "Yes", 0, str(uuid4()))
-    turn.execute(CONTEXT, CONVERSATION)
+    accept_until(conversations, turn, box.sent, "The total is")
     assert all(request.photo is None for request in drawer.requests)
-    assert box.sent[2] == (WA, COMING)
-    assert box.sent[3][1].startswith("That photo was hard to use.")
-    assert "The total is R 297500.00" in box.sent[1][1]
-    assert box.images[3] and box.images[1] is None and box.images[2] is None
+    priced = _quote_at(box.sent)
+    assert box.sent[priced + 1] == (WA, COMING)
+    assert box.sent[priced + 2][1].startswith("That photo was hard to use.")
+    assert "The total is R 297500.00" in box.sent[priced][1]
+    assert box.images[priced + 2] and box.images[priced] is None and box.images[priced + 1] is None
 
 
 def test_a_renderer_failure_still_sends_the_quote_and_no_picture():
@@ -535,11 +540,12 @@ def test_a_renderer_failure_still_sends_the_quote_and_no_picture():
         return _attached(drawer, cases, conversations, policies)
 
     box, drawer, _conversations = _quote("SHEET-ECO", policies, attach)
-    assert box.sent[1][1] == _ECO
-    assert box.sent[2] == (WA, COMING)
-    assert box.sent[3] == (WA, FAILED)
-    assert box.images[2] is None
-    assert box.images[3] is None
+    priced = _quote_at(box.sent)
+    assert box.sent[priced][1] == _ECO
+    assert box.sent[priced + 1] == (WA, COMING)
+    assert box.sent[priced + 2] == (WA, FAILED)
+    assert box.images[priced + 1] is None
+    assert box.images[priced + 2] is None
     assert drawer.requests
 
 
@@ -599,24 +605,26 @@ def test_a_price_waits_for_the_frame_and_a_render_follows_the_quote():
     turn._pictures = _attached(Drawer(), cases, conversations, policies)
     say(conversations, "Give me a quote on polycarbonate sheeting that is 3 x 4m", 0, "ask-size")
     turn.execute(CONTEXT, CONVERSATION)
-    assert box.sent[0][1] == "Is this sheeting onto the existing frame?"
-    assert "total" not in box.sent[0][1].casefold()
-    assert "/card/" not in box.sent[0][1]
+    accept_until(conversations, turn, box.sent, "existing frame")
+    assert "total" not in box.sent[-1][1].casefold()
+    assert "/card/" not in box.sent[-1][1]
     say(conversations, "New frame", 0, "ask-frame")
     turn.execute(CONTEXT, CONVERSATION)
-    assert box.sent[1][1].endswith("Is that the spec to price?")
-    assert "/card/" not in box.sent[1][1]
-    assert "total" not in box.sent[1][1].casefold()
+    accept_until(conversations, turn, box.sent, "Is that the spec to price?")
+    assert box.sent[-1][1].endswith("Is that the spec to price? Reply yes or no.")
+    assert "/card/" not in box.sent[-1][1]
+    assert "total" not in box.sent[-1][1].casefold()
     say(conversations, "Yes", 0, "ask-yes")
     turn.execute(CONTEXT, CONVERSATION)
-    assert "The total is" in box.sent[2][1]
-    assert "/card/" in box.sent[2][1]
+    assert "The total is" in box.sent[-1][1] or any("The total is" in body for _, body in box.sent)
+    priced = _quote_at(box.sent)
+    assert "/card/" in box.sent[priced][1]
     issued = turn._get_quote._unit.get_quote(CONTEXT.tenant_id, CONVERSATION)
     assert issued is not None
     version = issued.current.number
     say(conversations, "Show me a render of the carport", 0, "ask-render")
     turn.execute(CONTEXT, CONVERSATION)
-    bodies = [body for _wa, body in box.sent[3:]]
+    bodies = [body for _wa, body in box.sent[priced + 1 :]]
     drawings = [body for body in bodies if "from eye level" in body]
     assert drawings
     assert any(body == COMING for body in bodies)
@@ -634,8 +642,8 @@ def test_aquasure_sends_the_quote_and_no_picture():
     turn._pictures = CarportSketch(drawer, cases, conversations, _sheet_policies(), Host(), "water tanks and pumps")
     say(conversations, TANK, 0, str(uuid4()))
     turn.execute(TenantContext(tenant_id=TENANT), CONVERSATION)
-    assert len(sender.sent) == 1
-    assert "The total is R 5550.00" in sender.sent[0][1]
+    accept_until(conversations, turn, sender.sent, "The total is R 5550.00")
+    assert "The total is R 5550.00" in sender.sent[-1][1]
     assert drawer.requests == []
 
 
@@ -648,10 +656,9 @@ def test_with_the_switch_off_a_frameworks_quote_is_unchanged():
     assert turn._pictures is None
     say(conversations, "Economy sheeting for the 5 by 7 carport.", 0, str(uuid4()))
     turn.execute(CONTEXT, CONVERSATION)
-    say(conversations, "Yes", 0, str(uuid4()))
-    turn.execute(CONTEXT, CONVERSATION)
-    assert sender.sent[1] == (WA, _ECO)
-    assert len(sender.sent) == 2
+    accept_until(conversations, turn, sender.sent, "The total is")
+    assert (WA, _ECO) in sender.sent
+    assert all(body != COMING for _, body in sender.sent)
 
 
 def test_the_switch_builds_a_renderer_only_for_frameworks_when_it_is_on():

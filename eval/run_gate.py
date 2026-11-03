@@ -151,7 +151,7 @@ def _one(slug: str, item: dict, seed: int, voice: ScriptedCustomer) -> dict:
         rule_id = step.rule_id
         if step.kind is StepKind.ASK and step.fact_key in known:
             reasked.append(step.fact_key)
-        if step.kind is StepKind.CONFIRM and step.sentence.endswith("Is that the spec to price?"):
+        if step.kind is StepKind.CONFIRM and "Is that the spec to price?" in step.sentence:
             _hear(application, profile.tenant_id, conversation_id, f"{item['id']}-{turn}-yes", "Yes")
             before = len(recorder.sent)
             application.state.turn.execute(context, conversation_id)

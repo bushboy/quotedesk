@@ -5,7 +5,7 @@ from uuid import UUID, uuid4
 from quotedesk.adapters.outbound.parsers.aquasure import load_playbook
 from quotedesk.domain.case.case_file import CaseFile
 from quotedesk.domain.policy.rules import Policy
-from quotedesk.domain.services.plan import StepKind, plan_next_step
+from quotedesk.domain.services.plan import StepKind, assume_from_context, plan_next_step
 from quotedesk.domain.shared.ids import PolicyVersionId
 from tests.unit.domain.fabricator_policy import fabricator_policy
 from tests.unit.domain.water_policy import aquasure_policy
@@ -41,9 +41,9 @@ def test_a_missing_fact_asks_that_facts_question_for_either_business():
     span = span.record_fact("bay", uuid4(), "width_m", "6", "customer_text", EVENT)
     frames = plan_next_step(span, FRAMES, _empty_policy())
     assert frames.kind is StepKind.ASK
-    assert frames.fact_key == "sheet"
-    assert frames.sentence.startswith("Which roof would you like?")
-    assert "Galvanised IBR sheeting" in frames.sentence
+    assert frames.fact_key == "length_m"
+    assert frames.sentence.startswith("You said the width is 6 m.")
+    assert "What is the length in metres?" in frames.sentence
     assert "tank" not in frames.sentence.casefold()
 
 
@@ -163,9 +163,11 @@ def test_a_confident_photo_is_confirmed_before_another_question():
     )
     step = plan_next_step(tank, AQUA, aquasure_policy())
     assert step.kind is StepKind.CONFIRM
+    assert step.fact_key == "size_litres"
+    assert step.sentence.startswith("From the photo, the tank size looks like 5000 L tank")
     assert "5000 L tank" in step.sentence
     assert "about 1.8 m tall" in step.sentence
-    assert step.sentence.endswith("Is that right?")
+    assert step.sentence.endswith("Is that right? Reply yes or no.")
     assert step.assumptions[0].evidence == "about 1.8 m tall"
 
 
@@ -199,17 +201,24 @@ def test_an_unnamed_tank_job_asks_whether_the_stand_is_there():
     tank = tank.record_fact("tank", uuid4(), "size_litres", "5000", "customer_text", EVENT)
     tank = tank.record_fact("tank", uuid4(), "existing_level_base", "true", "customer_text", EVENT)
     step = plan_next_step(tank, AQUA, aquasure_policy())
-    assert step.kind is StepKind.ASK
-    assert step.fact_key == "stand_present"
-    assert step.sentence == "Is the stand already there?"
+    assert step.kind is StepKind.CONFIRM
+    assert step.fact_key == "size_litres"
+    assert step.sentence.startswith("You said the tank size is 5000 L tank.")
+    acked = tank.acknowledge("tank", "size_litres", uuid4(), EVENT)
+    acked = acked.acknowledge("tank", "existing_level_base", uuid4(), EVENT)
+    stand = plan_next_step(acked, AQUA, aquasure_policy())
+    assert stand.kind is StepKind.ASK
+    assert stand.fact_key == "stand_present"
+    assert stand.sentence == "Is the stand already there?"
 
 
-def test_a_new_carport_asks_the_sheet_before_the_size():
+def test_a_new_carport_asks_the_width_before_the_sheet():
     bay = CaseFile.open(CONVERSATION, TENANT).add_job("bay", "carport")
     bay = bay.record_fact("bay", uuid4(), "opening", "new", "customer_text", EVENT)
     step = plan_next_step(bay, FRAMES, fabricator_policy())
     assert step.kind is StepKind.ASK
-    assert step.fact_key == "sheet"
+    assert step.fact_key == "width_m"
+    assert step.sentence.startswith("What is the width in metres?")
     assert step.kind is not StepKind.INSPECTION
 
 
@@ -220,15 +229,25 @@ def _priced_swap() -> CaseFile:
     return tank.record_fact("tank", uuid4(), "item_codes", "TANK-5000", "customer_text", EVENT)
 
 
-def test_a_ready_spec_is_replayed_before_the_fixed_quote():
-    from quotedesk.domain.case.contradictions import accept_spec_reply
+def test_a_ready_spec_confirms_each_fact_and_then_the_whole_set():
+    from quotedesk.domain.case.contradictions import accept_spec_reply, spec_choice
 
     step = plan_next_step(_priced_swap(), AQUA, aquasure_policy())
     assert step.kind is StepKind.CONFIRM
-    assert "5000 L tank" in step.sentence
-    assert "existing level base yes" in step.sentence
-    assert step.sentence.endswith("Is that the spec to price?")
-    confirmed = accept_spec_reply(_priced_swap(), step.sentence, "Yes", EVENT)
+    assert step.fact_key == "size_litres"
+    assert step.sentence.startswith("You said the tank size is 5000 L tank.")
+    assert step.sentence.endswith("Is that right? Reply yes or no.")
+    assert "Is that the spec to price?" not in step.sentence
+    one = accept_spec_reply(_priced_swap(), step.sentence, "Yes", EVENT)
+    assert spec_choice(one, "tank") is None
+    acked = _priced_swap().acknowledge("tank", "size_litres", uuid4(), EVENT)
+    acked = acked.acknowledge("tank", "existing_level_base", uuid4(), EVENT)
+    replay = plan_next_step(acked, AQUA, aquasure_policy())
+    assert replay.kind is StepKind.CONFIRM
+    assert "5000 L tank" in replay.sentence
+    assert "existing level base yes" in replay.sentence
+    assert replay.sentence.endswith("Is that the spec to price? Reply yes or no.")
+    confirmed = accept_spec_reply(acked, replay.sentence, "Yes. Use the name Fabian.", EVENT)
     quoted = plan_next_step(confirmed, AQUA, aquasure_policy())
     assert quoted.kind is StepKind.QUOTE
     assert "fixed quote" in quoted.sentence
@@ -257,7 +276,11 @@ def test_a_photo_size_is_asked_once_and_the_chosen_value_is_kept():
     assert chosen.active_fact("tank", "size_litres").value == "5000"
     again = plan_next_step(chosen, AQUA, aquasure_policy())
     assert "Which should I price?" not in again.sentence
-    assert "You confirmed 5000 L tank" in again.sentence
+    assert again.fact_key == "existing_level_base"
+    assert again.sentence.startswith("You said the existing level base is yes.")
+    settled = chosen.acknowledge("tank", "existing_level_base", uuid4(), EVENT)
+    replay = plan_next_step(settled, AQUA, aquasure_policy())
+    assert "You confirmed 5000 L tank" in replay.sentence
     reopened = chosen.record_fact("tank", uuid4(), "size_litres", "10000", "photo_extraction", EVENT)
     reasked = plan_next_step(reopened, AQUA, aquasure_policy())
     assert reasked.sentence.endswith("Which should I price?")
@@ -293,7 +316,8 @@ def test_an_inferred_photo_size_stays_off_the_price_until_the_spec_is_confirmed(
 
 def test_a_photo_note_is_replayed_and_is_not_the_priced_size():
     tank = _priced_swap().record_fact("tank", uuid4(), "photo_note", "about 1.8 m tall", "customer_text", EVENT)
-    step = plan_next_step(tank, AQUA, aquasure_policy())
+    acked = tank.acknowledge("tank", "size_litres", uuid4(), EVENT).acknowledge("tank", "existing_level_base", uuid4(), EVENT)
+    step = plan_next_step(acked, AQUA, aquasure_policy())
     assert "The photo notes: about 1.8 m tall." in step.sentence
     assert "5000 L tank" in step.sentence
     assert "1.8" not in step.sentence.split("The photo notes:")[0]
@@ -305,6 +329,130 @@ def test_a_blurry_photo_asks_for_another_picture_and_does_not_block_the_ask():
     step = plan_next_step(tank, AQUA, aquasure_policy())
     assert step.kind is StepKind.ASK
     assert step.sentence.endswith("That photo is hard to read. Do you have another picture?")
+
+
+def test_a_photo_and_a_single_car_are_confirmed_before_a_blank_question():
+    notes = (
+        "A carport is in the photo. Its extent is the size to confirm.",
+        "The carport is a single bay. That bay is the width to confirm.",
+        "The carport is a double bay. Those two bays are the width to confirm.",
+        "The roof has clear polycarbonate sheeting panels.",
+        "The carport is freestanding on paving.",
+    )
+    said = "I want a single car carport with similar material and size to the one in the picture. This is a new carport altogether."
+    case = assume_from_context(CaseFile.open(CONVERSATION, TENANT), FRAMES, notes, said)
+    step = plan_next_step(case, FRAMES, _empty_policy(), customer_text=said)
+    assert step.kind is StepKind.CONFIRM
+    assert step.fact_key == "size"
+    assert "3 m by 6 m" in step.sentence
+    assert "What is the width in metres?" not in step.sentence
+    assert case.active_fact("carport", "sheet").value == "SHEET-POLY"
+    assert case.active_fact("carport", "width_m").value == "3"
+    assert case.active_fact("carport", "length_m").value == "6"
+    assert case.active_fact("carport", "existing_frame").value == "false"
+    assert case.active_fact("carport", "width_m").status == "inferred"
+    acked = case.acknowledge("carport", "width_m", uuid4(), EVENT).acknowledge("carport", "length_m", uuid4(), EVENT)
+    roof = plan_next_step(acked, FRAMES, _empty_policy())
+    assert roof.kind is StepKind.CONFIRM
+    assert roof.fact_key == "sheet"
+    assert "Polycarbonate sheeting" in roof.sentence
+    assert "Which roof would you like?" not in roof.sentence
+
+
+def test_a_stated_size_is_not_replaced_by_the_photo():
+    bay = CaseFile.open(CONVERSATION, TENANT).add_job("bay", "carport")
+    bay = bay.record_fact("bay", uuid4(), "width_m", "5", "customer_text", EVENT)
+    kept = assume_from_context(bay, FRAMES, ("The roof has clear polycarbonate sheeting panels.",), "a single car carport")
+    assert kept.active_fact("bay", "width_m").value == "5"
+    assert kept.active_fact("bay", "width_m").status == "stated"
+
+
+def test_one_message_fills_sheet_size_and_installation():
+    from quotedesk.domain.case.checklist import carport_checklist
+
+    notes = (
+        "The roof has clear polycarbonate sheeting panels.",
+        "The carport is freestanding on paving.",
+    )
+    said = "I want a single car carport. This is a new carport altogether."
+    case = assume_from_context(CaseFile.open(CONVERSATION, TENANT), FRAMES, notes, said)
+    items = {item.key: item for item in carport_checklist(case, case.jobs[0], FRAMES.job_types[0])}
+    assert items["sheet"].status == "inferred"
+    assert items["sheet"].values[0].label == "Polycarbonate sheeting"
+    assert items["size"].status == "inferred"
+    assert items["size"].values[0].raw == "3x6"
+    assert items["installation"].status == "inferred"
+    assert items["installation"].values[0].raw == "new"
+
+
+def test_two_sheet_readings_ask_which_to_price():
+    notes = ("The roof has clear polycarbonate sheeting panels.",)
+    said = "I want a carport with galvanised IBR sheeting."
+    case = assume_from_context(CaseFile.open(CONVERSATION, TENANT), FRAMES, notes, said)
+    step = plan_next_step(case, FRAMES, _empty_policy(), customer_text=said)
+    assert step.kind is StepKind.CONFIRM
+    assert step.fact_key == "sheet"
+    assert "Polycarbonate sheeting" in step.sentence
+    assert "Galvanised IBR sheeting" in step.sentence
+    assert step.sentence.endswith("Which should I price?")
+    assert case.active_fact("carport", "sheet") is not None
+    assert case.active_fact("carport", "alt:sheet") is not None
+
+
+def test_an_unknown_sheet_keeps_the_photo_and_blocks_the_quote():
+    from quotedesk.domain.case.checklist import mark_unknown
+
+    notes = ("The roof has clear polycarbonate sheeting panels.",)
+    said = "I want a single car carport. This is a new carport altogether."
+    case = assume_from_context(CaseFile.open(CONVERSATION, TENANT), FRAMES, notes, said)
+    case = mark_unknown(case, "carport", "sheet", EVENT)
+    assert case.active_fact("carport", "sheet").value == "SHEET-POLY"
+    case = case.acknowledge("carport", "width_m", uuid4(), EVENT).acknowledge("carport", "length_m", uuid4(), EVENT)
+    case = case.acknowledge("carport", "existing_frame", uuid4(), EVENT)
+    step = plan_next_step(case, FRAMES, _empty_policy())
+    assert step.kind is StepKind.ASK
+    assert "can't price" in step.sentence
+    assert "roof sheeting" in step.sentence
+
+
+def test_a_confirmed_carport_from_a_photo_is_a_fixed_quote():
+    bay = CaseFile.open(CONVERSATION, TENANT).add_job("bay", "carport")
+    for key, value in (("width_m", "3"), ("length_m", "6"), ("sheet", "SHEET-COLOUR"), ("existing_frame", "false")):
+        bay = bay.record_fact(
+            "bay",
+            uuid4(),
+            key,
+            value,
+            "photo_extraction",
+            EVENT,
+            status="confirmed",
+            confidence=Decimal("0.8"),
+        )
+    bay = bay.record_fact("bay", uuid4(), "item_codes", "SHEET-COLOUR", "customer_text", EVENT)
+    bay = bay.record_fact("bay", uuid4(), "spec_confirmed", "true", "customer_text", EVENT, status="confirmed")
+    step = plan_next_step(bay, FRAMES, fabricator_policy())
+    assert step.kind is StepKind.QUOTE
+    assert "fixed quote" in step.sentence.casefold()
+    assert "site measure" not in step.sentence.casefold()
+
+
+def test_a_visit_asks_for_the_address_before_it_is_booked():
+    from quotedesk.domain.services.plan import VISIT_ADDRESS, ask_for_visit_address, take_customer_answer
+
+    bay = CaseFile.open(CONVERSATION, TENANT).add_job("bay", "carport")
+    bay = bay.record_fact("bay", uuid4(), "opening", "widened", "customer_text", EVENT)
+    step = plan_next_step(bay, FRAMES, fabricator_policy())
+    assert step.kind is StepKind.INSPECTION
+    asked = ask_for_visit_address(bay, step)
+    assert asked.kind is StepKind.ASK
+    assert asked.fact_key == "address"
+    assert VISIT_ADDRESS in asked.sentence
+    assert "widened" in asked.sentence.casefold() or "site measure" in asked.sentence.casefold()
+    kept = take_customer_answer(bay, FRAMES, asked.sentence, "14 Oak Street, Centurion", EVENT)
+    assert kept.active_fact("bay", "address").value == "14 Oak Street, Centurion"
+    ready = ask_for_visit_address(kept, step)
+    assert ready.kind is StepKind.INSPECTION
+    assert ready.sentence == step.sentence
 
 
 def test_a_widened_opening_is_still_a_site_measure():

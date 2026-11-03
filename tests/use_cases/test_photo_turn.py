@@ -28,6 +28,7 @@ from tests.use_cases.test_typed_turn import (
     Sender,
     Unit,
     at,
+    accept_until,
     replacement_calls,
 )
 
@@ -184,7 +185,8 @@ def test_clean_photo_keeps_water_f01():
     assert quote.body["rule_id"]["value"] == "WATER-F01"
     assert quote.body["outcome"] == "fixed_offer"
     assert quote.body["total"]["amount"] == "5550.00"
-    assert sender.sent == [(WA, QUOTE)]
+    accept_until(conversations, turn, sender.sent, QUOTE)
+    assert (WA, QUOTE) in sender.sent
     assert cases.case.current("tank", "rate_card") == "true"
 
 
@@ -194,8 +196,9 @@ def test_photo_inferred_size_does_not_issue_a_fixed_price():
     text(conversations, TANK, 0, str(EVENT))
     picture(conversations, CAPTION, 1, IMAGE)
     turn.execute(CONTEXT, CONVERSATION)
-    assert sender.sent == [(WA, "The indicative range for that tank is in this result. It can change once we confirm the base. /card/QD-1042?code=1042")]
+    assert sender.sent[0][1].startswith("You said the tank size is 5000 L tank.")
     assert "fixed" not in sender.sent[0][1]
+    assert "/card/" not in sender.sent[0][1]
 
 
 def test_a_blurry_photo_still_quotes_a_confirmed_replacement():
@@ -205,7 +208,8 @@ def test_a_blurry_photo_still_quotes_a_confirmed_replacement():
     picture(conversations, CAPTION, 1, IMAGE)
     turn.execute(CONTEXT, CONVERSATION)
     assert cases.case.current("tank", "media_usable") == "false"
-    assert sender.sent == [(WA, "We can send a fixed quote for this replacement. /card/QD-1042?code=1042")]
+    accept_until(conversations, turn, sender.sent, "/card/QD-1042")
+    assert (WA, "We can send a fixed quote for this replacement. /card/QD-1042?code=1042") in sender.sent
 
 
 def test_a_sam_miss_still_quotes_a_confirmed_replacement():
@@ -220,7 +224,8 @@ def test_a_sam_miss_still_quotes_a_confirmed_replacement():
     text(conversations, TANK, 0, str(EVENT))
     picture(conversations, CAPTION, 1, IMAGE)
     turn.execute(CONTEXT, CONVERSATION)
-    assert sender.sent == [(WA, "We can send a fixed quote for this replacement. /card/QD-1042?code=1042")]
+    accept_until(conversations, turn, sender.sent, "/card/QD-1042")
+    assert (WA, "We can send a fixed quote for this replacement. /card/QD-1042?code=1042") in sender.sent
 
 
 def test_image_bytes_are_not_in_the_prompt():

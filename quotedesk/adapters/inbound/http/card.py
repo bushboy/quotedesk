@@ -69,6 +69,7 @@ def _card(request: Request, quote_id: str, code: str) -> dict | None:
     expiry_display = f"{status.expiry.day} {status.expiry.strftime('%B')} {status.expiry.year}"
     headline = _EXPIRED if status.state.value == "EXPIRED" else _HEADLINES.get(price_type, _HEADLINES["none"])
     return {
+        "customer_name": _customer_name(request, parsed.value),
         "headline": headline,
         "business_name": " ".join(part for part in (tenant.display_name, tenant.area) if part),
         "quote_id": parsed.value,
@@ -93,6 +94,28 @@ def _card(request: Request, quote_id: str, code: str) -> dict | None:
         "clauses": [{"text": clause.text, "if_not_true": clause.if_not_true} for clause in current.clauses],
         "next_step": None if current.deposit is None else f"Deposit {_rand(current.deposit.amount)} to go ahead.",
     }
+
+
+def _customer_name(request: Request, quote_id: str) -> str:
+    """The name on the quote, when the conversation already has one."""
+    conversations = getattr(request.app.state, "conversations", None)
+    unit = getattr(request.app.state, "unit", None)
+    committed = getattr(unit, "committed", None)
+    if conversations is None or not isinstance(committed, dict):
+        return ""
+    tenant_id = request.app.state.tenant_id
+    for (stored, conversation_id), quote in committed.items():
+        if stored != tenant_id or quote.quote_id.value != quote_id:
+            continue
+        sender = getattr(conversations, "sender_for", None)
+        named = getattr(conversations, "name", None)
+        if sender is None or named is None:
+            return ""
+        wa_id = sender(tenant_id, conversation_id)
+        if not wa_id:
+            return ""
+        return named(tenant_id, wa_id) or ""
+    return ""
 
 
 def _total(lines):

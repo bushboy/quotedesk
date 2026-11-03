@@ -48,7 +48,10 @@ def render_task(playbook: BusinessPlaybook | None, customer_name: str | None = N
     if reference:
         task = f"{task}\n{_FENCE}\n```business\n{reference}\n```"
     if customer_name:
-        task = f"{task}\nThe customer's name is {customer_name}. Use that name. Do not ask for it."
+        task = (
+            f"{task}\nThe customer's name is {customer_name}. Use that name when you write, and on the quote. "
+            "Do not ask for it. The name is not part of the price."
+        )
     return task
 
 

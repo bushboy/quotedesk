@@ -10,6 +10,7 @@ from quotedesk.application.errors import CaseNotFound, TenantRequired
 from quotedesk.application.ports.repositories import CaseFileRepository, PolicyRepository, VerificationCodes
 from quotedesk.application.ports.runtime import Clock, IdGenerator, UnitOfWork
 from quotedesk.domain.case.case_file import CaseFile, ready_values, status_of
+from quotedesk.domain.case.checklist import carport_checklist, checklist_confirmed
 from quotedesk.domain.case.facts import CaseFacts, ExtractionFacts, JobKind, SegmentationFacts
 from quotedesk.domain.policy.clauses import ClauseFacts, ClauseSelection
 from quotedesk.domain.policy.rules import Decision, Outcome
@@ -160,6 +161,8 @@ _RANK = {
 def _quote_job(case: CaseFile, job, bundle):
     case_facts, extraction, values = _facts(case, job, bundle.playbook, bundle.rate_card)
     decision = decide(case_facts, extraction, SegmentationFacts(), bundle.policy)
+    if _checklist_open(case, job, bundle.playbook) and decision.outcome == Outcome.FIXED_OFFER:
+        decision = _as_range(decision)
     if _withhold_fixed(case, job.job_id) and decision.outcome == Outcome.FIXED_OFFER:
         opened = case_facts.model_copy(
             update={"checks": case_facts.checks.model_copy(update={"required_fields": False})}
@@ -176,6 +179,20 @@ def _quote_job(case: CaseFile, job, bundle):
         bundle.rate_card,
     )
     return decision, case_facts, priced
+
+
+def _checklist_open(case: CaseFile, job, playbook) -> bool:
+    """A carport quote waits until sheet, size, and installation are confirmed."""
+    items = carport_checklist(case, job, _play(playbook, job))
+    if items is None:
+        return False
+    return not checklist_confirmed(items)
+
+
+def _play(playbook, job):
+    if playbook is None:
+        return None
+    return next((item for item in playbook.job_types if item.key == (job.job_type or "")), None)
 
 
 def _withhold_fixed(case: CaseFile, job_id: str) -> bool:

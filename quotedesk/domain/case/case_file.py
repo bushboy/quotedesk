@@ -134,6 +134,47 @@ class CaseFile(BaseModel):
         stored = new.model_copy(update={"contested": True, "status": "contested"})
         return self._write(job_id, contested + (stored,), self.contradictions + (found,))
 
+    def acknowledge(self, job_id: str, key: str, fact_id: UUID, event_id: UUID) -> "CaseFile":
+        """The customer accepted this one fact. The whole spec is still unconfirmed."""
+        if self.active_fact(job_id, f"ack:{key}") is not None:
+            return self._without_mark(job_id, f"rejected:{key}")
+        updated = self.record_fact(
+            job_id,
+            fact_id,
+            f"ack:{key}",
+            "true",
+            "customer_text",
+            event_id,
+            status="confirmed",
+        )
+        return updated._without_mark(job_id, f"rejected:{key}")
+
+    def retire_fact(self, job_id: str, key: str, by: UUID) -> "CaseFile":
+        """Drop the current value for a key. The row stays, marked as replaced."""
+        active = self.active_fact(job_id, key)
+        if active is None:
+            return self
+        facts = tuple(
+            fact.model_copy(update={"superseded_by": by}) if fact.fact_id == active.fact_id else fact
+            for fact in self.facts(job_id)
+        )
+        return self._write(job_id, facts)
+
+    def reject_assumption(self, job_id: str, key: str, fact_id: UUID, event_id: UUID) -> "CaseFile":
+        """A no on one fact. Ask it fresh, and do not treat the old value as accepted."""
+        updated = self._without_mark(job_id, f"ack:{key}")
+        if updated.active_fact(job_id, f"rejected:{key}") is not None:
+            return updated
+        return updated.record_fact(
+            job_id,
+            fact_id,
+            f"rejected:{key}",
+            "true",
+            "customer_text",
+            event_id,
+            status="confirmed",
+        )
+
     def start_over(self, job_id: str) -> "CaseFile":
         self._job(job_id)
         jobs = tuple(
@@ -252,7 +293,20 @@ class CaseFile(BaseModel):
             fact.model_copy(update={"superseded_by": new.fact_id}) if fact.fact_id == active.fact_id else fact
             for fact in facts
         )
-        return self._write(job_id, replaced + (new,))
+        written = self._write(job_id, replaced + (new,))
+        if active.value != new.value and _customer_key(new.key):
+            return written._without_mark(job_id, f"ack:{new.key}")
+        return written
+
+    def _without_mark(self, job_id: str, key: str) -> "CaseFile":
+        active = self.active_fact(job_id, key)
+        if active is None:
+            return self
+        facts = tuple(
+            fact.model_copy(update={"superseded_by": active.fact_id}) if fact.fact_id == active.fact_id else fact
+            for fact in self.facts(job_id)
+        )
+        return self._write(job_id, facts)
 
     def _write(
         self,
@@ -314,6 +368,10 @@ class CaseFile(BaseModel):
         return self._write(job_id, replaced)
 
 
+def _customer_key(key: str) -> bool:
+    return not key.startswith(("ack:", "rejected:", "clash:")) and key not in {"spec_confirmed", "name_acknowledged", "quote_issued"}
+
+
 def derived_status(source: FactSource, state: FactState) -> FactStatus:
     """The status a fact has when the caller did not set one."""
     if state == "unknown":
@@ -358,6 +416,8 @@ def ready_values(facts: tuple[CaseFact, ...]) -> dict[str, str]:
     values: dict[str, str] = {}
     for fact in facts:
         if fact.superseded_by is not None or fact.contested or fact.key in values:
+            continue
+        if fact.key.startswith(("alt:", "unknown:")):
             continue
         if status_of(fact) not in _READY or not fact.value.strip():
             continue
