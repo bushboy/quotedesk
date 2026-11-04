@@ -13,7 +13,7 @@ from uuid import UUID, uuid4
 from pydantic import BaseModel, ConfigDict
 
 from quotedesk.domain.case.case_file import CaseFact, CaseFile, status_of
-from quotedesk.domain.case.contradictions import spec_answer
+from quotedesk.domain.case.contradictions import spec_answer, unresolved_clashes
 
 ChecklistStatus = Literal["initial", "inferred", "confirmed", "unknown"]
 _TRUE = frozenset({"true", "yes", "y"})
@@ -276,9 +276,22 @@ def _answer_installation(case: CaseFile, job_id: str, answer: str, event_id: UUI
     return updated.retire_fact(job_id, "unknown:installation", uuid4())
 
 
+def dismissed_sizes(case: CaseFile, job_id: str) -> frozenset[str]:
+    """Sizes the customer passed over, as width x length. The photo does not offer them again."""
+    fact = case.active_fact(job_id, "dismissed:size")
+    if fact is None:
+        return frozenset()
+    return frozenset(part for part in fact.value.split("|") if part)
+
+
 def _choose(case: CaseFile, job_id: str, items: tuple[ChecklistItem, ...], text: str, event_id: UUID) -> CaseFile:
     for item in items:
         if item.status != "inferred" or len(item.values) != 2:
+            continue
+        if item.key == "size":
+            said = _said_pair(text)
+            if said is not None:
+                return _pick_size(case, job_id, item, said, event_id)
             continue
         picked = [value for value in item.values if _mentions(text, value.label)]
         if len(picked) != 1:
@@ -286,24 +299,73 @@ def _choose(case: CaseFile, job_id: str, items: tuple[ChecklistItem, ...], text:
         chosen = picked[0]
         if item.key == "sheet":
             return _accept_sheet(case, job_id, chosen, event_id)
-        if item.key == "size":
-            width, length = chosen.raw.split("x", 1)
-            return _write_pair(case, job_id, width, length, chosen.evidence, event_id)
         return _accept_installation_raw(case, job_id, chosen.raw, chosen.evidence, event_id)
     return case
 
 
-def _accept_pair(case: CaseFile, job_id: str, width_key: str, length_key: str, event_id: UUID) -> CaseFile:
-    updated = _confirm_key(case, job_id, width_key, event_id)
-    updated = _confirm_key(updated, job_id, length_key, event_id)
+_SAID_PAIR = re.compile(
+    r"(\d+(?:[.,]\d+)?)\s*(?:m|metres?|meters?)?\s*(?:x|by|×|\*)\s*(\d+(?:[.,]\d+)?)",
+    re.IGNORECASE,
+)
+
+
+def _said_pair(text: str) -> tuple[Decimal, Decimal] | None:
+    found = _SAID_PAIR.search(text or "")
+    if found is None:
+        return None
+    return Decimal(found.group(1).replace(",", ".")), Decimal(found.group(2).replace(",", "."))
+
+
+def _pick_size(case: CaseFile, job_id: str, item: ChecklistItem, said: tuple[Decimal, Decimal], event_id: UUID) -> CaseFile:
+    """The size the customer named becomes the one value to confirm with a yes or no."""
+    width, length = said
+    kept = next((value for value in item.values if _same_pair(value.raw, width, length)), None)
+    passed = [value.raw for value in item.values if value is not kept]
+    if kept is not None:
+        new_width, new_length = kept.raw.split("x", 1)
+    else:
+        new_width, new_length = _plain(width), _plain(length)
+    updated = case.reopen_fact(job_id, "width_m", event_id, value=new_width)
+    updated = updated.reopen_fact(job_id, "length_m", event_id, value=new_length)
     updated = updated.retire_fact(job_id, "alt:width_m", uuid4())
     updated = updated.retire_fact(job_id, "alt:length_m", uuid4())
+    for clash in unresolved_clashes(updated, job_id):
+        if clash.key in _SIZE:
+            updated = updated.resolve_clash(job_id, clash.key, "customer", uuid4(), event_id)
+            updated = updated.reopen_fact(job_id, clash.key, event_id)
+    updated = _dismiss_sizes(updated, job_id, passed, event_id)
     return updated.retire_fact(job_id, "unknown:size", uuid4())
 
 
-def _write_pair(case: CaseFile, job_id: str, width: str, length: str, evidence: str, event_id: UUID) -> CaseFile:
-    updated = _write_confirmed(case, job_id, "width_m", width, evidence, event_id)
-    updated = _write_confirmed(updated, job_id, "length_m", length, evidence, event_id)
+def _same_pair(raw: str, width: Decimal, length: Decimal) -> bool:
+    if "x" not in raw:
+        return False
+    left, right = raw.split("x", 1)
+    try:
+        held = (Decimal(left), Decimal(right))
+    except ArithmeticError:
+        return False
+    return held in ((width, length), (length, width))
+
+
+def _plain(value: Decimal) -> str:
+    return format(value.normalize(), "f")
+
+
+def _dismiss_sizes(case: CaseFile, job_id: str, raws: list[str], event_id: UUID) -> CaseFile:
+    known = set(dismissed_sizes(case, job_id))
+    fresh = [raw for raw in raws if raw and raw not in known]
+    if not fresh:
+        return case
+    value = "|".join(sorted(known | set(fresh)))
+    return case.record_fact(job_id, uuid4(), "dismissed:size", value, "customer_text", event_id, status="confirmed")
+
+
+def _accept_pair(case: CaseFile, job_id: str, width_key: str, length_key: str, event_id: UUID) -> CaseFile:
+    second = _pair(case, job_id, "alt:width_m", "alt:length_m")
+    updated = _dismiss_sizes(case, job_id, [second.raw] if second is not None else [], event_id)
+    updated = _confirm_key(updated, job_id, width_key, event_id)
+    updated = _confirm_key(updated, job_id, length_key, event_id)
     updated = updated.retire_fact(job_id, "alt:width_m", uuid4())
     updated = updated.retire_fact(job_id, "alt:length_m", uuid4())
     return updated.retire_fact(job_id, "unknown:size", uuid4())

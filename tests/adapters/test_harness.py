@@ -53,7 +53,7 @@ def test_harness_posts_a_text_scenario(monkeypatch):
     assert stored.log[0].body == "The tank in the yard is leaking."
     assert report.outbox[0]["body"] == "Thanks."
     assert report.outbox[0]["status"] == "pending"
-    assert report.outbox[0]["id"] == 1
+    assert report.outbox[0]["id"] > 0
     assert report.outbox[0]["wa_id"] == "15550002222"
     assert "The tank in the yard is leaking." not in report.outbox[0]["body"]
 

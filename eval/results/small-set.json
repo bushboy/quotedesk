@@ -1,12 +1,12 @@
 {
-  "ran_on": "2026-11-01",
+  "ran_on": "2026-11-04",
   "model": "sentence facts, then the planner sentence",
   "latency": "not measured; this run does not call a live model",
   "conversations": 20,
   "silent": 0,
-  "outcome_matches": 15,
-  "rule_matches": 15,
-  "forbidden_hits": 7,
+  "outcome_matches": 9,
+  "rule_matches": 14,
+  "forbidden_hits": 4,
   "rows": [
     {
       "id": "aqua-greeting",
@@ -23,36 +23,34 @@
     {
       "id": "aqua-fixed-5000",
       "business": "aquasure",
-      "reply": "We can send a fixed quote for this replacement. The total is R 5550.00. 5000 L tank R 4250.00. Remove and dispose of the old tank R 450.00. Swap labour R 850.00.",
-      "outcome": "quoted",
+      "reply": "You said the tank size is 5000 L tank. Is that right? Reply yes or no.",
+      "outcome": "asked",
       "expected_outcome": "quoted",
-      "outcome_match": true,
-      "rule_id": "WATER-F01",
+      "outcome_match": false,
+      "rule_id": "",
       "expected_rule": "WATER-F01",
-      "rule_match": true,
+      "rule_match": false,
       "forbidden": []
     },
     {
       "id": "aqua-damaged",
       "business": "aquasure",
-      "reply": "We'll book an inspection. The installation is damaged, and it is not clear this is a simple tank replacement. The visit fee is R 750.00.",
-      "outcome": "inspection_offered",
+      "reply": "We'll book an inspection. The installation is damaged, and it is not clear this is a simple tank replacement. What is the address for the visit?",
+      "outcome": "asked",
       "expected_outcome": "inspection_offered",
-      "outcome_match": true,
+      "outcome_match": false,
       "rule_id": "WATER-E02",
       "expected_rule": "WATER-E02",
       "rule_match": true,
-      "forbidden": [
-        "R "
-      ]
+      "forbidden": []
     },
     {
       "id": "aqua-borehole",
       "business": "aquasure",
-      "reply": "A borehole needs someone on site. If you go ahead, the visit fee is R 750, credited against the work. The visit fee is R 750.00.",
-      "outcome": "inspection_offered",
+      "reply": "A borehole needs someone on site. If you go ahead, the visit fee is R 750, credited against the work. What is the address for the visit?",
+      "outcome": "asked",
       "expected_outcome": "inspection_offered",
-      "outcome_match": true,
+      "outcome_match": false,
       "rule_id": "WATER-S01",
       "expected_rule": "WATER-S01",
       "rule_match": true,
@@ -87,7 +85,7 @@
     {
       "id": "aqua-known-swap",
       "business": "aquasure",
-      "reply": "Which tank size do you want?\n1. 1000 L round tank \u2013 a short outage for a small household\n2. 1000 L slimline tank \u2013 slimline, for narrow side passages\n3. 2500 L tank \u2013 about a day for a family of four\n4. 5000 L tank \u2013 5000 L, about 2 days for a family of four when the water is off\nOr send a photo and I'll tell you what I see.",
+      "reply": "Which tank size do you want?\n1. 1000 L round tank \u2013 a short outage for a small household\n2. 1000 L slimline tank \u2013 slimline, for narrow side passages\n3. 2500 L tank \u2013 about a day for a family of four\n4. 5000 L tank \u2013 5000 L, about 2 days for a family of four when the water is off\n5. 10000 L tank \u2013 several days for a family of four\nOr send a photo and I'll tell you what I see.",
       "outcome": "asked",
       "expected_outcome": "quoted",
       "outcome_match": false,
@@ -111,10 +109,10 @@
     {
       "id": "aqua-sloped",
       "business": "aquasure",
-      "reply": "This install needs someone on site before we can give you a price. The visit fee is R 750. The visit fee is R 750.00.",
-      "outcome": "inspection_offered",
+      "reply": "This install needs someone on site before we can give you a price. The visit fee is R 750. What is the address for the visit?",
+      "outcome": "asked",
       "expected_outcome": "inspection_offered",
-      "outcome_match": true,
+      "outcome_match": false,
       "rule_id": "WATER-S02",
       "expected_rule": "WATER-S02",
       "rule_match": true,
@@ -137,7 +135,7 @@
     {
       "id": "frame-greeting",
       "business": "frameworks",
-      "reply": "Which roof would you like?\n1. Galvanised IBR sheeting \u2013 the everyday metal roof\n2. Polycarbonate sheeting \u2013 lets light through\n3. Colour-coated IBR \u2013 a coloured metal roof, with a choice of colours\n4. Insulated roof sheeting \u2013 cooler and quieter under the roof\nOr send a photo and I'll tell you what I see.",
+      "reply": "Which roof would you like?\n1. Galvanised IBR sheeting \u2013 the everyday metal roof\n2. Polycarbonate sheeting \u2013 lets light through\n3. Colour-coated IBR \u2013 a coloured metal roof, with a choice of colours\n4. Insulated roof sheeting \u2013 cooler and quieter under the roof\n5. Shade net, 80% \u2013 a cooler bay, without a solid roof\nOr send a photo and I'll tell you what I see.",
       "outcome": "asked",
       "expected_outcome": "asked",
       "outcome_match": true,
@@ -187,24 +185,22 @@
     {
       "id": "frame-new-opening",
       "business": "frameworks",
-      "reply": "Which roof would you like?\n1. Galvanised IBR sheeting \u2013 the everyday metal roof\n2. Polycarbonate sheeting \u2013 lets light through\n3. Colour-coated IBR \u2013 a coloured metal roof, with a choice of colours\n4. Insulated roof sheeting \u2013 cooler and quieter under the roof\nOr send a photo and I'll tell you what I see.",
+      "reply": "What is the width in metres?",
       "outcome": "asked",
       "expected_outcome": "inspection_offered",
       "outcome_match": false,
       "rule_id": "",
       "expected_rule": "FAB-S01",
       "rule_match": false,
-      "forbidden": [
-        "R "
-      ]
+      "forbidden": []
     },
     {
       "id": "frame-upstairs",
       "business": "frameworks",
-      "reply": "This one needs a site measure before we can give you a price. The visit fee is R 750. The visit fee is R 750.00.",
-      "outcome": "inspection_offered",
+      "reply": "This one needs a site measure before we can give you a price. The visit fee is R 750. What is the address for the visit?",
+      "outcome": "asked",
       "expected_outcome": "inspection_offered",
-      "outcome_match": true,
+      "outcome_match": false,
       "rule_id": "FAB-S02",
       "expected_rule": "FAB-S02",
       "rule_match": true,
@@ -215,7 +211,7 @@
     {
       "id": "frame-fixed",
       "business": "frameworks",
-      "reply": "Which roof would you like?\n1. Galvanised IBR sheeting \u2013 the everyday metal roof\n2. Polycarbonate sheeting \u2013 lets light through\n3. Colour-coated IBR \u2013 a coloured metal roof, with a choice of colours\n4. Insulated roof sheeting \u2013 cooler and quieter under the roof\nOr send a photo and I'll tell you what I see.",
+      "reply": "What is the width in metres?",
       "outcome": "asked",
       "expected_outcome": "quoted",
       "outcome_match": false,
@@ -227,7 +223,7 @@
     {
       "id": "frame-range",
       "business": "frameworks",
-      "reply": "Which roof would you like?\n1. Galvanised IBR sheeting \u2013 the everyday metal roof\n2. Polycarbonate sheeting \u2013 lets light through\n3. Colour-coated IBR \u2013 a coloured metal roof, with a choice of colours\n4. Insulated roof sheeting \u2013 cooler and quieter under the roof\nOr send a photo and I'll tell you what I see.",
+      "reply": "You said the size is 6 m by 7 m. Is that right? Reply yes or no.",
       "outcome": "asked",
       "expected_outcome": "quoted",
       "outcome_match": false,
@@ -239,7 +235,7 @@
     {
       "id": "frame-known-size",
       "business": "frameworks",
-      "reply": "Is this sheeting onto the existing frame?",
+      "reply": "What is the width in metres?",
       "outcome": "asked",
       "expected_outcome": "quoted",
       "outcome_match": false,
@@ -251,16 +247,14 @@
     {
       "id": "frame-unmatched",
       "business": "frameworks",
-      "reply": "We don't have a standard price for this job. A site measure is the next step. The visit fee is R 750.00.",
-      "outcome": "inspection_offered",
+      "reply": "We don't have a standard price for this job. A site measure is the next step. What is the address for the visit?",
+      "outcome": "asked",
       "expected_outcome": "inspection_offered",
-      "outcome_match": true,
+      "outcome_match": false,
       "rule_id": "FAB-L02",
       "expected_rule": "FAB-L02",
       "rule_match": true,
-      "forbidden": [
-        "R "
-      ]
+      "forbidden": []
     }
   ]
 }

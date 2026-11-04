@@ -160,6 +160,54 @@ class CaseFile(BaseModel):
         )
         return self._write(job_id, facts)
 
+    def reopen_fact(
+        self,
+        job_id: str,
+        key: str,
+        event_id: UUID,
+        *,
+        value: str | None = None,
+        evidence: str = "",
+    ) -> "CaseFile":
+        """A confirmed fact the customer wants to change becomes inferred again."""
+        updated = self._without_mark(job_id, f"ack:{key}")._without_mark(job_id, f"rejected:{key}")
+        updated = updated.retire_fact(job_id, f"alt:{key}", event_id)
+        active = updated.active_fact(job_id, key)
+        if active is None:
+            if value is None or not str(value).strip():
+                return updated
+            return updated.record_fact(
+                job_id,
+                uuid4(),
+                key,
+                value,
+                "customer_text",
+                event_id,
+                status="inferred",
+                evidence=evidence,
+                confidence=Decimal("0.8"),
+            )
+        if value is None or value == active.value:
+            facts = tuple(
+                fact.model_copy(update={"status": "inferred", "state": "known", "contested": False})
+                if fact.fact_id == active.fact_id
+                else fact
+                for fact in updated.facts(job_id)
+            )
+            return updated._write(job_id, facts)
+        updated = updated.retire_fact(job_id, key, event_id)
+        return updated.record_fact(
+            job_id,
+            uuid4(),
+            key,
+            value,
+            "customer_text",
+            event_id,
+            status="inferred",
+            evidence=evidence,
+            confidence=Decimal("0.8"),
+        )
+
     def reject_assumption(self, job_id: str, key: str, fact_id: UUID, event_id: UUID) -> "CaseFile":
         """A no on one fact. Ask it fresh, and do not treat the old value as accepted."""
         updated = self._without_mark(job_id, f"ack:{key}")
@@ -417,7 +465,7 @@ def ready_values(facts: tuple[CaseFact, ...]) -> dict[str, str]:
     for fact in facts:
         if fact.superseded_by is not None or fact.contested or fact.key in values:
             continue
-        if fact.key.startswith(("alt:", "unknown:")):
+        if fact.key.startswith(("alt:", "unknown:", "dismissed:")):
             continue
         if status_of(fact) not in _READY or not fact.value.strip():
             continue

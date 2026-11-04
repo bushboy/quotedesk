@@ -27,6 +27,8 @@ class MuseImage:
             "model": self._model_id,
             "prompt": request.prompt,
             "n": 1,
+            "size": "1536x1024",
+            "output_format": "png",
             "reasoning_strength": "high",
             "response_format": "b64_json",
             "tool_enablement": {

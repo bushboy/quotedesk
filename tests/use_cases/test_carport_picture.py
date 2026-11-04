@@ -174,6 +174,8 @@ def test_a_sagging_sheet_asks_for_a_curve_and_a_solid_sheet_stays_flat():
         assert "corner to corner" in prompt
         assert level in prompt
         assert "looking down" not in prompt
+        assert "finished installation" in prompt
+        assert "Not a sketch" in prompt
         assert "5" in prompt and "7" in prompt
         assert re.search(r"\bR \d", prompt) is None
         assert "rand" not in prompt.casefold()

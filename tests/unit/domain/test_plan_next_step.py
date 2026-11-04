@@ -3,9 +3,9 @@ from pathlib import Path
 from uuid import UUID, uuid4
 
 from quotedesk.adapters.outbound.parsers.aquasure import load_playbook
-from quotedesk.domain.case.case_file import CaseFile
+from quotedesk.domain.case.case_file import CaseFile, quote_issued, status_of
 from quotedesk.domain.policy.rules import Policy
-from quotedesk.domain.services.plan import StepKind, assume_from_context, plan_next_step
+from quotedesk.domain.services.plan import STANDS, StepKind, assume_from_context, plan_next_step, reopen_after_quote, take_customer_answer
 from quotedesk.domain.shared.ids import PolicyVersionId
 from tests.unit.domain.fabricator_policy import fabricator_policy
 from tests.unit.domain.water_policy import aquasure_policy
@@ -461,3 +461,165 @@ def test_a_widened_opening_is_still_a_site_measure():
     step = plan_next_step(bay, FRAMES, fabricator_policy())
     assert step.kind is StepKind.INSPECTION
     assert "total" not in step.sentence
+
+
+def _quoted_carport() -> CaseFile:
+    bay = CaseFile.open(CONVERSATION, TENANT).add_job("bay", "carport")
+    for key, value in (("width_m", "3"), ("length_m", "6"), ("sheet", "SHEET-COLOUR"), ("existing_frame", "false")):
+        bay = bay.record_fact("bay", uuid4(), key, value, "customer_text", EVENT, status="confirmed")
+        bay = bay.acknowledge("bay", key, uuid4(), EVENT)
+    bay = bay.record_fact("bay", uuid4(), "item_codes", "SHEET-COLOUR", "customer_text", EVENT)
+    bay = bay.record_fact("bay", uuid4(), "spec_confirmed", "true", "customer_text", EVENT, status="confirmed")
+    return bay.record_fact("bay", uuid4(), "quote_issued", "true", "owner", EVENT, status="confirmed")
+
+
+def test_a_change_of_sheet_withdraws_the_quote_and_asks_again():
+    opened = reopen_after_quote(_quoted_carport(), FRAMES, "Can we change the roof to polycarbonate sheeting?")
+    assert quote_issued(opened, "bay") is False
+    assert opened.active_fact("bay", "spec_confirmed") is None
+    sheet = opened.active_fact("bay", "sheet")
+    assert sheet is not None and sheet.value == "SHEET-POLY"
+    assert status_of(sheet) == "inferred"
+    step = plan_next_step(opened, FRAMES, fabricator_policy())
+    assert step.kind is StepKind.CONFIRM
+    assert "polycarbonate" in step.sentence.casefold()
+    assert "is that right" in step.sentence.casefold()
+    agreed = opened.acknowledge("bay", "sheet", uuid4(), EVENT).confirm_spec("bay", uuid4(), EVENT)
+    again = plan_next_step(agreed, FRAMES, fabricator_policy())
+    assert again.kind is StepKind.QUOTE
+    assert again.sentence != STANDS
+
+
+def test_a_bare_change_asks_which_item_then_reopens_it():
+    opened = reopen_after_quote(_quoted_carport(), FRAMES, "I want to change it")
+    step = plan_next_step(opened, FRAMES, fabricator_policy())
+    assert "which should i change" in step.sentence.casefold()
+    kept = take_customer_answer(opened, FRAMES, step.sentence, "the size", EVENT)
+    assert status_of(kept.active_fact("bay", "width_m")) == "inferred"
+    assert status_of(kept.active_fact("bay", "length_m")) == "inferred"
+    follow = plan_next_step(kept, FRAMES, fabricator_policy())
+    assert follow.fact_key == "size"
+    assert "3 m by 6 m" in follow.sentence
+
+
+def test_a_new_size_is_the_inferred_value_to_confirm():
+    opened = reopen_after_quote(_quoted_carport(), FRAMES, "Make it 4 m by 7 m instead")
+    assert opened.active_fact("bay", "width_m").value == "4"
+    assert opened.active_fact("bay", "length_m").value == "7"
+    assert status_of(opened.active_fact("bay", "width_m")) == "inferred"
+    step = plan_next_step(opened, FRAMES, fabricator_policy())
+    assert "4 m by 7 m" in step.sentence
+    assert step.kind is StepKind.CONFIRM
+
+
+def test_a_photo_that_shows_both_bays_asks_which_size():
+    notes = (
+        "The carport is a single bay. That bay is the width to confirm.",
+        "The carport is a double bay. Those two bays are the width to confirm.",
+        "The roof has clear polycarbonate sheeting panels.",
+    )
+    said = "I am looking for a carport like the one in the picture."
+    case = assume_from_context(CaseFile.open(CONVERSATION, TENANT), FRAMES, notes, said)
+    step = plan_next_step(case, FRAMES, _empty_policy(), customer_text=said)
+    assert step.fact_key == "size"
+    assert "which should i price" in step.sentence.casefold()
+    assert "3 m by 6 m" in step.sentence
+    assert "6 m by 6 m" in step.sentence
+    assert "What is the width in metres?" not in step.sentence
+
+
+def test_a_picked_size_is_inferred_then_confirmed_and_the_photo_does_not_ask_again():
+    notes = (
+        "The carport is a single bay. That bay is the width to confirm.",
+        "The carport is a double bay. Those two bays are the width to confirm.",
+        "The roof has clear polycarbonate sheeting panels.",
+    )
+    said = "I am looking for a carport like the one in the picture."
+    case = assume_from_context(CaseFile.open(CONVERSATION, TENANT), FRAMES, notes, said)
+    asked = plan_next_step(case, FRAMES, _empty_policy(), customer_text=said)
+    assert asked.sentence.endswith("Which should I price?")
+    for answer in ("3m x 6m", "3m by 6m", "3 x 6"):
+        picked = take_customer_answer(case, FRAMES, asked.sentence, answer, EVENT)
+        text = f"{said}\n{answer}"
+        picked = assume_from_context(picked, FRAMES, notes, text)
+        assert picked.active_fact("carport", "width_m").value == "3"
+        assert picked.active_fact("carport", "length_m").value == "6"
+        assert status_of(picked.active_fact("carport", "width_m")) == "inferred"
+        assert picked.active_fact("carport", "alt:width_m") is None
+        step = plan_next_step(picked, FRAMES, _empty_policy(), customer_text=text)
+        assert step.fact_key == "size"
+        assert "Which should I price?" not in step.sentence
+        assert "3 m by 6 m. Is that right?" in step.sentence
+    yes = take_customer_answer(picked, FRAMES, step.sentence, "yes", EVENT)
+    yes = assume_from_context(yes, FRAMES, notes, f"{text}\nyes")
+    assert status_of(yes.active_fact("carport", "width_m")) == "confirmed"
+    assert yes.active_fact("carport", "alt:width_m") is None
+    after = plan_next_step(yes, FRAMES, _empty_policy(), customer_text=f"{text}\nyes")
+    assert after.fact_key != "size"
+
+
+def test_a_size_the_customer_says_over_two_photo_sizes_is_the_one_to_confirm():
+    notes = (
+        "The carport is a single bay. That bay is the width to confirm.",
+        "The carport is a double bay. Those two bays are the width to confirm.",
+        "The roof has clear polycarbonate sheeting panels.",
+    )
+    said = "I am looking for a carport like the one in the picture."
+    case = assume_from_context(CaseFile.open(CONVERSATION, TENANT), FRAMES, notes, said)
+    asked = plan_next_step(case, FRAMES, _empty_policy(), customer_text=said)
+    picked = take_customer_answer(case, FRAMES, asked.sentence, "Neither, it is 4 m by 7 m", EVENT)
+    picked = assume_from_context(picked, FRAMES, notes, f"{said}\nNeither, it is 4 m by 7 m")
+    assert picked.active_fact("carport", "width_m").value == "4"
+    assert picked.active_fact("carport", "length_m").value == "7"
+    assert picked.active_fact("carport", "alt:width_m") is None
+    step = plan_next_step(picked, FRAMES, _empty_policy(), customer_text=said)
+    assert "4 m by 7 m. Is that right?" in step.sentence
+
+
+def test_a_new_sheet_after_the_spec_is_asked_before_another_price():
+    bay = CaseFile.open(CONVERSATION, TENANT).add_job("bay", "carport")
+    for key, value in (("width_m", "4"), ("length_m", "6"), ("existing_frame", "false")):
+        bay = bay.record_fact("bay", uuid4(), key, value, "customer_text", EVENT, status="confirmed")
+        bay = bay.acknowledge("bay", key, uuid4(), EVENT)
+    bay = bay.record_fact("bay", uuid4(), "sheet", "SHEET-ECO", "customer_text", EVENT)
+    bay = bay.record_fact(
+        "bay",
+        uuid4(),
+        "alt:sheet",
+        "SHEET-POLY",
+        "photo_extraction",
+        EVENT,
+        status="inferred",
+        confidence=Decimal("0.8"),
+    )
+    bay = bay.record_fact("bay", uuid4(), "spec_confirmed", "true", "customer_text", EVENT, status="confirmed")
+    step = plan_next_step(bay, FRAMES, fabricator_policy())
+    assert step.kind is StepKind.CONFIRM
+    assert "which should i price" in step.sentence.casefold()
+    assert "galvanised" in step.sentence.casefold()
+    assert "polycarbonate" in step.sentence.casefold()
+
+
+def test_a_yes_that_wants_another_option_opens_the_roof_menu():
+    notes = (
+        "The carport is a single bay. That bay is the width to confirm.",
+        "The roof has clear polycarbonate sheeting panels.",
+        "The carport is freestanding on paving.",
+    )
+    said = "I want a carport like the one in the picture. This is a new carport altogether."
+    case = assume_from_context(CaseFile.open(CONVERSATION, TENANT), FRAMES, notes, said)
+    case = case.acknowledge("carport", "width_m", uuid4(), EVENT).acknowledge("carport", "length_m", uuid4(), EVENT)
+    case = case.acknowledge("carport", "existing_frame", uuid4(), EVENT)
+    asked = plan_next_step(case, FRAMES, _empty_policy())
+    assert asked.fact_key == "sheet"
+    opened = take_customer_answer(case, FRAMES, asked.sentence, "Yes, but I want a different option.", EVENT)
+    assert opened.active_fact("carport", "sheet") is None
+    step = plan_next_step(opened, FRAMES, _empty_policy())
+    assert "which roof would you like" in step.sentence.casefold()
+
+
+def test_thanks_after_a_quote_leaves_it_standing():
+    bay = _quoted_carport()
+    assert reopen_after_quote(bay, FRAMES, "Thanks, that works") is bay
+    step = plan_next_step(bay, FRAMES, fabricator_policy(), customer_text="Thanks, that works")
+    assert step.sentence == STANDS

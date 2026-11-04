@@ -36,6 +36,8 @@ def test_an_edit_posts_the_photo_and_a_generation_posts_none():
     assert edited[1]["images"] == [{"image_url": "data:image/jpeg;base64," + base64.b64encode(b"photo-bytes").decode()}]
     for _, body in transport.calls:
         assert body["model"] == "muse-image-1.0"
+        assert body["size"] == "1536x1024"
+        assert body["output_format"] == "png"
         assert body["reasoning_strength"] == "high"
         assert body["response_format"] == "b64_json"
         tools = body["tool_enablement"]

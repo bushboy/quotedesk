@@ -1,6 +1,7 @@
 """The in-process outbox. The chat page and the harness read the messages the turn sent."""
 
 import logging
+import time
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
@@ -21,10 +22,14 @@ class OutboxMessage(BaseModel):
 
 
 class Outbox:
-    """The Outbox."""
+    """The Outbox.
+
+    Ids start from the clock in milliseconds, so a restarted process never reuses an id
+    a chat page has already shown.
+    """
     def __init__(self) -> None:
         self._rows: list[OutboxMessage] = []
-        self._next = 0
+        self._next = time.time_ns() // 1_000_000
 
     def append(
         self,

@@ -14,6 +14,7 @@ from quotedesk.domain.case.checklist import (
     accept_checklist,
     carport_checklist,
     checklist_confirmed,
+    dismissed_sizes,
 )
 from quotedesk.domain.case.contradictions import Clash, spec_choice, unresolved_clashes
 from quotedesk.domain.case.facts import CaseFacts, ExtractionFacts, JobKind, SegmentationFacts
@@ -29,6 +30,20 @@ _QUOTE = "I'll price that from the rate card."
 STANDS = "The quote above still stands."
 YES_NO = "Reply yes or no."
 VISIT_ADDRESS = "What is the address for the visit?"
+WHICH_CHANGE = "Which should I change: the size, the roof sheeting, or the installation?"
+_CHANGE = re.compile(r"\b(?:revise|revision|change|changed|instead|different|switch)\b", re.IGNORECASE)
+_PAIR = re.compile(
+    r"(\d+(?:\.\d+)?)\s*(?:m|metre|meter)?s?\s*(?:by|x)\s*(\d+(?:\.\d+)?)",
+    re.IGNORECASE,
+)
+_WIDTH_ONLY = re.compile(r"\bwidth\b\D{0,16}(\d+(?:\.\d+)?)", re.IGNORECASE)
+_LENGTH_ONLY = re.compile(r"\blength\b\D{0,16}(\d+(?:\.\d+)?)", re.IGNORECASE)
+_SIZE_WORD = re.compile(r"\b(?:size|width|length|wider|longer|bigger|smaller)\b", re.IGNORECASE)
+_SHEET_WORD = re.compile(r"\b(?:sheet|sheeting|roof|roofing)\b", re.IGNORECASE)
+_INSTALL_WORD = re.compile(
+    r"\b(?:installation|freestanding|replacement)\b|\bexisting frame\b|\bnew carport\b",
+    re.IGNORECASE,
+)
 _REVISE = re.compile(r"\b(?:revise|revision|change|instead|different)\b", re.IGNORECASE)
 _TWICE = "I've asked twice, so I won't ask again."
 _UNSURE = "You don't know that, so I won't ask again."
@@ -113,11 +128,11 @@ def assume_from_context(
         if chosen is not None:
             source = "photo_extraction" if photo_sheet is not None else "customer_text"
             case = _infer(case, job.job_id, "sheet", chosen[0], source, event_id, chosen[1])
-    bays = _bay_count(customer_text) or _bay_count(joined)
-    if bays is not None:
-        source = "customer_text" if _bay_count(customer_text) else "photo_extraction"
-        evidence = _bay_evidence(bays, customer_text)
+    readings = _bay_readings(customer_text, joined)
+    if len(readings) == 1:
+        bays, evidence, source = readings[0]
         case = _infer(case, job.job_id, "bays", bays, source, event_id, evidence)
+    for bays, evidence, source in readings:
         width, length = _BAY_SIZE[bays]
         case = _infer_size(case, job.job_id, width, length, source, event_id, evidence)
     for value, evidence, source in _frame_clues(customer_text, joined):
@@ -153,6 +168,8 @@ def _infer(case: CaseFile, job_id: str, key: str, value: str, source: str, event
 
 def _infer_size(case: CaseFile, job_id: str, width: str, length: str, source: str, event_id: UUID, evidence: str) -> CaseFile:
     """A size value is the width and the length together. A disagreement is a second pair."""
+    if f"{width}x{length}" in dismissed_sizes(case, job_id):
+        return case
     width_fact = case.active_fact(job_id, "width_m")
     length_fact = case.active_fact(job_id, "length_m")
     if _open_measure(width_fact) and _open_measure(length_fact):
@@ -226,13 +243,29 @@ def _sheet_from_text(play, notes: str) -> tuple[str, str] | None:
 
 
 def _bay_count(text: str) -> str | None:
-    single = _SINGLE.search(text or "") is not None
-    double = _DOUBLE.search(text or "") is not None
-    if single and not double:
-        return "1"
-    if double and not single:
-        return "2"
+    counts = _bay_counts(text)
+    if len(counts) == 1:
+        return counts[0]
     return None
+
+
+def _bay_counts(text: str) -> tuple[str, ...]:
+    found: list[str] = []
+    if _SINGLE.search(text or "") is not None:
+        found.append("1")
+    if _DOUBLE.search(text or "") is not None:
+        found.append("2")
+    return tuple(found)
+
+
+def _bay_readings(customer_text: str, notes: str) -> tuple[tuple[str, str, str], ...]:
+    """One size when the customer or the photo names it. Both, when the photo shows both."""
+    said = _bay_count(customer_text)
+    if said is not None:
+        return ((said, _bay_evidence(said, customer_text), "customer_text"),)
+    return tuple(
+        (count, _bay_evidence(count, ""), "photo_extraction") for count in _bay_counts(notes)
+    )
 
 
 def _bay_evidence(bays: str, customer_text: str) -> str:
@@ -314,6 +347,286 @@ def wants_revision(text: str) -> bool:
     return _REVISE.search(text or "") is not None
 
 
+def reopen_after_quote(case: CaseFile, playbook: BusinessPlaybook, text: str) -> CaseFile:
+    """After a quote, a change withdraws it and sends that checklist item back to inferred."""
+    if not (text or "").strip() or not case.jobs:
+        return case
+    updated = case
+    touched = False
+    event_id = uuid4()
+    for job in case.jobs:
+        if (job.job_type or "") != "carport" or not _revision_open(updated, job.job_id):
+            continue
+        play = _play_for(playbook, job)
+        if play is None:
+            continue
+        items = _revision_items(play, text, updated, job.job_id)
+        if items is None:
+            continue
+        touched = True
+        if not items:
+            updated = _ask_which(updated, job.job_id, event_id)
+        else:
+            updated = _apply_revision(updated, play, job.job_id, items, text, event_id)
+    return updated if touched else case
+
+
+def quote_needs_reconfirm(case: CaseFile, playbook: BusinessPlaybook) -> bool:
+    """A stored quote waits while a checklist item is back open."""
+    for job in case.jobs:
+        if _awaiting_change(case, job.job_id):
+            return True
+        items = carport_checklist(case, job, _play_for(playbook, job))
+        if items is not None and not checklist_confirmed(items):
+            return True
+    return False
+
+
+def _revision_open(case: CaseFile, job_id: str) -> bool:
+    return quote_issued(case, job_id) or spec_choice(case, job_id) is True
+
+
+def _awaiting_change(case: CaseFile, job_id: str) -> bool:
+    fact = case.active_fact(job_id, "awaiting_change")
+    return fact is not None and fact.value.strip().casefold() in ("true", "yes")
+
+
+def _revision_items(play, text: str, case: CaseFile, job_id: str) -> tuple[str, ...] | None:
+    mentions = _mentioned_items(text)
+    changed = _changed_values(play, text, case, job_id)
+    asked = _CHANGE.search(text or "") is not None
+    if changed:
+        chosen = set(changed)
+        if asked:
+            chosen |= mentions
+        return _ordered(chosen)
+    if asked and mentions:
+        return _ordered(mentions)
+    if asked:
+        return ()
+    return None
+
+
+def _picked_items(play, text: str, case: CaseFile, job_id: str) -> tuple[str, ...]:
+    return _ordered(_mentioned_items(text) | _changed_values(play, text, case, job_id))
+
+
+def _ordered(items: set[str]) -> tuple[str, ...]:
+    return tuple(item for item in ("size", "sheet", "installation") if item in items)
+
+
+def _mentioned_items(text: str) -> set[str]:
+    found: set[str] = set()
+    if _SIZE_WORD.search(text or ""):
+        found.add("size")
+    if _SHEET_WORD.search(text or ""):
+        found.add("sheet")
+    if _INSTALL_WORD.search(text or ""):
+        found.add("installation")
+    return found
+
+
+def _changed_values(play, text: str, case: CaseFile, job_id: str) -> set[str]:
+    found: set[str] = set()
+    said = _sheet_from_text(play, text)
+    current_sheet = case.active_fact(job_id, "sheet")
+    if said is not None and (current_sheet is None or current_sheet.value != said[0]):
+        found.add("sheet")
+    pair = _stated_pair(text)
+    if pair is not None and pair != _current_pair(case, job_id):
+        found.add("size")
+    elif pair is None:
+        width = _WIDTH_ONLY.search(text or "")
+        length = _LENGTH_ONLY.search(text or "")
+        current = _current_pair(case, job_id)
+        if width is not None and (current is None or _clean_num(width.group(1)) != current[0]):
+            found.add("size")
+        if length is not None and (current is None or _clean_num(length.group(1)) != current[1]):
+            found.add("size")
+    frame = _stated_frame(text)
+    if frame is not None and frame != _current_frame(case, job_id):
+        found.add("installation")
+    return found
+
+
+def _stated_pair(text: str) -> tuple[str, str] | None:
+    match = _PAIR.search(text or "")
+    if match is not None:
+        return (_clean_num(match.group(1)), _clean_num(match.group(2)))
+    bays = _bay_count(text or "")
+    if bays is not None:
+        return _BAY_SIZE[bays]
+    return None
+
+
+def _current_pair(case: CaseFile, job_id: str) -> tuple[str, str] | None:
+    width = case.active_fact(job_id, "width_m")
+    length = case.active_fact(job_id, "length_m")
+    if width is None or length is None or not width.value.strip() or not length.value.strip():
+        return None
+    return (_clean_num(width.value), _clean_num(length.value))
+
+
+def _stated_frame(text: str) -> str | None:
+    if re.search(r"\bexisting frame\b|\bonto the existing\b|\breplacement\b", text or "", re.IGNORECASE):
+        return "true"
+    if re.search(r"\bfreestanding\b|\bnew carport\b|\bnew installation\b|\bnew altogether\b", text or "", re.IGNORECASE):
+        return "false"
+    return None
+
+
+def _current_frame(case: CaseFile, job_id: str) -> str | None:
+    fact = case.active_fact(job_id, "existing_frame")
+    if fact is not None and fact.value.strip():
+        folded = fact.value.strip().casefold()
+        if folded in ("true", "yes"):
+            return "true"
+        if folded in ("false", "no"):
+            return "false"
+    opening = case.active_fact(job_id, "opening")
+    if opening is None:
+        return None
+    if opening.value.strip().casefold() == "existing":
+        return "true"
+    if opening.value.strip().casefold() == "new":
+        return "false"
+    return None
+
+
+def _clean_num(value: str) -> str:
+    number = Decimal(value)
+    if number == number.to_integral():
+        return str(int(number))
+    return format(number.normalize(), "f")
+
+
+def _ask_which(case: CaseFile, job_id: str, event_id: UUID) -> CaseFile:
+    updated = _withdraw_quote(case, job_id, event_id)
+    if _awaiting_change(updated, job_id):
+        return updated
+    return updated.record_fact(
+        job_id,
+        uuid4(),
+        "awaiting_change",
+        "true",
+        "customer_text",
+        event_id,
+        status="confirmed",
+    )
+
+
+def _apply_revision(case: CaseFile, play, job_id: str, items: tuple[str, ...], text: str, event_id: UUID) -> CaseFile:
+    updated = _withdraw_quote(case, job_id, event_id)
+    updated = updated.retire_fact(job_id, "awaiting_change", event_id)
+    changed = _changed_values(play, text, case, job_id)
+    for item in items:
+        if item not in changed and _asks_for_options(text):
+            updated = _clear_item(updated, job_id, item, event_id)
+        else:
+            updated = _demote_item(updated, play, job_id, item, text, event_id)
+    return updated
+
+
+_OPTIONS = re.compile(r"\b(?:options|option|choices|choice|different|another|other)\b", re.IGNORECASE)
+
+
+def _asks_for_options(text: str) -> bool:
+    return _OPTIONS.search(text or "") is not None
+
+
+def _rejects_inference(text: str) -> bool:
+    from quotedesk.domain.case.contradictions import spec_answer
+
+    return spec_answer(text) == "yes" and (_CHANGE.search(text or "") is not None or _asks_for_options(text))
+
+
+def _reject_the_item(case: CaseFile, reply: str, event_id: UUID) -> CaseFile:
+    folded = reply.casefold()
+    if "the size is " in folded or "the size looks like " in folded or "could be " in folded:
+        item = "size"
+    elif "sheeting" in folded or "the roof" in folded:
+        item = "sheet"
+    elif "the installation is " in folded:
+        item = "installation"
+    else:
+        return case
+    updated = case
+    for job in case.jobs:
+        updated = _clear_item(updated, job.job_id, item, event_id)
+    return updated
+
+
+def _clear_item(case: CaseFile, job_id: str, item: str, event_id: UUID) -> CaseFile:
+    keys = {
+        "size": ("width_m", "length_m"),
+        "sheet": ("sheet",),
+        "installation": ("existing_frame", "opening"),
+    }[item]
+    updated = case
+    for key in keys:
+        updated = updated.reject_assumption(job_id, key, uuid4(), event_id)
+        updated = updated.retire_fact(job_id, key, event_id)
+        updated = updated.retire_fact(job_id, f"alt:{key}", event_id)
+    return updated.retire_fact(job_id, f"unknown:{item}", event_id)
+
+
+def _withdraw_quote(case: CaseFile, job_id: str, event_id: UUID) -> CaseFile:
+    updated = case.retire_fact(job_id, "spec_confirmed", event_id)
+    if not quote_issued(updated, job_id):
+        return updated
+    return updated.record_fact(
+        job_id,
+        uuid4(),
+        "quote_issued",
+        "false",
+        "customer_text",
+        event_id,
+        status="confirmed",
+    )
+
+
+def _demote_item(case: CaseFile, play, job_id: str, item: str, text: str, event_id: UUID) -> CaseFile:
+    if item == "size":
+        return _demote_size(case, job_id, text, event_id)
+    if item == "sheet":
+        return _demote_sheet(case, play, job_id, text, event_id)
+    return _demote_installation(case, job_id, text, event_id)
+
+
+def _demote_size(case: CaseFile, job_id: str, text: str, event_id: UUID) -> CaseFile:
+    pair = _stated_pair(text)
+    width = pair[0] if pair is not None else None
+    length = pair[1] if pair is not None else None
+    if pair is None:
+        width_match = _WIDTH_ONLY.search(text or "")
+        length_match = _LENGTH_ONLY.search(text or "")
+        if width_match is not None:
+            width = _clean_num(width_match.group(1))
+        if length_match is not None:
+            length = _clean_num(length_match.group(1))
+    updated = case.reopen_fact(job_id, "width_m", event_id, value=width)
+    updated = updated.reopen_fact(job_id, "length_m", event_id, value=length)
+    return updated.retire_fact(job_id, "unknown:size", event_id)
+
+
+def _demote_sheet(case: CaseFile, play, job_id: str, text: str, event_id: UUID) -> CaseFile:
+    said = _sheet_from_text(play, text)
+    value = None if said is None else said[0]
+    updated = case.reopen_fact(job_id, "sheet", event_id, value=value)
+    if value is not None:
+        updated = updated.reopen_fact(job_id, "item_codes", event_id, value=value)
+    return updated.retire_fact(job_id, "unknown:sheet", event_id)
+
+
+def _demote_installation(case: CaseFile, job_id: str, text: str, event_id: UUID) -> CaseFile:
+    updated = case.reopen_fact(job_id, "existing_frame", event_id, value=_stated_frame(text))
+    opening = updated.active_fact(job_id, "opening")
+    if opening is not None and opening.value.strip().casefold() in ("new", "existing"):
+        updated = updated.reopen_fact(job_id, "opening", event_id)
+    updated = updated.reopen_fact(job_id, "installation", event_id)
+    return updated.retire_fact(job_id, "unknown:installation", event_id)
+
+
 def _job_step(
     job: Job,
     case: CaseFile,
@@ -322,6 +635,8 @@ def _job_step(
     asked: dict[str, int],
     customer_text: str = "",
 ) -> NextStep:
+    if _awaiting_change(case, job.job_id):
+        return NextStep(kind=StepKind.ASK, sentence=WHICH_CHANGE, job_id=job.job_id, fact_key="revision")
     if quote_issued(case, job.job_id) and not wants_revision(customer_text):
         return NextStep(kind=StepKind.ASK, sentence=STANDS, job_id=job.job_id)
     current = _current(case, job.job_id)
@@ -337,12 +652,13 @@ def _job_step(
         return _clash_step(job.job_id, _job_label(play) if play is not None else "", waiting[0], play)
     if decision is not None and decision.outcome is Outcome.FIXED_OFFER and spec_choice(case, job.job_id) is False:
         return _declined(job, current, case, policy, () if play is None else _sheet_options(play), decision)
-    if play is not None and spec_choice(case, job.job_id) is not True:
-        if (job.job_type or "") == "carport":
-            gate = _carport_gate(job, case, play, seen)
-            if gate is not None:
-                return gate
+    if play is not None and (job.job_type or "") == "carport":
+        gate = _carport_gate(job, case, play, seen)
+        if gate is not None:
+            return gate
+        if spec_choice(case, job.job_id) is not True:
             return _replay(job.job_id, _job_label(play), case, play)
+    elif play is not None and spec_choice(case, job.job_id) is not True:
         one = _one_fact(job, case, play, seen, asked, playbook)
         if one is not None:
             return one
@@ -706,6 +1022,8 @@ def take_customer_answer(case: CaseFile, playbook: BusinessPlaybook, last_reply:
     reply = last_reply or ""
     if not reply.strip() or not text.strip() or not case.jobs:
         return case
+    if "Is that right?" in reply and _rejects_inference(text):
+        return _reject_the_item(case, reply, event_id)
     if VISIT_ADDRESS in reply:
         place = text.strip()
         if not place:
@@ -713,6 +1031,17 @@ def take_customer_answer(case: CaseFile, playbook: BusinessPlaybook, last_reply:
         updated = case
         for job in case.jobs:
             updated = updated.record_fact(job.job_id, uuid4(), "address", place, "customer_text", event_id)
+        return updated
+    if WHICH_CHANGE in reply:
+        updated = case
+        for job in case.jobs:
+            play = _play_for(playbook, job)
+            if play is None:
+                continue
+            picked = _picked_items(play, text, updated, job.job_id)
+            if not picked:
+                return case
+            updated = _apply_revision(updated, play, job.job_id, picked, text, event_id)
         return updated
     if "Is that the spec to price?" in reply:
         return case
@@ -805,7 +1134,12 @@ def _parse_answer(fact: FactDefinition, text: str) -> str | None:
 
 
 def _bookkeeping(key: str) -> bool:
-    return key.startswith(("ack:", "rejected:", "clash:", "alt:", "unknown:")) or key in {"spec_confirmed", "name_acknowledged", "quote_issued"}
+    return key.startswith(("ack:", "rejected:", "clash:", "alt:", "unknown:", "dismissed:")) or key in {
+        "spec_confirmed",
+        "name_acknowledged",
+        "quote_issued",
+        "awaiting_change",
+    }
 
 
 def _unsure(playbook: BusinessPlaybook, job_id: str, fact, twice: bool, seen: bool, asked: dict[str, int]) -> NextStep:

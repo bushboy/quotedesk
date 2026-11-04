@@ -21,7 +21,7 @@ from quotedesk.domain.services.finish import chosen_sheet
 from quotedesk.domain.services.price import PriceFacts, PricedQuote, RequestedItem, price
 from quotedesk.domain.services.schedule import civil_date
 from quotedesk.domain.services.select_clauses import select_clauses
-from quotedesk.domain.shared.errors import PolicyViolation
+from quotedesk.domain.shared.errors import InvalidTransition, PolicyViolation
 
 _ZONE = ZoneInfo("Africa/Johannesburg")
 _NOT_A_FLAG = "That fact is not true or false."
@@ -87,24 +87,31 @@ class GetQuote:
             for line in priced.lines
         )
         stored = self._unit.get_quote(context.tenant_id, data.conversation_id)
+
+        def fresh() -> Quote:
+            opened = Quote.open(self._ids.next_quote_id(), expiry)
+            opened = opened.set_lines(1, lines)
+            opened = opened.set_clauses(1, selection.conditions)
+            opened = opened.set_terms(1, **_terms(priced))
+            return opened.issue(decision.outcome, version=1, at=at)
+
         if stored is None:
-            quote_id = self._ids.next_quote_id()
-            quote = Quote.open(quote_id, expiry)
-            quote = quote.set_lines(1, lines)
-            quote = quote.set_clauses(1, selection.conditions)
-            quote = quote.set_terms(1, **_terms(priced))
-            quote = quote.issue(decision.outcome, version=1, at=at)
+            quote = fresh()
             action = "quote.issued"
         else:
-            quote = stored.revise(
-                decision.outcome,
-                line_items=lines,
-                clauses=selection.conditions,
-                expiry=expiry,
-                at=at,
-                **_terms(priced),
-            )
-            action = "quote.revised"
+            try:
+                quote = stored.revise(
+                    decision.outcome,
+                    line_items=lines,
+                    clauses=selection.conditions,
+                    expiry=expiry,
+                    at=at,
+                    **_terms(priced),
+                )
+                action = "quote.revised"
+            except InvalidTransition:
+                quote = fresh()
+                action = "quote.issued"
         quote = quote.record_decision(
             outcome=decision.outcome.value,
             rule_id=decision.rule_id.value,

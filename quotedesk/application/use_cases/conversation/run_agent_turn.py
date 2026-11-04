@@ -58,6 +58,8 @@ from quotedesk.domain.services.plan import (
     fact_applies,
     plan_next_step,
     question_brief,
+    quote_needs_reconfirm,
+    reopen_after_quote,
     take_customer_answer,
     wants_revision,
 )
@@ -957,7 +959,12 @@ class RunAgentTurn:
             case = noted
             if self._cases is not None:
                 self._cases.save(context.tenant_id, case)
-        if wants_revision(text):
+        reopened = reopen_after_quote(case, playbook, text)
+        if reopened is not case:
+            case = reopened
+            if self._cases is not None:
+                self._cases.save(context.tenant_id, case)
+        elif wants_revision(text):
             case = _clear_issued(case)
             if self._cases is not None:
                 self._cases.save(context.tenant_id, case)
@@ -1276,6 +1283,8 @@ class RunAgentTurn:
             return ToolPayload(name="get_quote", body={"needs_name": True})
         if _case_stands(self, context, conversation_id) and not wants_revision(_batch_text(batch)):
             return ToolPayload(name="get_quote", body={"stood": True})
+        if _quote_waiting(self, context, conversation_id):
+            return ToolPayload(name="get_quote", body={"needs_confirm": True})
         try:
             data = GetQuoteInput(**arguments)
         except (ModelError, ValidationError):
@@ -1609,10 +1618,11 @@ def _gathering(step: NextStep) -> bool:
 
 
 def _bookkeeping_key(key: str) -> bool:
-    return key.startswith(("ack:", "rejected:", "clash:", "alt:", "unknown:")) or key in {
+    return key.startswith(("ack:", "rejected:", "clash:", "alt:", "unknown:", "dismissed:")) or key in {
         "spec_confirmed",
         "name_acknowledged",
         "quote_issued",
+        "awaiting_change",
     }
 
 
@@ -1912,7 +1922,7 @@ def _sent_fixed(body: str) -> bool:
 
 def _sent_before(turn: RunAgentTurn, context: TenantContext, conversation_id: UUID) -> bool:
     """A fixed quote already went out in this conversation, even before this build stored the marker."""
-    if _case_stands(turn, context, conversation_id):
+    if _case_stands(turn, context, conversation_id) or _quote_withdrawn(turn, context, conversation_id):
         return False
     replies = getattr(turn._conversations, "replies", None)
     if replies is None:
@@ -1929,6 +1939,32 @@ def _argument_conversation(arguments: dict, active: UUID | None) -> UUID:
     if isinstance(raw, UUID):
         return raw
     return UUID(str(raw))
+
+
+def _quote_waiting(turn: RunAgentTurn, context: TenantContext, conversation_id: UUID) -> bool:
+    """A quote is already stored, and a checklist item is open again. The next price waits."""
+    unit = getattr(turn._get_quote, "_unit", None)
+    if unit is None or turn._policies is None:
+        return False
+    if unit.get_quote(context.tenant_id, conversation_id) is None:
+        return False
+    case = turn._case(context, conversation_id)
+    bundle = turn._policies.published(context.tenant_id)
+    if case is None or bundle is None:
+        return False
+    return quote_needs_reconfirm(case, bundle.playbook)
+
+
+def _quote_withdrawn(turn: RunAgentTurn, context: TenantContext, conversation_id: UUID) -> bool:
+    case = turn._case(context, conversation_id)
+    if case is None:
+        return False
+    return any(_withdrawn(case, job.job_id) for job in case.jobs)
+
+
+def _withdrawn(case, job_id: str) -> bool:
+    fact = case.active_fact(job_id, "quote_issued")
+    return fact is not None and fact.value.strip().casefold() in ("false", "no")
 
 
 def _case_stands(turn: RunAgentTurn, context: TenantContext, conversation_id: UUID) -> bool:

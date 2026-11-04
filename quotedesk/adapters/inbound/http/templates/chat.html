@@ -315,12 +315,12 @@
       .bubble.media { padding: 3px; }
       .frame {
         position: relative;
-        width: min(330px, 62vw);
+        width: min(420px, 82vw);
         border-radius: 6px;
         overflow: hidden;
         background: rgba(11, 20, 26, 0.08);
       }
-      .frame img, .frame video { display: block; width: 100%; height: 100%; object-fit: cover; }
+      .frame img, .frame video { display: block; width: 100%; height: 100%; object-fit: contain; }
       .frame img { opacity: 0; transition: opacity 0.2s; }
       .frame img.loaded { opacity: 1; }
       .frame .missing { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); font-size: 12.5px; }
@@ -757,6 +757,7 @@
       }
       try { localStorage.setItem(CLIENT_KEY, WA); } catch (_) {}
       const POLL_MS = 300;
+      const HIDDEN_POLL_MS = 2000;
       const STAGGER_MS = 140;
       const NEAR_PX = 80;
       const TYPING_GIVE_UP_MS = 30000;
@@ -796,7 +797,7 @@
         saveQueued = true;
         queueMicrotask(() => {
           saveQueued = false;
-          try { localStorage.setItem(KEY, JSON.stringify(state, (k, v) => (k === "local" || k === "inflight" ? undefined : v))); } catch (_) {}
+          try { localStorage.setItem(KEY, JSON.stringify(state, (k, v) => (k === "local" || k === "inflight" || (k === "url" && typeof v === "string" && v.startsWith("data:")) ? undefined : v))); } catch (_) {}
         });
       }
 
@@ -921,7 +922,12 @@
           const img = new Image();
           img.alt = item.text || "Photo";
           img.decoding = "async";
-          img.onload = () => img.classList.add("loaded");
+          img.onload = () => {
+            if (img.naturalWidth && img.naturalHeight) {
+              frame.style.aspectRatio = `${img.naturalWidth} / ${img.naturalHeight}`;
+            }
+            img.classList.add("loaded");
+          };
           img.src = src;
           if (img.complete) img.classList.add("loaded");
           frame.append(img);
@@ -1080,13 +1086,17 @@
         return link;
       }
 
-      function fetchPreview(path) {
-        if (!previews.has(path)) {
+      function fetchPreview(path, stamp) {
+        const key = path + "|" + (stamp == null ? "" : stamp);
+        if (!previews.has(key)) {
           const url = path.replace("?", "/preview?");
           const timeout = new Promise((resolve) => setTimeout(() => resolve(null), 1200));
-          previews.set(path, Promise.race([fetch(url).then((r) => (r.ok ? r.json() : null)).catch(() => null), timeout]));
+          previews.set(key, Promise.race([
+            fetch(url, { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).catch(() => null),
+            timeout,
+          ]));
         }
-        return previews.get(path);
+        return previews.get(key);
       }
 
       // ---------- typing ----------
@@ -1216,41 +1226,47 @@
         return response.json();
       }
 
-      function alreadyShown(row) {
-        return state.items.some((item) => item.side === "in" && item.text === row.body);
+      // The server's stored thread is the record. The outbox only carries what arrives next.
+      async function resync(keepLocal) {
+        let rows, history;
+        try {
+          rows = await outbox(null);
+          const response = await fetch(`/whatsapp/history?wa_id=${encodeURIComponent(WA)}`, { cache: "no-store" });
+          if (!response.ok) return false;
+          history = await response.json();
+        } catch (_) { return false; }
+        if (!history.length && keepLocal) return false;
+        queue.length = 0;
+        if (history.length) await showHistory(history, rows);
+        else resetThread();
+        state.last = rows.reduce((max, row) => Math.max(max, row.id || 0), 0);
+        save();
+        return true;
       }
 
+      let polling = false;
       async function poll() {
         clearTimeout(pollTimer);
-        if (document.hidden) return;
+        if (polling) return;
+        polling = true;
         try {
           let rows = await outbox(state.last);
-          let restarted = false;
-          if (!rows.length && state.last > 0) {
+          if (!rows.length && state.last > 0 && !draining) {
             const all = await outbox(null);
-            const anchor = all.find((row) => row.id === state.last);
-            const lastIn = [...state.items].reverse().find((item) => item.side === "in");
-            const newest = all.reduce((max, row) => Math.max(max, row.id || 0), 0);
-            if (!anchor || newest < state.last || (lastIn && anchor.body !== lastIn.text)) {
-              if (!all.length) {
-                resetThread();
-                rows = [];
-              } else {
-                restarted = true;
-                rows = all.filter((row) => !alreadyShown(row));
-                state.last = newest;
-                save();
-              }
+            if (!all.some((row) => row.id === state.last)) {
+              await resync(false);
+              rows = [];
             }
           }
           for (const row of rows) {
-            if ((!restarted && row.id <= state.last) || alreadyShown(row)) continue;
-            state.last = Math.max(state.last, row.id);
+            if (row.id <= state.last) continue;
+            state.last = row.id;
             queue.push(row);
           }
           if (queue.length) { save(); drain(); }
         } catch (_) {}
-        if (!document.hidden) pollTimer = setTimeout(poll, POLL_MS);
+        polling = false;
+        pollTimer = setTimeout(poll, document.hidden ? HIDDEN_POLL_MS : POLL_MS);
       }
 
       async function drain() {
@@ -1272,7 +1288,7 @@
           };
           const found = row.body.match(CARD);
           if (found) {
-            const preview = await fetchPreview(found[1]);
+            const preview = await fetchPreview(found[1], row.id);
             item.card = { match: found[0], path: found[1], label: (preview && preview.headline) || "Your quote", preview };
           }
           state.items.push(item);
@@ -1291,8 +1307,7 @@
       }
 
       document.addEventListener("visibilitychange", () => {
-        if (document.hidden) clearTimeout(pollTimer);
-        else poll();
+        if (!document.hidden) poll();
       });
 
       // ---------- composer ----------
@@ -1577,8 +1592,9 @@
       }
 
       // ---------- boot ----------
-      async function showHistory(history) {
+      async function showHistory(history, sent) {
         resetThread();
+        const used = new Set();
         for (let index = 0; index < history.length; index += 1) {
           const row = history[index];
           const item = {
@@ -1589,9 +1605,16 @@
             at: Date.parse(row.at) || Date.now(),
             status: "read"
           };
+          const match = row.side === "in" ? (sent || []).find((s) => !used.has(s.id) && s.body === row.body) : null;
+          if (match) {
+            used.add(match.id);
+            item.row = match.id;
+            if (match.image_url) { item.type = "image"; item.url = match.image_url; }
+            if (match.buttons && match.buttons.length) item.buttons = match.buttons;
+          }
           const found = (row.body || "").match(CARD);
           if (found) {
-            const preview = await fetchPreview(found[1]);
+            const preview = await fetchPreview(found[1], "h" + index);
             item.card = { match: found[0], path: found[1], label: (preview && preview.headline) || "Your quote", preview };
           }
           state.items.push(item);
@@ -1609,18 +1632,7 @@
       });
 
       async function boot() {
-        let history = [];
-        try {
-          const response = await fetch(`/whatsapp/history?wa_id=${encodeURIComponent(WA)}`, { cache: "no-store" });
-          if (response.ok) history = await response.json();
-        } catch (_) {}
-        if (history.length) {
-          await showHistory(history);
-          try {
-            const rows = await outbox(null);
-            state.last = rows.reduce((max, row) => Math.max(max, row.id || 0), 0);
-            save();
-          } catch (_) {}
+        if (await resync(true)) {
           if (matchMedia("(pointer: fine)").matches) text.focus();
           poll();
           return;

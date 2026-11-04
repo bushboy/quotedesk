@@ -27,6 +27,11 @@ _POSTS = (
     "Posts stand only at the four corners. No post stands in the middle of a side, "
     "so the entrance stays open. The roof runs from corner to corner of the surface it covers."
 )
+_LOOK = (
+    "Show a finished installation in a sharp daylight photograph. "
+    "The materials are complete: true sheet colour, crisp edges, straight posts, and clean corners. "
+    "Not a sketch, not a diagram, not a wireframe, and not a rough concept."
+)
 _VIEWS = (("level", _LEVEL, "from eye level"),)
 COMING = "A drawing of that carport is coming next."
 FAILED = "I couldn't draw that carport. The quote above still stands."
@@ -143,7 +148,7 @@ def drawing_prompt(
     words = f"A carport {width} metres wide and {length} metres long. {roof}"
     if extras:
         words = f"{words} {' '.join(extras)}"
-    return f"{words} {_POSTS} {place} {view} No logos. No prices. No writing."
+    return f"{words} {_POSTS} {place} {view} {_LOOK} No logos. No prices. No writing."
 
 
 def _caption(used_photo: bool, hard: bool, view: str) -> str:
