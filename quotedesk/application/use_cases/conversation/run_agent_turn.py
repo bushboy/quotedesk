@@ -50,7 +50,6 @@ from quotedesk.domain.policy.rules import Outcome
 from quotedesk.domain.case.case_file import quote_issued
 from quotedesk.domain.services.plan import (
     STANDS,
-    YES_NO,
     NextStep,
     StepKind,
     ask_for_visit_address,
